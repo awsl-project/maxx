@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -19,9 +19,13 @@ import (
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/adapter/provider/custom/error_fixer"
+	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/jsonutil"
 	"github.com/awsl-project/maxx/internal/usage"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // mockMode enables forwarding X-Mock-* headers to upstream (for testing).
@@ -51,6 +55,10 @@ func (a *CustomAdapter) SupportedClientTypes() []domain.ClientType {
 
 func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	clientType := flow.GetClientType(c)
+	if strings.EqualFold(strings.TrimSpace(a.provider.Config.Custom.Backend), customBackendOllama) {
+		return a.executeOllama(c, provider)
+	}
+
 	mappedModel := flow.GetMappedModel(c)
 	requestBody := flow.GetRequestBody(c)
 	request := c.Request
@@ -69,6 +77,17 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Build upstream URL
 	baseURL := a.getBaseURL(clientType)
 	requestURI := flow.GetRequestURI(c)
+
+	// Codex Responses passthrough: the proxy layer normalizes /v1/responses down
+	// to /responses. When forwarding to a codex downstream as-is (no format
+	// conversion), honor the client's original path so OpenAI-compatible gateways
+	// that serve /v1/responses (e.g. New API) are hit at the right path instead of
+	// a 404-ing /responses. Gated by the per-provider switch (default on).
+	if clientType == domain.ClientTypeCodex && domain.ResponsesPassthroughEnabled(a.customPassthroughFlag()) {
+		if p := flow.GetResponsesClientPath(c); p != "" {
+			requestURI = p
+		}
+	}
 
 	// Apply model mapping if configured
 	var err error
@@ -117,6 +136,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Set headers based on client type
 	isOAuthToken := false
+	targetUserAgent := ""
 	switch clientType {
 	case domain.ClientTypeClaude:
 		// Claude: Following CLIProxyAPI pattern
@@ -182,8 +202,10 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			//     api.anthropic.com, Authorization: Bearer for every other host)
 			//   - is a no-op when apiKey is empty
 			setClaudeAuthForURL(upstreamReq, apiKey, useAPIKey)
+			targetUserAgent = defaultClaudeUserAgent
 		default:
 			applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)
+			targetUserAgent = defaultClaudeUserAgent
 		}
 
 		// 3. Update request body and ContentLength (IMPORTANT: body was modified)
@@ -192,9 +214,11 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	case domain.ClientTypeCodex:
 		// Codex: Use Codex CLI-style headers with passthrough support
 		applyCodexHeaders(upstreamReq, request, a.provider.Config.Custom.APIKey)
+		targetUserAgent = codexUserAgent
 	case domain.ClientTypeGemini:
 		// Gemini: Use Gemini-style headers with passthrough support
 		applyGeminiHeaders(upstreamReq, request, a.provider.Config.Custom.APIKey)
+		targetUserAgent = geminiUserAgent
 	default:
 		// Other types: Preserve original header forwarding logic
 		originalHeaders := flow.GetRequestHeaders(c)
@@ -208,6 +232,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey, isConversion)
 		}
 	}
+	applyCustomProtocolIdentity(c, clientType, targetUserAgent, upstreamReq.Header)
 
 	// Forward X-Mock-* headers from client request to upstream (test mode only)
 	if mockMode && request != nil {
@@ -222,11 +247,19 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
+		contentType := ""
+		if request != nil {
+			contentType = request.Header.Get("Content-Type")
+		}
+		devMode := false
+		if proxyRequest := flow.GetProxyRequest(c); proxyRequest != nil {
+			devMode = proxyRequest.DevMode
+		}
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
-			Body:    string(requestBody),
+			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
+			Body:    domain.RequestBodySnapshot(requestBody, contentType, devMode),
 		})
 	}
 
@@ -236,9 +269,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-		proxyErr.Message = "failed to connect to upstream"
-		return proxyErr
+		return domain.NewUpstreamConnectionError("failed to connect to upstream")
 	}
 	defer resp.Body.Close()
 
@@ -295,6 +326,15 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	return handleErr
+}
+
+func applyCustomProtocolIdentity(c *flow.Ctx, clientType domain.ClientType, targetUserAgent string, headers http.Header) {
+	if targetUserAgent != "" {
+		headers["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, targetUserAgent)}
+	}
+	if clientType == domain.ClientTypeCodex && flow.IsProtocolConversion(c) {
+		headers.Del("Version")
+	}
 }
 
 func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
@@ -367,11 +407,15 @@ func (a *CustomAdapter) retryWithFixer(
 		retryReq.ContentLength = int64(len(fixedBody))
 
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
+			devMode := false
+			if proxyRequest := flow.GetProxyRequest(c); proxyRequest != nil {
+				devMode = proxyRequest.DevMode
+			}
 			eventChan.SendRequestInfo(&domain.RequestInfo{
 				Method:  retryReq.Method,
 				URL:     retryReq.URL.String(),
-				Headers: flattenHeaders(retryReq.Header),
-				Body:    string(fixedBody),
+				Headers: sanitizeHeadersForEvent(retryReq.Header),
+				Body:    domain.RequestBodySnapshot(fixedBody, retryReq.Header.Get("Content-Type"), devMode),
 			})
 		}
 
@@ -424,6 +468,28 @@ func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
 	return config.BaseURL
 }
 
+func (a *CustomAdapter) usageExtractOptions(clientType domain.ClientType) usage.ExtractOptions {
+	return usage.ExtractOptions{TrustUpstreamCost: a.provider.Type == "openrouter" || isOpenRouterBaseURL(a.getBaseURL(clientType))}
+}
+
+func isOpenRouterBaseURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
+}
+
+// customPassthroughFlag returns the provider's Codex Responses passthrough flag
+// (nil when unconfigured → treated as default-on by ResponsesPassthroughEnabled).
+func (a *CustomAdapter) customPassthroughFlag() *bool {
+	if cfg := a.provider.Config.Custom; cfg != nil {
+		return cfg.ResponsesPassthrough
+	}
+	return nil
+}
+
 func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response, clientType domain.ClientType, isOAuthToken bool) error {
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
@@ -465,7 +531,7 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	}
 
 	// Extract and send token usage metrics
-	if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
+	if metrics := usage.ExtractFromResponseWithOptions(string(body), a.usageExtractOptions(clientType)); metrics != nil {
 		// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
 		metrics = usage.AdjustForClientType(metrics, clientType)
 		if eventChan != nil {
@@ -478,6 +544,7 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
 				Cache1hCreationCount: metrics.Cache1hCreationCount,
+				UpstreamCostNanoUSD:  metrics.UpstreamCostNanoUSD,
 			})
 		}
 	}
@@ -495,7 +562,17 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(c.Writer.Header(), resp.Header)
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(body)
+	if _, err := c.Writer.Write(body); err != nil {
+		if converter.IsResponseConversionError(err) {
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "response format conversion failed")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+			return proxyErr
+		}
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "client disconnected")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
+	}
 	return nil
 }
 
@@ -547,7 +624,7 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	// Adapter simply passes through the upstream SSE data
 
 	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
-	var collector usage.StreamCollector
+	collector := usage.StreamCollector{Options: a.usageExtractOptions(clientType)}
 	var responseModel string
 	var sseError error // Track any SSE error event
 	ctx := context.Background()
@@ -577,6 +654,7 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
 				Cache1hCreationCount: metrics.Cache1hCreationCount,
+				UpstreamCostNanoUSD:  metrics.UpstreamCostNanoUSD,
 			})
 		}
 
@@ -586,20 +664,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 		}
 	}
 
-	// Helper to parse SSE error event from data line
-	parseSSEError := func(dataLine string) error {
-		// Remove "data:" prefix and trim whitespace
-		data := strings.TrimSpace(strings.TrimPrefix(dataLine, "data:"))
-		if data == "" || data == "[DONE]" {
-			return nil
-		}
-
-		// Try to parse as JSON
-		var payload map[string]interface{}
-		if err := json.Unmarshal([]byte(data), &payload); err != nil {
-			return nil
-		}
-
+	// Helper to inspect an already decoded SSE payload for provider errors.
+	parseSSEErrorPayload := func(payload map[string]interface{}) error {
 		// Check for Claude-style error: {"type": "error", "error": {...}}
 		if payloadType, ok := payload["type"].(string); ok && payloadType == "error" {
 			if errObj, ok := payload["error"].(map[string]interface{}); ok {
@@ -661,6 +727,78 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
+	sawTerminalSSEEvent := false
+
+	processStreamLine := func(line string) error {
+		processedLine := line
+		if isOAuthToken {
+			trimmedLine := strings.TrimSuffix(processedLine, "\n")
+			stripped := stripClaudeToolPrefixFromStreamLine([]byte(trimmedLine), claudeToolPrefix)
+			processedLine = string(stripped)
+			if strings.HasSuffix(line, "\n") && !strings.HasSuffix(processedLine, "\n") {
+				processedLine += "\n"
+			}
+		}
+
+		// Parse each SSE data payload once, then share it between usage, model,
+		// and error extraction. Previously every token event was decoded three
+		// separate times.
+		lineStr := processedLine
+		trimmedLine := strings.TrimSpace(lineStr)
+		if trimmedLine == "data: [DONE]" {
+			sawTerminalSSEEvent = true
+		}
+		if strings.HasPrefix(trimmedLine, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "data:"))
+			if data != "" && data != "[DONE]" {
+				var payload map[string]interface{}
+				if jsonutil.UnmarshalString(data, &payload) == nil {
+					collector.ProcessParsedPayload(payload)
+					extractResponseModelFromPayload(payload, clientType, &responseModel)
+					if parseErr := parseSSEErrorPayload(payload); parseErr != nil {
+						sseError = parseErr
+						// If no real data has been written to the client yet,
+						// return the error immediately so retry logic can try another route.
+						if !firstChunkSent {
+							sendFinalEvents()
+							return sseError
+						}
+						// Otherwise continue to forward the error to client.
+					}
+				}
+			}
+		}
+
+		// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+		// Adapter simply passes through the upstream SSE data
+		if len(processedLine) > 0 {
+			_, writeErr := c.Writer.Write([]byte(processedLine))
+			if writeErr != nil {
+				sendFinalEvents()
+				if converter.IsResponseConversionError(writeErr) {
+					proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
+					proxyErr.Scope = domain.ScopeProvider
+					proxyErr.Reason = domain.CooldownReasonServerError
+					return proxyErr
+				}
+				// Client disconnected
+				proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
+			flusher.Flush()
+
+			// Track TTFT: send first token time on first successful write
+			if !firstChunkSent {
+				firstChunkSent = true
+				if eventChan != nil {
+					eventChan.SendFirstToken(time.Now().UnixMilli())
+				}
+			}
+		}
+
+		return nil
+	}
 
 	for {
 		// Check context before reading
@@ -685,60 +823,30 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					lineBuffer.WriteString(line)
 					break
 				}
-
-				processedLine := line
-				if isOAuthToken {
-					trimmedLine := strings.TrimSuffix(processedLine, "\n")
-					stripped := stripClaudeToolPrefixFromStreamLine([]byte(trimmedLine), claudeToolPrefix)
-					processedLine = string(stripped)
-					if strings.HasSuffix(line, "\n") && !strings.HasSuffix(processedLine, "\n") {
-						processedLine += "\n"
-					}
-				}
-
-				// Extract metrics and model incrementally per line
-				collector.ProcessSSELine(processedLine)
-				extractResponseModelFromSSELine(processedLine, clientType, &responseModel)
-
-				// Check for SSE error events in data lines BEFORE writing to client
-				lineStr := processedLine
-				if strings.HasPrefix(strings.TrimSpace(lineStr), "data:") {
-					if parseErr := parseSSEError(lineStr); parseErr != nil {
-						sseError = parseErr
-						// If no real data has been written to the client yet,
-						// return the error immediately so retry logic can try another route
-						if !firstChunkSent {
-							sendFinalEvents()
-							return sseError
-						}
-						// Otherwise continue to forward the error to client
-					}
-				}
-
-				// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
-				// Adapter simply passes through the upstream SSE data
-				if len(processedLine) > 0 {
-					_, writeErr := c.Writer.Write([]byte(processedLine))
-					if writeErr != nil {
-						// Client disconnected
-						sendFinalEvents()
-						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
-						proxyErr.Scope = domain.ScopeRequest
-						return proxyErr
-					}
-					flusher.Flush()
-
-					// Track TTFT: send first token time on first successful write
-					if !firstChunkSent && eventChan != nil {
-						firstChunkSent = true
-						eventChan.SendFirstToken(time.Now().UnixMilli())
-					}
+				if lineErr := processStreamLine(line); lineErr != nil {
+					return lineErr
 				}
 			}
 		}
 
 		if err != nil {
-			if err == io.EOF {
+			if err == io.EOF && lineBuffer.Len() > 0 {
+				line := lineBuffer.String()
+				lineBuffer.Reset()
+				if lineErr := processStreamLine(line); lineErr != nil {
+					return lineErr
+				}
+			}
+			if err == io.ErrUnexpectedEOF && lineBuffer.Len() > 0 {
+				line := lineBuffer.String()
+				if strings.TrimSpace(line) == "data: [DONE]" {
+					lineBuffer.Reset()
+					if lineErr := processStreamLine(line); lineErr != nil {
+						return lineErr
+					}
+				}
+			}
+			if err == io.EOF || (err == io.ErrUnexpectedEOF && sawTerminalSSEEvent) {
 				sendFinalEvents() // Extract tokens at normal completion
 				// Return SSE error if one was detected during streaming
 				if sseError != nil {
@@ -758,7 +866,16 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			if sseError != nil {
 				return sseError
 			}
-			return nil // Upstream closed normally
+			if !firstChunkSent {
+				proxyErr := domain.NewProxyErrorWithMessage(err, true, "upstream stream read error before response started")
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonNetworkError
+				return proxyErr
+			}
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "upstream stream read error after response started")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 	}
 }
@@ -766,12 +883,7 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 // Helper functions
 
 func isStreamRequest(body []byte) bool {
-	var req map[string]interface{}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return false
-	}
-	stream, _ := req["stream"].(bool)
-	return stream
+	return gjson.GetBytes(body, "stream").Type == gjson.True
 }
 
 func updateModelInBody(body []byte, model string, clientType domain.ClientType) ([]byte, error) {
@@ -780,12 +892,14 @@ func updateModelInBody(body []byte, model string, clientType domain.ClientType) 
 		return body, nil
 	}
 
-	var req map[string]interface{}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
+	if !gjson.ValidBytes(body) {
+		return nil, fmt.Errorf("invalid JSON request body")
 	}
-	req["model"] = model
-	return json.Marshal(req)
+	currentModel := gjson.GetBytes(body, "model")
+	if currentModel.Type == gjson.String && currentModel.String() == model {
+		return body, nil
+	}
+	return sjson.SetBytes(body, "model", model)
 }
 
 // updateModelInMultipartForm rewrites the "model" form field of a
@@ -853,7 +967,34 @@ func updateModelInMultipartForm(body []byte, req *http.Request, model string) ([
 }
 
 func buildUpstreamURL(baseURL string, requestPath string) string {
-	return strings.TrimSuffix(baseURL, "/") + requestPath
+	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
+	requestPath = normalizeOpenAIUpstreamRequestPath(requestPath)
+
+	// OpenAI-compatible configs are commonly entered either as the API origin
+	// (https://api.openai.com) or as the versioned API root
+	// (https://api.openai.com/v1). The request URI is already versioned for the
+	// canonical proxy routes, so avoid forwarding /v1/v1/... upstream.
+	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(requestPath, "/v1/") {
+		requestPath = strings.TrimPrefix(requestPath, "/v1")
+	}
+
+	return baseURL + requestPath
+}
+
+func normalizeOpenAIUpstreamRequestPath(requestPath string) string {
+	switch {
+	case strings.HasPrefix(requestPath, "/chat/completions"):
+		return "/v1" + requestPath
+	// /images/... = OpenAI Images API; bare /images (or /images?query) =
+	// OpenRouter unified image endpoint. Both need the /v1 prefix when the
+	// provider path arrives without one (e.g. /provider/{slug}/images).
+	case requestPath == "/images" || strings.HasPrefix(requestPath, "/images/") || strings.HasPrefix(requestPath, "/images?"):
+		return "/v1" + requestPath
+	case requestPath == "/models" || strings.HasPrefix(requestPath, "/models?"):
+		return "/v1" + requestPath
+	default:
+		return requestPath
+	}
 }
 
 // isMultipartForm reports whether the request body is multipart/form-data
@@ -991,6 +1132,36 @@ func flattenHeaders(h http.Header) map[string]string {
 	return result
 }
 
+// sanitizeHeadersForEvent returns a header map safe for request event logging,
+// redacting upstream credentials that may be injected from provider config.
+func sanitizeHeadersForEvent(h http.Header) map[string]string {
+	result := flattenHeaders(h)
+	for key := range result {
+		if isSensitiveEventHeader(key) {
+			result[key] = "[REDACTED]"
+		}
+	}
+	return result
+}
+
+func isSensitiveEventHeader(key string) bool {
+	switch strings.ToLower(key) {
+	case "authorization",
+		"proxy-authorization",
+		"x-api-key",
+		"x-goog-api-key",
+		"api-key",
+		"anthropic-api-key",
+		"openai-api-key",
+		"x-amz-security-token",
+		"cookie",
+		"set-cookie":
+		return true
+	default:
+		return false
+	}
+}
+
 // Headers to filter out - only privacy/proxy related, NOT application headers like anthropic-version
 var filteredHeaders = map[string]bool{
 	// IP and client identification headers (privacy protection)
@@ -1100,6 +1271,14 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
 		proxyErr.Retryable = false
 
+	// 402 — account/key has no remaining balance. Treat it as key-level
+	// quota exhaustion so routing can fail over to another provider instead of
+	// aborting the whole request as a client/request error.
+	case statusCode == http.StatusPaymentRequired:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		proxyErr.Retryable = false
+
 	// 403 — check if model-specific or account-level
 	case statusCode == 403:
 		if containsAny(bodyLower, "model", "access denied for model", "permission denied for model") {
@@ -1124,8 +1303,15 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 			proxyErr.Reason = domain.CooldownReasonServerError
 		}
 
-	// 400, 408, 413, 422 — request-level errors
-	case statusCode == 400 || statusCode == 408 || statusCode == 413 || statusCode == 422:
+	// 408 is an upstream timeout before a useful response; retry/fail over instead
+	// of treating it like a client request validation error.
+	case statusCode == http.StatusRequestTimeout:
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		proxyErr.Retryable = true
+
+	// 400, 413, 422 — request-level errors
+	case statusCode == 400 || statusCode == 413 || statusCode == 422:
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Retryable = false
 
@@ -1181,7 +1367,7 @@ func classify429Error(proxyErr *domain.ProxyError, body []byte, bodyLower string
 			Code    string `json:"code"`
 		} `json:"error"`
 	}
-	if json.Unmarshal(body, &errResp) == nil {
+	if jsonutil.Unmarshal(body, &errResp) == nil {
 		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
 			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
 		}
@@ -1238,7 +1424,7 @@ func parseRetryAfterHeader(value string) (time.Duration, *time.Time) {
 
 func extractStructuredResetTime(body []byte) time.Time {
 	var payload interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := jsonutil.Unmarshal(body, &payload); err != nil {
 		return time.Time{}
 	}
 	return findResetTime(payload)
@@ -1298,43 +1484,23 @@ func extractTimeFromMessage(msg string) time.Time {
 
 // extractResponseModel extracts the model name from response body based on target type
 func extractResponseModel(body []byte, targetType domain.ClientType) string {
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return ""
-	}
-
 	switch targetType {
 	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
-		// Claude/OpenAI/Codex: "model" field at root level
-		if model, ok := data["model"].(string); ok {
-			return model
+		if model := gjson.GetBytes(body, "model"); model.Type == gjson.String {
+			return model.String()
 		}
 	case domain.ClientTypeGemini:
-		// Gemini: "modelVersion" field at root level
-		if model, ok := data["modelVersion"].(string); ok {
-			return model
+		if model := gjson.GetBytes(body, "modelVersion"); model.Type == gjson.String {
+			return model.String()
 		}
 	}
 
 	return ""
 }
 
-// extractResponseModelFromSSELine extracts the model name from a single SSE line based on target type.
-func extractResponseModelFromSSELine(line string, targetType domain.ClientType, model *string) {
-	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "data:") {
-		return
-	}
-	dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-	if dataStr == "" || dataStr == "[DONE]" {
-		return
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
-		return
-	}
-
+// extractResponseModelFromPayload extracts a model name from an already decoded
+// SSE data payload.
+func extractResponseModelFromPayload(payload map[string]interface{}, targetType domain.ClientType, model *string) {
 	switch targetType {
 	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
 		// Claude/OpenAI: check for "model" in various places

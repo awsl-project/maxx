@@ -113,11 +113,12 @@ export function getTimeRange(preset: TimeRangePreset): {
  * 获取统计数据
  * @param filter 过滤条件，granularity 为必填字段
  */
-export function useUsageStats(filter?: UsageStatsFilter) {
+export function useUsageStats(filter?: UsageStatsFilter, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: usageStatsKeys.list(filter),
     queryFn: () => getTransport().getUsageStats(filter),
     placeholderData: keepPreviousData,
+    enabled: options?.enabled ?? true,
   });
 }
 

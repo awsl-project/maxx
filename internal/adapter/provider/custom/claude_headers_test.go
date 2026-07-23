@@ -91,8 +91,8 @@ func TestApplyClaudeHeadersDefaults(t *testing.T) {
 	if req.Header.Get("Anthropic-Version") == "" {
 		t.Error("Anthropic-Version should be set")
 	}
-	if req.Header.Get("User-Agent") == "" {
-		t.Error("User-Agent should be set")
+	if values, ok := req.Header["User-Agent"]; !ok || len(values) != 1 || values[0] != "" {
+		t.Fatalf("missing client User-Agent should be preserved as an empty header, got %#v", values)
 	}
 	if req.Header.Get("X-Stainless-Runtime") == "" {
 		t.Error("X-Stainless-Runtime should be set")
@@ -128,20 +128,20 @@ func TestApplyClaudeHeadersUserAgentPassthroughWhenProvided(t *testing.T) {
 	}
 }
 
-func TestApplyClaudeHeadersUserAgentFallsBackWhenMissing(t *testing.T) {
+func TestApplyClaudeHeadersUserAgentPreservesBlankOrMissing(t *testing.T) {
 	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
 	clientReq, _ := http.NewRequest("POST", "https://example.com", nil)
 	clientReq.Header.Set("User-Agent", "   ")
 
 	applyClaudeHeaders(req, clientReq, "sk-test", true, nil, true)
-	if got := req.Header.Get("User-Agent"); got != defaultClaudeUserAgent {
-		t.Fatalf("expected default User-Agent when client UA is blank, got %q", got)
+	if got := req.Header.Get("User-Agent"); got != "   " {
+		t.Fatalf("expected blank client User-Agent passthrough, got %q", got)
 	}
 
 	req2, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
 	applyClaudeHeaders(req2, nil, "sk-test", true, nil, true)
-	if got := req2.Header.Get("User-Agent"); got != defaultClaudeUserAgent {
-		t.Fatalf("expected default User-Agent when client request is nil, got %q", got)
+	if got := req2.Header.Get("User-Agent"); got != "" {
+		t.Fatalf("expected missing client User-Agent to remain empty, got %q", got)
 	}
 }
 

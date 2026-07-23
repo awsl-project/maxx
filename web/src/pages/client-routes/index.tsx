@@ -238,6 +238,37 @@ export function ClientRoutesPage() {
     });
   };
 
+  const sortButtons = (
+    <div className="flex items-center gap-2">
+      {selectedProjectId === '0' && hasAntigravityRoutes && isClaudePage && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortAntigravity}
+          disabled={isSorting}
+          className="h-8 text-xs"
+        >
+          <Zap className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortAntigravity')}
+          {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+        </Button>
+      )}
+      {selectedProjectId === '0' && hasCodexRoutes && isCodexPage && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortCodex}
+          disabled={isSorting}
+          className="h-8 text-xs"
+        >
+          <Code2 className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortCodex')}
+          {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+        </Button>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -300,40 +331,8 @@ export function ClientRoutesPage() {
                 />
               </div>
 
-              {/* Sort Buttons - Only show when viewing Global routes and on appropriate pages */}
-              {selectedProjectId === '0' &&
-                ((hasAntigravityRoutes && isClaudePage) || (hasCodexRoutes && isCodexPage)) && (
-                  <div className="flex items-center gap-2">
-                    {/* Only show Antigravity sort button for Claude page */}
-                    {hasAntigravityRoutes && isClaudePage && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSortAntigravity}
-                        disabled={isSorting}
-                        className="h-8 text-xs"
-                      >
-                        <Zap className="h-3.5 w-3.5 mr-1.5" />
-                        {t('routes.sortAntigravity')}
-                        {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
-                      </Button>
-                    )}
-                    {/* Only show Codex sort button for Codex page */}
-                    {hasCodexRoutes && isCodexPage && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSortCodex}
-                        disabled={isSorting}
-                        className="h-8 text-xs"
-                      >
-                        <Code2 className="h-3.5 w-3.5 mr-1.5" />
-                        {t('routes.sortCodex')}
-                        {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
-                      </Button>
-                    )}
-                  </div>
-                )}
+              {/* Sort Buttons */}
+              {sortButtons}
             </div>
 
             {/* Full-width hover panel: all projects */}
@@ -366,6 +365,11 @@ export function ClientRoutesPage() {
             )}
           </div>
         )}
+        {sortedProjects.length === 0 && (
+          <div className="px-6 py-3 border-b border-border bg-card">
+            <div className="mx-auto max-w-[1400px] flex justify-end">{sortButtons}</div>
+          </div>
+        )}
 
         {/* Global Tab Content */}
         <TabsContent value="0" className="flex-1 min-h-0 overflow-hidden m-0">
@@ -373,6 +377,7 @@ export function ClientRoutesPage() {
             clientType={activeClientType}
             projectID={0}
             searchQuery={searchQuery}
+            isActive={selectedProjectId === '0'}
           />
         </TabsContent>
 
@@ -419,6 +424,7 @@ export function ClientRoutesPage() {
                     clientType={activeClientType}
                     projectID={project.id}
                     searchQuery={searchQuery}
+                    isActive={selectedProjectId === String(project.id)}
                   />
                 </div>
               ) : (

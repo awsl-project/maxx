@@ -16,13 +16,16 @@ import { RetryConfigsPage } from '@/pages/retry-configs';
 import { RoutingStrategiesPage } from '@/pages/routing-strategies';
 import { ConsolePage } from '@/pages/console';
 import { SettingsPage } from '@/pages/settings';
+import { DiagnosticsPage } from '@/pages/diagnostics';
 import { DocumentationPage } from '@/pages/documentation';
 import { LoginPage } from '@/pages/login';
 import { APITokensPage } from '@/pages/api-tokens';
+import { APITokenLimitsPage } from '@/pages/api-token-limits';
 import { StatsPage } from '@/pages/stats';
 import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
 import { UsersPage } from '@/pages/users';
+import { UserPanelPage } from '@/pages/user-panel';
 import { AdminRoute } from '@/components/auth/admin-route';
 import { InviteCodesPage } from '@/pages/invite-codes';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
@@ -49,7 +52,8 @@ function MultiTenantUIRoute({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   const { t } = useTranslation();
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isAuthenticated, isLoading, login, user } = useAuth();
+  const publicSettings = usePublicSettings();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -73,6 +77,22 @@ function AppRoutes() {
 
   if (!isAuthenticated) {
     return <LoginPage onSuccess={login} />;
+  }
+
+  if (user?.role !== 'admin' && publicSettings.isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-muted-foreground">{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (
+    user?.role !== 'admin' &&
+    publicSettings.data?.ui_multitenant_enabled === 'true' &&
+    publicSettings.data?.ui_multitenant_layout === 'user_panel'
+  ) {
+    return <UserPanelPage />;
   }
 
   return (
@@ -113,6 +133,14 @@ function AppRoutes() {
           <Route path="model-prices" element={<ModelPricesPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />
           <Route
+            path="api-token-limits"
+            element={
+              <AdminRoute>
+                <APITokenLimitsPage />
+              </AdminRoute>
+            }
+          />
+          <Route
             path="routing-strategies"
             element={
               <AdminRoute>
@@ -122,6 +150,14 @@ function AppRoutes() {
           />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="diagnostics"
+            element={
+              <AdminRoute>
+                <DiagnosticsPage />
+              </AdminRoute>
+            }
+          />
           <Route
             path="users"
             element={

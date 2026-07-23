@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import {
   Sparkles,
   Mail,
@@ -7,9 +7,6 @@ import {
   RefreshCw,
   Clock,
   Building2,
-  Plus,
-  ArrowRight,
-  Zap,
   AlertCircle,
   Copy,
   Check,
@@ -19,19 +16,17 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientIcon } from '@/components/icons/client-icons';
-import type { Provider, ModelMapping, ModelMappingInput } from '@/lib/transport';
+import type { Provider } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
-import {
-  useUpdateProvider,
-  useModelMappings,
-  useCreateModelMapping,
-  useUpdateModelMapping,
-  useDeleteModelMapping,
-} from '@/hooks/queries';
+import { useUpdateProvider } from '@/hooks/queries';
 import { Button, Switch } from '@/components/ui';
-import { ModelInput } from '@/components/ui/model-input';
 import { CLAUDE_COLOR } from '../types';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
+import { ProviderModelMappings } from './provider-model-mappings';
+import {
+  ProviderMaxConcurrencyField,
+  useProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 interface ClaudeProviderViewProps {
   provider: Provider;
@@ -80,141 +75,6 @@ function formatRelativeTime(dateStr: string | undefined, t: (key: string) => str
   }
 }
 
-// Provider Model Mappings Section
-function ProviderModelMappings({ provider }: { provider: Provider }) {
-  const { t } = useTranslation();
-  const { data: allMappings } = useModelMappings();
-  const createMapping = useCreateModelMapping();
-  const updateMapping = useUpdateModelMapping();
-  const deleteMapping = useDeleteModelMapping();
-  const [newPattern, setNewPattern] = useState('');
-  const [newTarget, setNewTarget] = useState('');
-
-  // Filter mappings for this provider
-  const providerMappings = useMemo(() => {
-    return (allMappings || []).filter(
-      (m) => m.scope === 'provider' && m.providerID === provider.id,
-    );
-  }, [allMappings, provider.id]);
-
-  const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
-
-  const handleAddMapping = async () => {
-    if (!newPattern.trim() || !newTarget.trim()) return;
-
-    await createMapping.mutateAsync({
-      pattern: newPattern.trim(),
-      target: newTarget.trim(),
-      scope: 'provider',
-      providerID: provider.id,
-      providerType: 'claude',
-      priority: providerMappings.length * 10 + 1000,
-      isEnabled: true,
-    });
-    setNewPattern('');
-    setNewTarget('');
-  };
-
-  const handleUpdateMapping = async (mapping: ModelMapping, data: Partial<ModelMappingInput>) => {
-    await updateMapping.mutateAsync({
-      id: mapping.id,
-      data: {
-        pattern: data.pattern ?? mapping.pattern,
-        target: data.target ?? mapping.target,
-        scope: 'provider',
-        providerID: provider.id,
-        providerType: 'claude',
-        priority: mapping.priority,
-        isEnabled: mapping.isEnabled,
-      },
-    });
-  };
-
-  const handleDeleteMapping = async (id: number) => {
-    await deleteMapping.mutateAsync(id);
-  };
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-4 border-b border-border pb-2">
-        <Zap size={18} className="text-yellow-500" />
-        <h4 className="text-lg font-semibold text-foreground">{t('modelMappings.title')}</h4>
-        <span className="text-sm text-muted-foreground">({providerMappings.length})</span>
-      </div>
-
-      <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">{t('modelMappings.pageDesc')}</p>
-
-        {providerMappings.length > 0 && (
-          <div className="space-y-2 mb-4">
-            {providerMappings.map((mapping, index) => (
-              <div key={mapping.id} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
-                <ModelInput
-                  value={mapping.pattern}
-                  onChange={(pattern) => handleUpdateMapping(mapping, { pattern })}
-                  placeholder={t('modelMappings.matchPattern')}
-                  disabled={isPending}
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                <ModelInput
-                  value={mapping.target}
-                  onChange={(target) => handleUpdateMapping(mapping, { target })}
-                  placeholder={t('modelMappings.targetModel')}
-                  disabled={isPending}
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDeleteMapping(mapping.id)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {providerMappings.length === 0 && (
-          <div className="text-center py-6 mb-4">
-            <p className="text-muted-foreground text-sm">{t('modelMappings.noMappings')}</p>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 pt-4 border-t border-border">
-          <ModelInput
-            value={newPattern}
-            onChange={setNewPattern}
-            placeholder={t('modelMappings.matchPattern')}
-            disabled={isPending}
-            className="flex-1 min-w-0 h-8 text-sm"
-          />
-          <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-          <ModelInput
-            value={newTarget}
-            onChange={setNewTarget}
-            placeholder={t('modelMappings.targetModel')}
-            disabled={isPending}
-            className="flex-1 min-w-0 h-8 text-sm"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleAddMapping}
-            disabled={!newPattern.trim() || !newTarget.trim() || isPending}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            {t('common.add')}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProviderViewProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -229,6 +89,8 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     () => provider.config?.disableErrorCooldown ?? false,
   );
+  const { maxConcurrency, setMaxConcurrency, handleCommitMaxConcurrency } =
+    useProviderMaxConcurrencyField(provider, updateProvider);
 
   const handleToggleDisableErrorCooldown = async (checked: boolean) => {
     if (!config) return;
@@ -306,9 +168,7 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
           <div className="bg-muted rounded-xl p-6 border border-border">
             <div className="flex items-start justify-between gap-6">
               <div className="flex items-center gap-4">
-                <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm bg-provider-claude/15"
-                >
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm bg-provider-claude/15">
                   <Sparkles size={32} className="text-provider-claude" />
                 </div>
                 <div>
@@ -360,7 +220,13 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
               </div>
             )}
 
-            <div className="mt-4">
+            <div className="mt-4 space-y-3">
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+                onCommit={handleCommitMaxConcurrency}
+                disabled={updateProvider.isPending}
+              />
               <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
                 <div className="pr-4">
                   <div className="text-sm font-medium text-foreground">

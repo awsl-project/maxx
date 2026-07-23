@@ -4,7 +4,60 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
 )
+
+// TestAdjustForClientType_Codex pins the subtraction contract that
+// codex/adapter.go now relies on directly. Codex usage.input_tokens includes
+// cached_tokens and cache_write_tokens, so both subsets must be removed before
+// metrics reach pricing to avoid double billing.
+func TestAdjustForClientType_Codex(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        Metrics
+		wantInput uint64
+	}{
+		{"input greater than cache", Metrics{InputTokens: 200, CacheReadCount: 150}, 50},
+		{"input equals cache", Metrics{InputTokens: 150, CacheReadCount: 150}, 0},
+		{"cache read and write", Metrics{InputTokens: 300, CacheReadCount: 100, CacheCreationCount: 150}, 50},
+		{"cache zero is no-op", Metrics{InputTokens: 200, CacheReadCount: 0}, 200},
+		// Defensive: relays occasionally report cached > input. Skipping the
+		// subtraction is preferred over clamping to zero — clamping would
+		// silently underbill fresh input on a broken relay; skipping leaves
+		// the metric visible and consistent with what the upstream sent.
+		{"input less than cache is skipped", Metrics{InputTokens: 100, CacheReadCount: 150}, 100},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.in
+			got := AdjustForClientType(&m, domain.ClientTypeCodex)
+			if got.InputTokens != tc.wantInput {
+				t.Errorf("InputTokens = %d, want %d", got.InputTokens, tc.wantInput)
+			}
+			if got.CacheReadCount != tc.in.CacheReadCount {
+				t.Errorf("CacheReadCount changed from %d to %d", tc.in.CacheReadCount, got.CacheReadCount)
+			}
+		})
+	}
+}
+
+func TestAdjustForClientType_NonCodexIsNoOp(t *testing.T) {
+	for _, ct := range []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeGemini, domain.ClientTypeOpenAI} {
+		m := Metrics{InputTokens: 200, CacheReadCount: 150}
+		got := AdjustForClientType(&m, ct)
+		if got.InputTokens != 200 {
+			t.Errorf("clientType=%s: InputTokens = %d, want 200 (unchanged)", ct, got.InputTokens)
+		}
+	}
+}
+
+func TestAdjustForClientType_NilMetricsSafe(t *testing.T) {
+	if got := AdjustForClientType(nil, domain.ClientTypeCodex); got != nil {
+		t.Errorf("nil input must return nil, got %+v", got)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Functional tests for StreamCollector
@@ -304,6 +357,64 @@ func TestExtractFromResponse_GptImageEditsTokenSplit(t *testing.T) {
 // {"usage": ...} branch unconditionally ran the Claude extractor, which only
 // looks for input_tokens / output_tokens — so prompt_tokens / completion_tokens
 // were silently dropped and the request billed at zero.
+// TestExtractFromResponse_CodexResponsesAPI pins the dispatcher contract for
+// non-streaming Codex / OpenAI Responses API bodies. Their usage uses
+// input_tokens / output_tokens at the top level (colliding with Claude and
+// the Images API) but carries cached_tokens under input_tokens_details — a
+// sub-key Claude never emits. isOpenAIUsage must route on that marker so the
+// cache_read count reaches the executor.
+func TestExtractFromResponse_CodexResponsesAPI(t *testing.T) {
+	body := `{
+		"id": "resp_abc",
+		"object": "response",
+		"model": "gpt-5",
+		"usage": {
+			"input_tokens": 200,
+			"output_tokens": 50,
+			"input_tokens_details": {"cached_tokens": 150}
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected metrics for Responses API body, got nil")
+	}
+	if m.InputTokens != 200 || m.OutputTokens != 50 {
+		t.Errorf("tokens = in %d / out %d, want 200 / 50", m.InputTokens, m.OutputTokens)
+	}
+	if m.CacheReadCount != 150 {
+		t.Errorf("CacheReadCount = %d, want 150", m.CacheReadCount)
+	}
+}
+
+func TestExtractFromResponse_GPT56CacheWrite(t *testing.T) {
+	body := `{
+		"id": "resp_gpt56",
+		"object": "response",
+		"model": "gpt-5.6-sol",
+		"usage": {
+			"input_tokens": 300,
+			"output_tokens": 50,
+			"input_tokens_details": {
+				"cached_tokens": 100,
+				"cache_write_tokens": 150
+			}
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected GPT-5.6 metrics, got nil")
+	}
+	if m.CacheReadCount != 100 || m.CacheCreationCount != 150 {
+		t.Fatalf("cache metrics = read %d/write %d, want 100/150", m.CacheReadCount, m.CacheCreationCount)
+	}
+	AdjustForClientType(m, domain.ClientTypeCodex)
+	if m.InputTokens != 50 {
+		t.Fatalf("adjusted InputTokens = %d, want 50", m.InputTokens)
+	}
+}
+
 func TestExtractFromResponse_OpenAIChatCompletions(t *testing.T) {
 	body := `{
 		"id": "chatcmpl-xyz",
@@ -384,6 +495,71 @@ func TestExtractFromResponse_GeminiFlashImageViaChatCompletions(t *testing.T) {
 	if m.OutputImageTokens != 1290 {
 		t.Errorf("OutputImageTokens = %d, want 1290 (banana image output should bill at image rate)", m.OutputImageTokens)
 	}
+}
+
+// OpenRouter always reports an authoritative usage.cost (total USD charged).
+// It must be captured as raw nanoUSD across response shapes, and must make an
+// otherwise-tokenless per-image response non-empty so it still bills.
+func TestExtractFromResponse_UpstreamCost(t *testing.T) {
+	t.Run("openai chat shape with tokens + cost", func(t *testing.T) {
+		body := `{"model":"google/gemini-2.5-flash-image","choices":[{"message":{"content":"x"}}],
+			"usage":{"prompt_tokens":7,"completion_tokens":1290,"cost":0.0387}}`
+		m := ExtractFromResponseWithOptions(body, ExtractOptions{TrustUpstreamCost: true})
+		if m == nil {
+			t.Fatal("expected metrics, got nil")
+		}
+		// 0.0387 USD × 1e9 = 38_700_000 nanoUSD (rounded).
+		if m.UpstreamCostNanoUSD != 38_700_000 {
+			t.Errorf("UpstreamCostNanoUSD = %d, want 38700000", m.UpstreamCostNanoUSD)
+		}
+	})
+
+	t.Run("images shape, zero tokens, cost only", func(t *testing.T) {
+		// OpenRouter /v1/images response: no token counts, only usage.cost.
+		body := `{"data":[{"b64_json":"aW1n"}],"usage":{"cost":0.04}}`
+		m := ExtractFromResponseWithOptions(body, ExtractOptions{TrustUpstreamCost: true})
+		if m == nil {
+			t.Fatal("expected metrics for a cost-only image response, got nil (would bill 0)")
+		}
+		if m.UpstreamCostNanoUSD != 40_000_000 {
+			t.Errorf("UpstreamCostNanoUSD = %d, want 40000000", m.UpstreamCostNanoUSD)
+		}
+		if m.IsEmpty() {
+			t.Error("IsEmpty() = true for a cost-bearing response; it must be billable")
+		}
+	})
+
+	t.Run("streaming final chunk carries cost", func(t *testing.T) {
+		body := "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":1290,\"cost\":0.0387}}\n\n" +
+			"data: [DONE]\n\n"
+		m := ExtractFromResponseWithOptions(body, ExtractOptions{TrustUpstreamCost: true})
+		if m == nil || m.UpstreamCostNanoUSD != 38_700_000 {
+			t.Fatalf("streamed cost not captured: %+v", m)
+		}
+	})
+
+	t.Run("cost field ignored unless trusted", func(t *testing.T) {
+		body := `{"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.04}}`
+		m := ExtractFromResponse(body)
+		if m == nil {
+			t.Fatal("expected token metrics, got nil")
+		}
+		if m.UpstreamCostNanoUSD != 0 {
+			t.Fatalf("untrusted usage.cost should not be authoritative, got %d", m.UpstreamCostNanoUSD)
+		}
+		if m.InputTokens != 10 || m.OutputTokens != 5 {
+			t.Fatalf("tokens should still be extracted, got %+v", m)
+		}
+	})
+
+	t.Run("no cost field is inert for other providers", func(t *testing.T) {
+		body := `{"usage":{"prompt_tokens":10,"completion_tokens":5}}`
+		m := ExtractFromResponse(body)
+		if m == nil || m.UpstreamCostNanoUSD != 0 {
+			t.Fatalf("UpstreamCostNanoUSD should be 0 without usage.cost, got %+v", m)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

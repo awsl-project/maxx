@@ -1,6 +1,7 @@
 package cached
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/awsl-project/maxx/internal/coordinator"
@@ -74,6 +75,22 @@ func (r *ProviderRepository) Delete(tenantID uint64, id uint64) error {
 	delete(r.cache, id)
 	r.mu.Unlock()
 	r.bc.publish(OpDelete, id)
+	return nil
+}
+
+func (r *ProviderRepository) BulkDeleteWithReferences(tenantID uint64, ids []uint64) (*domain.ProviderBulkDeleteResult, error) {
+	deleter, ok := r.repo.(repository.ProviderBulkDeleteRepository)
+	if !ok {
+		return nil, fmt.Errorf("provider bulk delete with references is not supported")
+	}
+	return deleter.BulkDeleteWithReferences(tenantID, ids)
+}
+
+func (r *ProviderRepository) Reload() error {
+	if err := r.Load(); err != nil {
+		return err
+	}
+	r.bc.publish(OpReload, 0)
 	return nil
 }
 

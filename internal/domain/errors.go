@@ -7,23 +7,32 @@ import (
 )
 
 var (
-	ErrNotFound            = errors.New("not found")
-	ErrAlreadyExists       = errors.New("already exists")
-	ErrSlugExists          = errors.New("slug already exists")
-	ErrInvalidInput        = errors.New("invalid input")
-	ErrInvalidState        = errors.New("invalid state")
-	ErrNoRoutes            = errors.New("no routes available")
-	ErrAllRoutesFailed     = errors.New("all routes failed")
-	ErrFirstByteTimeout    = errors.New("first byte timeout")
-	ErrStreamIdleTimeout   = errors.New("stream idle timeout")
-	ErrUpstreamError       = errors.New("upstream error")
-	ErrFormatConversion    = errors.New("format conversion error")
-	ErrUnsupportedFormat   = errors.New("unsupported format")
-	ErrInviteCodeRequired  = errors.New("invite code required")
-	ErrInviteCodeInvalid   = errors.New("invite code invalid")
-	ErrInviteCodeExpired   = errors.New("invite code expired")
-	ErrInviteCodeExhausted = errors.New("invite code exhausted")
-	ErrInviteCodeDisabled  = errors.New("invite code disabled")
+	ErrNotFound             = errors.New("not found")
+	ErrAlreadyExists        = errors.New("already exists")
+	ErrSlugExists           = errors.New("slug already exists")
+	ErrInvalidInput         = errors.New("invalid input")
+	ErrInvalidState         = errors.New("invalid state")
+	ErrNoRoutes             = errors.New("no routes available")
+	ErrNoAvailableProviders = errors.New("no available providers")
+	// ErrModelNotSupported means routes/providers existed for the client type but
+	// every candidate was rejected because the requested model is not in the
+	// provider's SupportModels allowlist — a client-side request error (the model
+	// is disallowed), distinct from the transient ErrNoAvailableProviders.
+	ErrModelNotSupported                    = errors.New("model not supported by any provider")
+	ErrAllRoutesFailed                      = errors.New("all routes failed")
+	ErrFirstByteTimeout                     = errors.New("first byte timeout")
+	ErrStreamIdleTimeout                    = errors.New("stream idle timeout")
+	ErrUpstreamError                        = errors.New("upstream error")
+	ErrFormatConversion                     = errors.New("format conversion error")
+	ErrUnsupportedFormat                    = errors.New("unsupported format")
+	ErrNoResponsesWebSocketProviders        = errors.New("no native responses websocket providers available")
+	ErrResponsesWebSocketSessionUnavailable = errors.New("responses websocket session unavailable")
+	ErrResponsesWebSocketProtocol           = errors.New("responses websocket protocol error")
+	ErrInviteCodeRequired                   = errors.New("invite code required")
+	ErrInviteCodeInvalid                    = errors.New("invite code invalid")
+	ErrInviteCodeExpired                    = errors.New("invite code expired")
+	ErrInviteCodeExhausted                  = errors.New("invite code exhausted")
+	ErrInviteCodeDisabled                   = errors.New("invite code disabled")
 )
 
 // ErrorScope defines what resource is broken, determining cooldown granularity
@@ -55,6 +64,7 @@ const (
 type ProxyError struct {
 	Err     error
 	Message string
+	Code    string
 
 	// Classification
 	Scope          ErrorScope     // What resource is broken (determines cooldown granularity)
@@ -62,8 +72,8 @@ type ProxyError struct {
 	HTTPStatusCode int            // Original HTTP status code
 
 	// Cooldown hints
-	RetryAfter         time.Duration // Suggested retry delay
-	CooldownUntil      *time.Time    // Absolute cooldown end time
+	RetryAfter         time.Duration  // Suggested retry delay
+	CooldownUntil      *time.Time     // Absolute cooldown end time
 	CooldownUpdateChan chan time.Time // Channel for async cooldown updates (optional)
 
 	// Retry
@@ -96,4 +106,13 @@ func NewScopedProxyError(err error, scope ErrorScope, reason CooldownReason) *Pr
 		Reason:    reason,
 		Retryable: scope != ScopeRequest,
 	}
+}
+
+func NewUpstreamConnectionError(message string) *ProxyError {
+	if message == "" {
+		message = "failed to connect to upstream"
+	}
+	proxyErr := NewScopedProxyError(ErrUpstreamError, ScopeProvider, CooldownReasonNetworkError)
+	proxyErr.Message = message
+	return proxyErr
 }

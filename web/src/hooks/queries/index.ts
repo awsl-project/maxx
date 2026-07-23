@@ -7,9 +7,12 @@ export {
   providerKeys,
   useProviders,
   useProvider,
+  useProviderRuntimeModels,
+  useProviderRuntimeModelsPreview,
   useCreateProvider,
   useUpdateProvider,
   useDeleteProvider,
+  useBulkDeleteProviders,
   useProviderStats,
   useAllProviderStats,
   useAntigravityQuota,
@@ -27,6 +30,7 @@ export {
   useCreateProject,
   useUpdateProject,
   useDeleteProject,
+  useArchiveInactiveProjects,
 } from './use-projects';
 
 // Route hooks
@@ -37,8 +41,11 @@ export {
   useCreateRoute,
   useUpdateRoute,
   useDeleteRoute,
+  useBulkDeleteRoutes,
+  useSyncRoutesFromProject,
   useToggleRoute,
   useUpdateRoutePositions,
+  useClaudeProviderBatchTest,
 } from './use-routes';
 
 // Session hooks
@@ -75,6 +82,9 @@ export {
   useProxyRequests,
   useInfiniteProxyRequests,
   useProxyRequestsCount,
+  useProxyRequestErrorStats,
+  useCleanupFailedProxyRequestsCount,
+  useCleanupFailedProxyRequests,
   useProxyRequest,
   useProxyUpstreamAttempts,
   useProxyRequestUpdates,
@@ -108,7 +118,15 @@ export {
   useCreateAPIToken,
   useUpdateAPIToken,
   useDeleteAPIToken,
+  useCleanupExpiredAPITokens,
 } from './use-api-tokens';
+export {
+  userPanelTokenKeys,
+  useUserPanelAPIToken,
+  useCreateUserPanelAPIToken,
+  useRegenerateUserPanelAPIToken,
+  useRevealUserPanelAPIToken,
+} from './use-user-panel-token';
 
 // Invite Code hooks
 export {

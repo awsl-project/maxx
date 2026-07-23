@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -29,6 +30,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq := state.proxyReq
 	ctx := state.ctx
 	clearDetail := e.shouldClearRequestDetailFor(state)
+	if state.wsExchange != nil {
+		e.dispatchResponsesWebSocket(c)
+		return
+	}
 
 	// Pre-warm tokens for all matched routes in parallel.
 	// This avoids serial token refresh delays when failing over between providers.
@@ -49,6 +54,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 		wg.Wait()
 	}
 
+routeLoop:
 	for _, matchedRoute := range state.routes {
 		if ctx.Err() != nil {
 			state.lastErr = ctx.Err()
@@ -56,41 +62,54 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			return
 		}
 
-		proxyReq.RouteID = matchedRoute.Route.ID
-		proxyReq.ProviderID = matchedRoute.Provider.ID
-		_ = e.proxyRequestRepo.Update(proxyReq)
-		if e.broadcaster != nil {
-			e.broadcaster.BroadcastProxyRequest(proxyReq)
-		}
-
 		clientType := state.clientType
-		mappedModel := e.mapModel(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
+		modelCandidates := e.mapModelCandidates(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
+		useSmartMappingRetry := shouldUseSmartMappingRetry(matchedRoute.Provider, len(modelCandidates))
+		smartMappingRetryLimit := getSmartMappingRetryLimit(matchedRoute.Provider)
+		modelCandidateIndex := 0
+		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
 
-		originalClientType := clientType
-		currentClientType := clientType
-		needsConversion := false
-		convertedBody := []byte(nil)
-		var convErr error
-		requestBody := state.requestBody
-		requestURI := state.requestURI
+		for attempt := 0; ; {
+			if attempt > retryConfig.MaxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) {
+				break
+			}
+			if ctx.Err() != nil {
+				state.lastErr = ctx.Err()
+				c.Err = state.lastErr
+				return
+			}
+			if modelCandidateIndex >= len(modelCandidates) {
+				break
+			}
 
-		supportedTypes := matchedRoute.ProviderAdapter.SupportedClientTypes()
-		if e.converter.NeedConvert(clientType, supportedTypes) {
-			currentClientType = GetPreferredTargetType(supportedTypes, clientType, matchedRoute.Provider.Type)
-			if currentClientType != clientType {
+			mappedModel := modelCandidates[modelCandidateIndex]
+			proxyReq.RouteID = matchedRoute.Route.ID
+			proxyReq.ProviderID = matchedRoute.Provider.ID
+			proxyReq.MappedModel = mappedModel
+			_ = e.proxyRequestRepo.Update(proxyReq)
+			if e.broadcaster != nil {
+				e.broadcaster.BroadcastProxyRequest(proxyReq)
+			}
+
+			originalClientType := clientType
+			currentClientType := clientType
+			needsConversion := false
+			convertedBody := []byte(nil)
+			var convErr error
+			requestBody := state.requestBody
+			requestURI := state.requestURI
+
+			supportedTypes := matchedRoute.ProviderAdapter.SupportedClientTypes()
+			if shouldBridgeCustomCodexViaOpenAI(matchedRoute.Provider, clientType, supportedTypes) {
+				currentClientType = domain.ClientTypeOpenAI
 				needsConversion = true
-				log.Printf("[Executor] Format conversion needed: %s -> %s for provider %s",
-					clientType, currentClientType, matchedRoute.Provider.Name)
+				log.Printf("[Executor] OpenRouter-compatible custom provider %s: bridging Codex request through OpenAI Chat Completions",
+					matchedRoute.Provider.Name)
 
-				if currentClientType == domain.ClientTypeCodex {
-					if headers := state.requestHeaders; headers != nil {
-						requestBody = converter.InjectCodexUserAgent(requestBody, headers.Get("User-Agent"))
-					}
-				}
 				convertedBody, convErr = e.converter.TransformRequest(
 					clientType, currentClientType, requestBody, mappedModel, state.isStream)
 				if convErr != nil {
-					log.Printf("[Executor] Request conversion failed: %v, proceeding with original format", convErr)
+					log.Printf("[Executor] OpenRouter Codex->OpenAI conversion failed: %v, proceeding with original format", convErr)
 					needsConversion = false
 					currentClientType = clientType
 				} else {
@@ -103,19 +122,53 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 						log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
 					}
 				}
-			}
-		}
+			} else if e.converter.NeedConvert(clientType, supportedTypes) {
+				currentClientType = GetPreferredTargetType(supportedTypes, clientType, matchedRoute.Provider.Type)
+				if currentClientType != clientType {
+					needsConversion = true
+					log.Printf("[Executor] Format conversion needed: %s -> %s for provider %s",
+						clientType, currentClientType, matchedRoute.Provider.Name)
 
-		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
+					if currentClientType == domain.ClientTypeCodex {
+						if headers := state.requestHeaders; headers != nil {
+							requestBody = converter.InjectCodexUserAgent(requestBody, headers.Get("User-Agent"))
+						}
+					}
+					convertedBody, convErr = e.converter.TransformRequest(
+						clientType, currentClientType, requestBody, mappedModel, state.isStream)
+					if convErr != nil {
+						log.Printf("[Executor] Request conversion failed: %v; refusing to send original %s payload to %s provider %s",
+							convErr, clientType, currentClientType, matchedRoute.Provider.Name)
+						proxyErr := domain.NewProxyErrorWithMessage(convErr, true, "request format conversion failed")
+						proxyErr.Scope = domain.ScopeRequest
+						state.lastErr = proxyErr
+						break
+					}
 
-		for attempt := 0; attempt <= retryConfig.MaxRetries; attempt++ {
-			if ctx.Err() != nil {
-				state.lastErr = ctx.Err()
-				c.Err = state.lastErr
-				return
+					requestBody = convertedBody
+
+					originalURI := requestURI
+					convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
+					if convertedURI != originalURI {
+						requestURI = convertedURI
+						log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
+					}
+				}
 			}
 
 			attemptStartTime := time.Now()
+			releaseProvider := func() {}
+			if e.router != nil {
+				var acquired bool
+				releaseProvider, acquired = e.router.TryAcquireProvider(matchedRoute.Provider)
+				if !acquired {
+					log.Printf("[Executor] Provider %d is at its concurrency limit; trying the next route", matchedRoute.Provider.ID)
+					proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, true, "provider concurrency limit reached")
+					proxyErr.Scope = domain.ScopeProvider
+					state.lastErr = proxyErr
+					continue routeLoop
+				}
+			}
 			attemptRecord := &domain.ProxyUpstreamAttempt{
 				TenantID:       proxyReq.TenantID,
 				ProxyRequestID: proxyReq.ID,
@@ -141,6 +194,11 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
 			}
+
+			// Authoritative outbound param stage: apply once per attempt on the
+			// final converted body, before it reaches the adapter. Idempotent, so
+			// re-running on retry is safe.
+			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, mappedModel, matchedRoute.Provider)
 
 			eventChan := domain.NewAdapterEventChan()
 			c.Set(flow.KeyClientType, currentClientType)
@@ -176,12 +234,18 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 			originalWriter := c.Writer
 			c.Writer = responseWriter
-			err := matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
+			err := executeWithProviderSlot(releaseProvider, func() error {
+				return matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
+			})
 			c.Writer = originalWriter
 
 			if needsConversion && convertingWriter != nil && !state.isStream {
 				if finalizeErr := convertingWriter.Finalize(); finalizeErr != nil {
 					log.Printf("[Executor] Response conversion finalize failed: %v", finalizeErr)
+					proxyErr := domain.NewProxyErrorWithMessage(finalizeErr, true, "response format conversion failed")
+					proxyErr.Scope = domain.ScopeProvider
+					proxyErr.Reason = domain.CooldownReasonServerError
+					err = proxyErr
 				}
 			}
 			if err == nil && modifierWriter != nil {
@@ -199,6 +263,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				attemptRecord.EndTime = time.Now()
 				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 				attemptRecord.Status = "COMPLETED"
+				attemptRecord.Error = ""
 
 				pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
@@ -271,11 +336,8 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 			state.lastErr = err
 
-			if ctx.Err() != nil {
-				attemptRecord.Status = "CANCELLED"
-			} else {
-				attemptRecord.Status = "FAILED"
-			}
+			attemptRecord.Status = attemptFailureStatus(ctx, err)
+			attemptRecord.Error = err.Error()
 
 			pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
@@ -312,18 +374,39 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
 			}
 
-			proxyErr, ok := err.(*domain.ProxyError)
-			if ok && ctx.Err() != nil {
-				proxyReq.Status = "CANCELLED"
+			proxyErr, ok := asProxyError(err)
+			if ok {
+				normalizeUpstreamConnectionError(proxyErr)
+				applyDisabledErrorCooldownRetryPolicy(matchedRoute.Provider, proxyErr)
+				applyCommittedStreamReadRetryPolicy(proxyErr)
+			}
+			if responseCapture.WroteToClient() && !shouldRetryCommittedResponseError(proxyErr) {
+				log.Printf("[Executor] Response already committed; not failing over after provider %d error: %v", matchedRoute.Provider.ID, err)
+				proxyReq.Status = "FAILED"
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-				if ctx.Err() == context.Canceled {
-					proxyReq.Error = "client disconnected"
-				} else if ctx.Err() == context.DeadlineExceeded {
-					proxyReq.Error = "request timeout"
-				} else {
-					proxyReq.Error = ctx.Err().Error()
+				proxyReq.Error = err.Error()
+				proxyReq.StatusCode = responseCapture.StatusCode()
+				if !clearDetail {
+					proxyReq.ResponseInfo = &domain.ResponseInfo{
+						Status:  responseCapture.StatusCode(),
+						Headers: responseCapture.CapturedHeaders(),
+						Body:    responseCapture.Body(),
+					}
 				}
+				clearProxyRequestDetail(proxyReq, clearDetail)
+				_ = e.proxyRequestRepo.Update(proxyReq)
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastProxyRequest(proxyReq)
+				}
+				state.lastErr = err
+				c.Err = err
+				return
+			}
+			if ok && ctx.Err() != nil {
+				proxyReq.Status, proxyReq.Error = requestFailureStatusAndError(ctx, err)
+				proxyReq.EndTime = time.Now()
+				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 				clearProxyRequestDetail(proxyReq, clearDetail)
 				_ = e.proxyRequestRepo.Update(proxyReq)
 				if e.broadcaster != nil {
@@ -334,10 +417,33 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				return
 			}
 
+			if ok && forceRetryUpstreamErrorIfSafe(proxyErr, ctx, responseCapture.WroteToClient(), e.forceRetryUpstreamErrorsEnabled(retryConfig)) {
+				log.Printf("[Executor] Force retry upstream errors enabled; retrying provider-side error after provider %d: %v", matchedRoute.Provider.ID, err)
+			}
+
+			if ok && proxyErr.Scope == domain.ScopeRequest && !proxyErr.Retryable {
+				log.Printf("[Executor] Request-scoped non-retryable error; not failing over after provider %d: %v", matchedRoute.Provider.ID, err)
+				proxyReq.Status = "FAILED"
+				proxyReq.EndTime = time.Now()
+				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
+				proxyReq.Error = err.Error()
+				if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+					proxyReq.StatusCode = proxyErr.HTTPStatusCode
+				}
+				clearProxyRequestDetail(proxyReq, clearDetail)
+				_ = e.proxyRequestRepo.Update(proxyReq)
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastProxyRequest(proxyReq)
+				}
+				state.lastErr = err
+				c.Err = err
+				return
+			}
+
 			if ok && ctx.Err() != context.Canceled {
 				log.Printf("[Executor] ProxyError - Scope: %s, Reason: %s, Retryable: %v, Provider: %d",
 					proxyErr.Scope, proxyErr.Reason, proxyErr.Retryable, matchedRoute.Provider.ID)
-				if !shouldSkipErrorCooldown(matchedRoute.Provider) {
+				if !shouldSkipErrorCooldown(matchedRoute.Provider) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, retryConfig) {
 					e.handleCooldown(proxyErr, matchedRoute.Provider, currentClientType, mappedModel)
 					if e.broadcaster != nil {
 						e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
@@ -352,26 +458,47 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			}
 
 			if !ok || !proxyErr.Retryable {
+				log.Printf("[Executor] Not retrying provider %d error: proxyError=%v retryable=%v scope=%s reason=%s attempt=%d maxRetries=%d ctxErr=%v responseCommitted=%v err=%v",
+					matchedRoute.Provider.ID,
+					ok,
+					ok && proxyErr.Retryable,
+					proxyErrorScopeForLog(proxyErr),
+					proxyErrorReasonForLog(proxyErr),
+					attempt,
+					retryConfig.MaxRetries,
+					ctx.Err(),
+					responseCapture.WroteToClient(),
+					err,
+				)
 				break
 			}
 
-			if attempt < retryConfig.MaxRetries {
+			if useSmartMappingRetry && attempt+1 >= smartMappingRetryLimit {
+				modelCandidateIndex++
+				attempt = 0
+				if modelCandidateIndex < len(modelCandidates) {
+					log.Printf("[Executor] Smart mapping retry switching provider %d mapped model %q -> %q after %d failed attempts",
+						matchedRoute.Provider.ID, mappedModel, modelCandidates[modelCandidateIndex], smartMappingRetryLimit)
+					continue
+				}
+				break
+			}
+
+			if attempt < retryConfig.MaxRetries || shouldSkipErrorCooldown(matchedRoute.Provider) {
 				waitTime := e.calculateBackoff(retryConfig, attempt)
 				if proxyErr.RetryAfter > 0 {
 					waitTime = proxyErr.RetryAfter
 				}
 				select {
 				case <-ctx.Done():
-					proxyReq.Status = "CANCELLED"
-					proxyReq.EndTime = time.Now()
-					proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-					if ctx.Err() == context.Canceled {
+					proxyReq.Status, proxyReq.Error = requestFailureStatusAndError(ctx, err)
+					if proxyReq.Status == "CANCELLED" {
 						proxyReq.Error = "client disconnected during retry wait"
 					} else if ctx.Err() == context.DeadlineExceeded {
 						proxyReq.Error = "request timeout during retry wait"
-					} else {
-						proxyReq.Error = ctx.Err().Error()
 					}
+					proxyReq.EndTime = time.Now()
+					proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 					clearProxyRequestDetail(proxyReq, clearDetail)
 					_ = e.proxyRequestRepo.Update(proxyReq)
 					if e.broadcaster != nil {
@@ -383,6 +510,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				case <-time.After(waitTime):
 				}
 			}
+			attempt++
 		}
 	}
 
@@ -391,6 +519,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 	if state.lastErr != nil {
 		proxyReq.Error = state.lastErr.Error()
+		if proxyErr, ok := asProxyError(state.lastErr); ok && proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+			proxyReq.StatusCode = proxyErr.HTTPStatusCode
+		}
 	}
 	clearProxyRequestDetail(proxyReq, clearDetail)
 	_ = e.proxyRequestRepo.Update(proxyReq)
@@ -407,10 +538,66 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	c.Err = state.lastErr
 }
 
+func executeWithProviderSlot(release func(), execute func() error) error {
+	defer release()
+	return execute()
+}
+
+func shouldDeferNetworkErrorCooldown(proxyErr *domain.ProxyError, attempt int, retryConfig *domain.RetryConfig) bool {
+	if proxyErr == nil || !proxyErr.Retryable || proxyErr.Reason != domain.CooldownReasonNetworkError {
+		return false
+	}
+	if proxyErr.CooldownUntil != nil || proxyErr.RetryAfter > 0 {
+		return false
+	}
+	maxRetries := 0
+	if retryConfig != nil {
+		maxRetries = retryConfig.MaxRetries
+	}
+	return attempt < maxRetries
+}
+
 func clearProxyRequestDetail(req *domain.ProxyRequest, clearDetail bool) {
 	if !clearDetail || req == nil {
 		return
 	}
 	req.RequestInfo = nil
 	req.ResponseInfo = nil
+}
+
+func asProxyError(err error) (*domain.ProxyError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var proxyErr *domain.ProxyError
+	if errors.As(err, &proxyErr) {
+		return proxyErr, true
+	}
+	return nil, false
+}
+
+func normalizeUpstreamConnectionError(proxyErr *domain.ProxyError) {
+	if proxyErr == nil || !errors.Is(proxyErr.Err, domain.ErrUpstreamError) {
+		return
+	}
+	if proxyErr.Message != "failed to connect to upstream" && proxyErr.Message != "failed to connect to upstream after token refresh" {
+		return
+	}
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonNetworkError
+	proxyErr.Retryable = true
+}
+
+func shouldUseSmartMappingRetry(provider *domain.Provider, candidateCount int) bool {
+	if provider == nil || provider.Config == nil {
+		return false
+	}
+	return provider.Config.DisableErrorCooldown && provider.Config.SmartMappingRetryEnabled && candidateCount > 1
+}
+
+func getSmartMappingRetryLimit(provider *domain.Provider) int {
+	if provider == nil || provider.Config == nil || provider.Config.SmartMappingRetryLimit <= 0 {
+		return 1
+	}
+	return provider.Config.SmartMappingRetryLimit
 }

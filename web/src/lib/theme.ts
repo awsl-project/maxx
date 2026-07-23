@@ -20,7 +20,11 @@ export type ProviderType =
   | 'bedrock'
   | 'kiro'
   | 'codex'
-  | 'claude';
+  | 'claude'
+  | 'openrouter'
+  | 'grok'
+  | 'newapi'
+  | 'ollama';
 
 /**
  * Client 类型定义

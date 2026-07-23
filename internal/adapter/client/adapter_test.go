@@ -38,17 +38,47 @@ func TestDetectClientTypeRecognizesImagesPath(t *testing.T) {
 	// Images generation body has neither messages/input/contents — only path can classify it.
 	body := []byte(`{"model":"gpt-image-2","prompt":"a cat","n":1,"size":"1024x1024"}`)
 
-	req := httptest.NewRequest("POST", "/v1/images/generations", strings.NewReader(string(body)))
-	if got := adapter.DetectClientType(req, body); got != domain.ClientTypeOpenAI {
-		t.Fatalf("DetectClientType = %s, want %s", got, domain.ClientTypeOpenAI)
-	}
-	if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeOpenAI {
-		t.Fatalf("Match = (%s, %v), want (%s, true)", got, ok, domain.ClientTypeOpenAI)
+	for _, path := range []string{"/v1/images/generations", "/images/generations"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(string(body)))
+		if got := adapter.DetectClientType(req, body); got != domain.ClientTypeOpenAI {
+			t.Fatalf("DetectClientType(%s) = %s, want %s", path, got, domain.ClientTypeOpenAI)
+		}
+		if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeOpenAI {
+			t.Fatalf("Match(%s) = (%s, %v), want (%s, true)", path, got, ok, domain.ClientTypeOpenAI)
+		}
+
+		// Model must be extractable from the body for routing/pricing.
+		if got := adapter.ExtractModel(req, body, domain.ClientTypeOpenAI); got != "gpt-image-2" {
+			t.Fatalf("ExtractModel(%s) = %q, want %q", path, got, "gpt-image-2")
+		}
 	}
 
-	// Model must be extractable from the body for routing/pricing.
-	if got := adapter.ExtractModel(req, body, domain.ClientTypeOpenAI); got != "gpt-image-2" {
-		t.Fatalf("ExtractModel = %q, want %q", got, "gpt-image-2")
+	chatBody := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	chatReq := httptest.NewRequest("POST", "/chat/completions", strings.NewReader(string(chatBody)))
+	if got := adapter.DetectClientType(chatReq, chatBody); got != domain.ClientTypeOpenAI {
+		t.Fatalf("DetectClientType(/chat/completions) = %s, want %s", got, domain.ClientTypeOpenAI)
+	}
+	if got, ok := adapter.Match(chatReq); !ok || got != domain.ClientTypeOpenAI {
+		t.Fatalf("Match(/chat/completions) = (%s, %v), want (%s, true)", got, ok, domain.ClientTypeOpenAI)
+	}
+}
+
+// OpenRouter's unified image endpoint is the BARE path /v1/images (no
+// /generations suffix). Its {model,prompt} body has no messages/input/contents,
+// so only the path can classify it — the bare path must resolve to openai
+// instead of falling through to a 400.
+func TestDetectClientTypeRecognizesBareImagesPath(t *testing.T) {
+	adapter := NewAdapter()
+	body := []byte(`{"model":"google/gemini-2.5-flash-image","prompt":"a cat"}`)
+
+	for _, path := range []string{"/v1/images", "/images"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(string(body)))
+		if got := adapter.DetectClientType(req, body); got != domain.ClientTypeOpenAI {
+			t.Fatalf("DetectClientType(%s) = %s, want %s", path, got, domain.ClientTypeOpenAI)
+		}
+		if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeOpenAI {
+			t.Fatalf("Match(%s) = (%s, %v), want (%s, true)", path, got, ok, domain.ClientTypeOpenAI)
+		}
 	}
 }
 
@@ -91,5 +121,62 @@ func TestDetectClientTypeRecognizesV1ResponsesPath(t *testing.T) {
 	req = httptest.NewRequest("POST", "/v1/responses/create", strings.NewReader(string(body)))
 	if got := adapter.DetectClientType(req, body); got != domain.ClientTypeCodex {
 		t.Fatalf("client type = %s, want %s", got, domain.ClientTypeCodex)
+	}
+}
+
+func TestExtractSessionIDFromJSONFields(t *testing.T) {
+	adapter := NewAdapter()
+	tests := []struct {
+		name       string
+		clientType domain.ClientType
+		body       string
+		want       string
+	}{
+		{
+			name:       "codex previous response",
+			clientType: domain.ClientTypeCodex,
+			body:       `{"previous_response_id":"resp_123","prompt_cache_key":"cache_ignored"}`,
+			want:       "resp_123",
+		},
+		{
+			name:       "codex prompt cache",
+			clientType: domain.ClientTypeCodex,
+			body:       `{"prompt_cache_key":"cache_123"}`,
+			want:       "cache_123",
+		},
+		{
+			name:       "metadata session",
+			clientType: domain.ClientTypeClaude,
+			body:       `{"metadata":{"session_id":"session_123"}}`,
+			want:       "session_123",
+		},
+		{
+			name:       "claude user session suffix",
+			clientType: domain.ClientTypeClaude,
+			body:       `{"metadata":{"user_id":"user_hash_account__session_uuid-123"}}`,
+			want:       "uuid-123",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(test.body)
+			req := httptest.NewRequest("POST", "/unknown", bytes.NewReader(body))
+			if got := adapter.ExtractSessionID(req, body, test.clientType); got != test.want {
+				t.Fatalf("session ID = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestIsStreamRequestReadsBooleanOnly(t *testing.T) {
+	adapter := NewAdapter()
+	req := httptest.NewRequest("POST", "/v1/responses", nil)
+	if !adapter.IsStreamRequest(req, []byte(`{"stream":true,"input":[]}`)) {
+		t.Fatal("stream=true was not detected")
+	}
+	for _, body := range []string{`{"stream":false}`, `{"stream":"true"}`, `{}`} {
+		if adapter.IsStreamRequest(req, []byte(body)) {
+			t.Fatalf("unexpected stream detection for %s", body)
+		}
 	}
 }

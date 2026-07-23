@@ -13,17 +13,154 @@ import (
 )
 
 type ProxyRequestRepository struct {
-	db    *DB
-	count int64 // 缓存的请求总数，使用原子操作
+	db                            *DB
+	count                         int64 // 缓存的请求总数，使用原子操作
+	hasReasoningEffortColumn      bool
+	hasProxyUpstreamAttemptsTable bool
 }
 
 var activeProxyRequestStatuses = []string{"PENDING", "IN_PROGRESS"}
 
+var proxyRequestErrorStatuses = []string{"FAILED", "CANCELLED", "REJECTED"}
+
+func cloneProxyRequestFilter(filter *repository.ProxyRequestFilter) *repository.ProxyRequestFilter {
+	if filter == nil {
+		return &repository.ProxyRequestFilter{}
+	}
+	cloned := *filter
+	return &cloned
+}
+
+func applyProxyRequestErrorMode(query *gorm.DB, mode repository.ProxyRequestErrorMode) *gorm.DB {
+	switch mode {
+	case repository.ProxyRequestErrorModeOnly:
+		return query.Where("proxy_requests.status IN ? OR proxy_requests.status_code >= ?", proxyRequestErrorStatuses, 400)
+	case repository.ProxyRequestErrorModeExclude:
+		return query.Where("proxy_requests.status NOT IN ? AND proxy_requests.status_code < ?", proxyRequestErrorStatuses, 400)
+	default:
+		return query
+	}
+}
+
+func applyProxyRequestFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
+	query = applyProxyRequestBaseFilter(query, filter)
+	if filter == nil {
+		return query
+	}
+	return applyProxyRequestErrorMode(query, filter.ErrorMode)
+}
+
+func applyProxyRequestBaseFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
+	if filter == nil {
+		return query
+	}
+	if filter.ProviderID != nil {
+		query = query.Where("proxy_requests.provider_id = ?", *filter.ProviderID)
+	}
+	if filter.Status != nil {
+		query = query.Where("proxy_requests.status = ?", *filter.Status)
+	}
+	if filter.APITokenID != nil {
+		query = query.Where("proxy_requests.api_token_id = ?", *filter.APITokenID)
+	}
+	if filter.ProjectID != nil {
+		query = query.Where("proxy_requests.project_id = ?", *filter.ProjectID)
+	}
+	if filter.StartTime != nil {
+		query = query.Where("proxy_requests.created_at >= ?", toTimestamp(*filter.StartTime))
+	}
+	if filter.EndTime != nil {
+		query = query.Where("proxy_requests.created_at <= ?", toTimestamp(*filter.EndTime))
+	}
+	return query
+}
+
+func applyProxyRequestCleanupFailedFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
+	query = applyProxyRequestBaseFilter(query, filter)
+	return query.
+		Where("status NOT IN ?", activeProxyRequestStatuses).
+		Where("status IN ? OR status_code >= ?", proxyRequestErrorStatuses, 400)
+}
+
+func proxyRequestTrendBucketSize(startMs, endMs int64) int64 {
+	if endMs <= startMs {
+		return int64(time.Hour / time.Millisecond)
+	}
+	duration := endMs - startMs
+	for _, bucket := range []int64{
+		int64(time.Minute / time.Millisecond),
+		int64(5 * time.Minute / time.Millisecond),
+		int64(15 * time.Minute / time.Millisecond),
+		int64(time.Hour / time.Millisecond),
+		int64(6 * time.Hour / time.Millisecond),
+		int64(24 * time.Hour / time.Millisecond),
+		int64(7 * 24 * time.Hour / time.Millisecond),
+	} {
+		if duration/bucket <= 30 {
+			return bucket
+		}
+	}
+	return int64(30 * 24 * time.Hour / time.Millisecond)
+}
+
 func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
-	r := &ProxyRequestRepository{db: db}
+	r := &ProxyRequestRepository{
+		db:                            db,
+		hasReasoningEffortColumn:      db.gorm.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort"),
+		hasProxyUpstreamAttemptsTable: db.gorm.Migrator().HasTable(&ProxyUpstreamAttempt{}),
+	}
 	// 初始化时从数据库加载计数
 	r.initCount()
 	return r
+}
+
+func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool) string {
+	mappedModelColumn := "proxy_requests.response_model AS mapped_model"
+	responseModelColumn := "proxy_requests.response_model"
+	ttftColumn := "proxy_requests.ttft_ms"
+	durationColumn := "proxy_requests.duration_ms"
+	providerIDColumn := "proxy_requests.provider_id"
+	routeIDColumn := "proxy_requests.route_id"
+	inputTokenColumn := "proxy_requests.input_token_count"
+	outputTokenColumn := "proxy_requests.output_token_count"
+	cacheReadColumn := "proxy_requests.cache_read_count"
+	cacheWriteColumn := "proxy_requests.cache_write_count"
+	cache5mWriteColumn := "proxy_requests.cache_5m_write_count"
+	cache1hWriteColumn := "proxy_requests.cache_1h_write_count"
+	costColumn := "proxy_requests.cost"
+	if r.hasProxyUpstreamAttemptsTable {
+		mappedModelColumn = "COALESCE(NULLIF(final_attempt.mapped_model, ''), NULLIF(latest_attempt.mapped_model, ''), proxy_requests.response_model) AS mapped_model"
+		responseModelColumn = "COALESCE(NULLIF(final_attempt.response_model, ''), NULLIF(latest_attempt.response_model, ''), proxy_requests.response_model) AS response_model"
+		ttftColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.ttft_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.ttft_ms ELSE proxy_requests.ttft_ms END AS ttft_ms"
+		durationColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.duration_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.duration_ms ELSE proxy_requests.duration_ms END AS duration_ms"
+		providerIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.provider_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.provider_id ELSE proxy_requests.provider_id END AS provider_id"
+		routeIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.route_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.route_id ELSE proxy_requests.route_id END AS route_id"
+		inputTokenColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.input_token_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.input_token_count ELSE proxy_requests.input_token_count END AS input_token_count"
+		outputTokenColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.output_token_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.output_token_count ELSE proxy_requests.output_token_count END AS output_token_count"
+		cacheReadColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_read_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_read_count ELSE proxy_requests.cache_read_count END AS cache_read_count"
+		cacheWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_write_count ELSE proxy_requests.cache_write_count END AS cache_write_count"
+		cache5mWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_5m_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_5m_write_count ELSE proxy_requests.cache_5m_write_count END AS cache_5m_write_count"
+		cache1hWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_1h_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_1h_write_count ELSE proxy_requests.cache_1h_write_count END AS cache_1h_write_count"
+		costColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cost WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cost ELSE proxy_requests.cost END AS cost"
+	}
+	columns := "proxy_requests.id, proxy_requests.created_at, proxy_requests.updated_at, proxy_requests.instance_id, proxy_requests.request_id, proxy_requests.session_id, proxy_requests.client_type, proxy_requests.request_model, " + mappedModelColumn + ", " + responseModelColumn + ", proxy_requests.start_time, proxy_requests.end_time, " + durationColumn
+	if includeTTFT {
+		columns += ", " + ttftColumn
+	}
+	columns += ", proxy_requests.is_stream, proxy_requests.protocol, proxy_requests.status, proxy_requests.status_code, proxy_requests.error, proxy_requests.proxy_upstream_attempt_count, proxy_requests.final_proxy_upstream_attempt_id, " + routeIDColumn + ", " + providerIDColumn + ", proxy_requests.project_id, " + inputTokenColumn + ", " + outputTokenColumn + ", " + cacheReadColumn + ", " + cacheWriteColumn + ", " + cache5mWriteColumn + ", " + cache1hWriteColumn + ", " + costColumn + ", proxy_requests.api_token_id"
+	if r.hasReasoningEffortColumn {
+		columns += ", proxy_requests.reasoning_effort"
+	}
+	return columns
+}
+
+func (r *ProxyRequestRepository) joinProxyUpstreamAttemptModels(query *gorm.DB) *gorm.DB {
+	if !r.hasProxyUpstreamAttemptsTable {
+		return query
+	}
+	return query.
+		Joins("LEFT JOIN proxy_upstream_attempts AS final_attempt ON final_attempt.id = proxy_requests.final_proxy_upstream_attempt_id").
+		Joins("LEFT JOIN proxy_upstream_attempts AS latest_attempt ON latest_attempt.id = (SELECT MAX(id) FROM proxy_upstream_attempts WHERE proxy_request_id = proxy_requests.id)")
 }
 
 // initCount 从数据库初始化计数缓存
@@ -40,7 +177,11 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	p.UpdatedAt = now
 
 	model := r.toModel(p)
-	if err := r.db.gorm.Create(model).Error; err != nil {
+	query := r.db.gorm
+	if !r.hasReasoningEffortColumn {
+		query = query.Omit("reasoning_effort")
+	}
+	if err := query.Create(model).Error; err != nil {
 		return err
 	}
 	p.ID = model.ID
@@ -51,10 +192,28 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	return nil
 }
 
+// Update 持久化一次状态/计量变更。
+//
+// OOM 关键:一次请求的生命周期里 Update 会被调用 5~10 次(route_match、
+// dispatch 中途、egress、超时收尾)。request_info 持有完整请求体(可达数十
+// MB),它在 Create 时写入后**永不变更**;若每次 Update 都走 toModel 把它
+// 重新 json.Marshal 一遍,就是 profile 里 2.58 GB cum 的主因。这里用
+// toModelMeta 完全不编码 request_info,并 Omit 掉该列(保留库中已有值);
+// response_info 仅在确有响应详情(非 nil)时才编码并写入一次,否则同样
+// Omit。clearDetail 路径下这两个字段全程为 nil、库中本就为空,跳过写入安全。
 func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	p.UpdatedAt = time.Now()
-	model := r.toModel(p)
-	return r.db.gorm.Save(model).Error
+	model := r.toModelMeta(p)
+	omit := []string{"request_info"}
+	if p.ResponseInfo != nil {
+		model.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+	} else {
+		omit = append(omit, "response_info")
+	}
+	if !r.hasReasoningEffortColumn {
+		omit = append(omit, "reasoning_effort")
+	}
+	return r.db.gorm.Omit(omit...).Save(model).Error
 }
 
 func (r *ProxyRequestRepository) GetByID(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
@@ -83,34 +242,25 @@ func (r *ProxyRequestRepository) List(tenantID uint64, limit, offset int) ([]*do
 // 注意：列表查询不返回 request_info 和 response_info 大字段
 func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, after uint64, filter *repository.ProxyRequestFilter) ([]*domain.ProxyRequest, error) {
 	// 使用 Select 排除大字段
-	baseQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
-		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, ttft_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id")
+	selectColumns := r.proxyRequestListSelectColumns(true)
+	baseQuery := r.joinProxyUpstreamAttemptModels(r.db.gorm.Model(&ProxyRequest{}).
+		Select(selectColumns))
+	if tenantID != domain.TenantIDAll {
+		baseQuery = baseQuery.Where("proxy_requests.tenant_id = ?", tenantID)
+	}
 
 	if after > 0 {
-		baseQuery = baseQuery.Where("id > ?", after)
+		baseQuery = baseQuery.Where("proxy_requests.id > ?", after)
 	} else if before > 0 {
-		baseQuery = baseQuery.Where("id < ?", before)
+		baseQuery = baseQuery.Where("proxy_requests.id < ?", before)
 	}
 
 	// 应用过滤条件
-	if filter != nil {
-		if filter.ProviderID != nil {
-			baseQuery = baseQuery.Where("provider_id = ?", *filter.ProviderID)
-		}
-		if filter.Status != nil {
-			baseQuery = baseQuery.Where("status = ?", *filter.Status)
-		}
-		if filter.APITokenID != nil {
-			baseQuery = baseQuery.Where("api_token_id = ?", *filter.APITokenID)
-		}
-		if filter.ProjectID != nil {
-			baseQuery = baseQuery.Where("project_id = ?", *filter.ProjectID)
-		}
-	}
+	baseQuery = applyProxyRequestFilter(baseQuery, filter)
 
-	orderBy := "id DESC"
+	orderBy := "proxy_requests.id DESC"
 	if after > 0 {
-		orderBy = "id ASC"
+		orderBy = "proxy_requests.id ASC"
 	}
 
 	// 游标分页必须保持全局单调 ID 顺序，活跃优先排序交给前端展示层处理。
@@ -123,11 +273,16 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 
 // ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
 func (r *ProxyRequestRepository) ListActive(tenantID uint64) ([]*domain.ProxyRequest, error) {
+	selectColumns := r.proxyRequestListSelectColumns(false)
+	query := r.joinProxyUpstreamAttemptModels(r.db.gorm.Model(&ProxyRequest{}).
+		Select(selectColumns)).
+		Where("proxy_requests.status IN ?", activeProxyRequestStatuses)
+	if tenantID != domain.TenantIDAll {
+		query = query.Where("proxy_requests.tenant_id = ?", tenantID)
+	}
 	var models []ProxyRequest
-	if err := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
-		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id").
-		Where("status IN ?", activeProxyRequestStatuses).
-		Order("id DESC").
+	if err := query.
+		Order("proxy_requests.id DESC").
 		Find(&models).Error; err != nil {
 		return nil, err
 	}
@@ -148,31 +303,154 @@ func (r *ProxyRequestRepository) Count(tenantID uint64) (int64, error) {
 // CountWithFilter 带过滤条件的计数
 func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
 	// 如果没有过滤条件且没有 tenantID 过滤，使用缓存的总数
-	if tenantID == domain.TenantIDAll && (filter == nil || (filter.ProviderID == nil && filter.Status == nil && filter.APITokenID == nil && filter.ProjectID == nil)) {
+	if tenantID == domain.TenantIDAll && (filter == nil || filter.IsEmpty()) {
 		return atomic.LoadInt64(&r.count), nil
 	}
 
 	// 有过滤条件时需要查询数据库
 	var count int64
 	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID)
-	if filter != nil {
-		if filter.ProviderID != nil {
-			query = query.Where("provider_id = ?", *filter.ProviderID)
-		}
-		if filter.Status != nil {
-			query = query.Where("status = ?", *filter.Status)
-		}
-		if filter.APITokenID != nil {
-			query = query.Where("api_token_id = ?", *filter.APITokenID)
-		}
-		if filter.ProjectID != nil {
-			query = query.Where("project_id = ?", *filter.ProjectID)
-		}
-	}
+	query = applyProxyRequestFilter(query, filter)
 	if err := query.Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
+}
+
+func (r *ProxyRequestRepository) GetErrorStats(tenantID uint64, filter *repository.ProxyRequestFilter) (*repository.ProxyRequestErrorStats, error) {
+	baseFilter := cloneProxyRequestFilter(filter)
+	baseFilter.ErrorMode = repository.ProxyRequestErrorModeAll
+
+	totalRequests, err := r.CountWithFilter(tenantID, baseFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	errorFilter := cloneProxyRequestFilter(baseFilter)
+	errorFilter.ErrorMode = repository.ProxyRequestErrorModeOnly
+	errorRequests, err := r.CountWithFilter(tenantID, errorFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &repository.ProxyRequestErrorStats{
+		TotalRequests:    totalRequests,
+		ErrorRequests:    errorRequests,
+		StatusCounts:     []repository.ProxyRequestCountBucket{},
+		HTTPStatusCounts: []repository.ProxyRequestHTTPStatusBucket{},
+		ProviderCounts:   []repository.ProxyRequestProviderBucket{},
+		ModelCounts:      []repository.ProxyRequestCountBucket{},
+		Trend:            []repository.ProxyRequestTrendPoint{},
+	}
+	if totalRequests > 0 {
+		stats.ErrorRate = float64(errorRequests) / float64(totalRequests)
+	}
+
+	statusQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("status AS name, COUNT(*) AS count").
+		Group("status").
+		Order("count DESC")
+	statusQuery = applyProxyRequestFilter(statusQuery, errorFilter)
+	if err := statusQuery.Scan(&stats.StatusCounts).Error; err != nil {
+		return nil, err
+	}
+
+	httpStatusQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("status_code AS status_code, COUNT(*) AS count").
+		Where("status_code >= ?", 400).
+		Group("status_code").
+		Order("count DESC").
+		Limit(20)
+	httpStatusQuery = applyProxyRequestFilter(httpStatusQuery, baseFilter)
+	if err := httpStatusQuery.Scan(&stats.HTTPStatusCounts).Error; err != nil {
+		return nil, err
+	}
+
+	providerQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("provider_id AS provider_id, COUNT(*) AS count").
+		Group("provider_id").
+		Order("count DESC").
+		Limit(10)
+	providerQuery = applyProxyRequestFilter(providerQuery, errorFilter)
+	if err := providerQuery.Scan(&stats.ProviderCounts).Error; err != nil {
+		return nil, err
+	}
+
+	modelQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("request_model AS name, COUNT(*) AS count").
+		Where("request_model <> ''").
+		Group("request_model").
+		Order("count DESC").
+		Limit(10)
+	modelQuery = applyProxyRequestFilter(modelQuery, errorFilter)
+	if err := modelQuery.Scan(&stats.ModelCounts).Error; err != nil {
+		return nil, err
+	}
+
+	startMs := int64(0)
+	endMs := int64(0)
+	if baseFilter.StartTime != nil {
+		startMs = toTimestamp(*baseFilter.StartTime)
+	}
+	if baseFilter.EndTime != nil {
+		endMs = toTimestamp(*baseFilter.EndTime)
+	}
+	if startMs == 0 || endMs == 0 {
+		var bounds struct {
+			MinCreatedAt int64
+			MaxCreatedAt int64
+		}
+		boundsQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+			Select("COALESCE(MIN(created_at), 0) AS min_created_at, COALESCE(MAX(created_at), 0) AS max_created_at")
+		boundsQuery = applyProxyRequestFilter(boundsQuery, baseFilter)
+		if err := boundsQuery.Scan(&bounds).Error; err != nil {
+			return nil, err
+		}
+		if startMs == 0 {
+			startMs = bounds.MinCreatedAt
+		}
+		if endMs == 0 {
+			endMs = bounds.MaxCreatedAt
+		}
+	}
+
+	if startMs > 0 && endMs >= startMs {
+		bucketSize := proxyRequestTrendBucketSize(startMs, endMs)
+		bucketStart := (startMs / bucketSize) * bucketSize
+		for bucketStart <= endMs {
+			bucketEnd := bucketStart + bucketSize - 1
+			if bucketEnd > endMs {
+				bucketEnd = endMs
+			}
+
+			bucketStartTime := time.UnixMilli(bucketStart).UTC()
+			bucketEndTime := time.UnixMilli(bucketEnd).UTC()
+			bucketFilter := cloneProxyRequestFilter(baseFilter)
+			bucketFilter.StartTime = &bucketStartTime
+			bucketFilter.EndTime = &bucketEndTime
+			total, err := r.CountWithFilter(tenantID, bucketFilter)
+			if err != nil {
+				return nil, err
+			}
+
+			bucketErrorFilter := cloneProxyRequestFilter(bucketFilter)
+			bucketErrorFilter.ErrorMode = repository.ProxyRequestErrorModeOnly
+			errors, err := r.CountWithFilter(tenantID, bucketErrorFilter)
+			if err != nil {
+				return nil, err
+			}
+
+			stats.Trend = append(stats.Trend, repository.ProxyRequestTrendPoint{
+				StartTime:     bucketStart,
+				EndTime:       bucketEnd,
+				TotalRequests: total,
+				ErrorRequests: errors,
+			})
+			bucketStart += bucketSize
+		}
+	}
+
+	return stats, nil
 }
 
 // 死实例孤儿请求的回收宽限期。当一个请求的 instance_id 不在活实例列表里时,
@@ -180,6 +458,7 @@ func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *reposi
 // 这个宽限期覆盖以下场景:
 //   - 新启动的实例完成 RegisterInstance 之前可能已经下发了少量请求
 //   - 实例 ID 一时未来得及同步到 coordinator(网络抖动)
+//
 // 选 60s 与心跳 TTL 对齐;单实例重启场景下,旧 in-progress 请求等 60s 后被清理,
 // 远好于原行为(立刻杀)和过保守行为(等 30min)之间。
 const deadInstanceGraceMillis = int64(60 * 1000)
@@ -263,6 +542,79 @@ func (r *ProxyRequestRepository) FixFailedRequestsWithoutEndTime() (int64, error
 }
 
 // UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
+
+// CountFailedWithFilter counts terminal failed/error request records matching the filter.
+func (r *ProxyRequestRepository) CountFailedWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
+	var count int64
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID)
+	query = applyProxyRequestCleanupFailedFilter(query, filter)
+	if err := query.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// DeleteFailedWithFilter deletes terminal failed/error request records matching the filter and their attempts.
+func (r *ProxyRequestRepository) DeleteFailedWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, int64, error) {
+	const batchSize = 500
+
+	var totalRequests int64
+	var totalAttempts int64
+	var lastID uint64
+
+	for {
+		baseQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+			Select("id").
+			Where("id > ?", lastID)
+		baseQuery = applyProxyRequestCleanupFailedFilter(baseQuery, filter)
+
+		var ids []uint64
+		if err := baseQuery.Order("id").Limit(batchSize).Pluck("id", &ids).Error; err != nil {
+			return totalRequests, totalAttempts, err
+		}
+		if len(ids) == 0 {
+			return totalRequests, totalAttempts, nil
+		}
+		lastID = ids[len(ids)-1]
+
+		var batchRequests int64
+		var batchAttempts int64
+		if err := r.db.gorm.Transaction(func(tx *gorm.DB) error {
+			eligibleParents := tenantScope(tx.Model(&ProxyRequest{}), tenantID).
+				Select("id").
+				Where("id IN ?", ids)
+			eligibleParents = applyProxyRequestCleanupFailedFilter(eligibleParents, filter)
+
+			attemptRes := tx.Where("proxy_request_id IN (?)", eligibleParents).Delete(&ProxyUpstreamAttempt{})
+			if attemptRes.Error != nil {
+				return attemptRes.Error
+			}
+			batchAttempts = attemptRes.RowsAffected
+
+			requestQuery := tenantScope(tx.Where("id IN ?", ids), tenantID)
+			requestQuery = applyProxyRequestCleanupFailedFilter(requestQuery, filter)
+			requestRes := requestQuery.Delete(&ProxyRequest{})
+			if requestRes.Error != nil {
+				return requestRes.Error
+			}
+			batchRequests = requestRes.RowsAffected
+			return nil
+		}); err != nil {
+			return totalRequests, totalAttempts, err
+		}
+
+		if batchRequests > 0 {
+			atomic.AddInt64(&r.count, -batchRequests)
+		}
+		totalRequests += batchRequests
+		totalAttempts += batchAttempts
+
+		if len(ids) < batchSize {
+			return totalRequests, totalAttempts, nil
+		}
+	}
+}
+
 func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error) {
 	now := time.Now().UnixMilli()
 	result := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
@@ -338,6 +690,52 @@ func (r *ProxyRequestRepository) HasRecentRequests(since time.Time) (bool, error
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// GetProjectUsageSummaries aggregates request activity by project for cleanup detection.
+func (r *ProxyRequestRepository) GetProjectUsageSummaries(tenantID uint64, since time.Time, projectIDs ...uint64) (map[uint64]domain.ProjectUsageSummary, error) {
+	sinceTs := toTimestamp(since)
+	type usageRow struct {
+		ProjectID                 uint64
+		LastRequestAt             int64
+		LastSuccessfulRequestAt   int64
+		RequestCount30d           int64
+		SuccessfulRequestCount30d int64
+		TotalRequestCount         int64
+	}
+
+	var rows []usageRow
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select(`
+			project_id,
+			MAX(created_at) AS last_request_at,
+			MAX(CASE WHEN status = ? THEN created_at ELSE 0 END) AS last_successful_request_at,
+			SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS request_count30d,
+			SUM(CASE WHEN status = ? AND created_at >= ? THEN 1 ELSE 0 END) AS successful_request_count30d,
+			COUNT(*) AS total_request_count
+		`, "COMPLETED", sinceTs, "COMPLETED", sinceTs).
+		Where("project_id > 0")
+	if len(projectIDs) > 0 {
+		query = query.Where("project_id IN ?", projectIDs)
+	}
+	query = query.Group("project_id")
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	summaries := make(map[uint64]domain.ProjectUsageSummary, len(rows))
+	for _, row := range rows {
+		summary := domain.ProjectUsageSummary{
+			ProjectID:                 row.ProjectID,
+			LastRequestAt:             fromTimestampPtr(row.LastRequestAt),
+			LastSuccessfulRequestAt:   fromTimestampPtr(row.LastSuccessfulRequestAt),
+			RequestCount30d:           row.RequestCount30d,
+			SuccessfulRequestCount30d: row.SuccessfulRequestCount30d,
+			TotalRequestCount:         row.TotalRequestCount,
+		}
+		summaries[row.ProjectID] = summary
+	}
+	return summaries, nil
 }
 
 // UpdateCost updates only the cost field of a request
@@ -617,6 +1015,17 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 }
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
+	m := r.toModelMeta(p)
+	m.RequestInfo = LongText(toJSON(p.RequestInfo))
+	m.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+	return m
+}
+
+// toModelMeta 构造除 request_info/response_info 两个大字段外的所有列。
+// 这两个字段的 JSON 编码是 OOM 的主要来源(请求体可达数十 MB,且 Update
+// 在一次请求生命周期里会被调用多次),Create 走 toModel 一次性编码,Update
+// 路径据此按需决定是否编码,避免对状态/计量类更新重复序列化大 body。
+func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyRequest {
 	return &ProxyRequest{
 		BaseModel: BaseModel{
 			ID:        p.ID,
@@ -630,15 +1039,15 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 		ClientType:                  string(p.ClientType),
 		RequestModel:                p.RequestModel,
 		ResponseModel:               p.ResponseModel,
+		ReasoningEffort:             p.ReasoningEffort,
 		StartTime:                   toTimestamp(p.StartTime),
 		EndTime:                     toTimestamp(p.EndTime),
 		DurationMs:                  p.Duration.Milliseconds(),
 		TTFTMs:                      p.TTFT.Milliseconds(),
 		IsStream:                    boolToInt(p.IsStream),
+		Protocol:                    p.Protocol,
 		Status:                      p.Status,
 		StatusCode:                  p.StatusCode,
-		RequestInfo:                 LongText(toJSON(p.RequestInfo)),
-		ResponseInfo:                LongText(toJSON(p.ResponseInfo)),
 		Error:                       LongText(p.Error),
 		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
@@ -670,12 +1079,15 @@ func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest 
 		SessionID:                   m.SessionID,
 		ClientType:                  domain.ClientType(m.ClientType),
 		RequestModel:                m.RequestModel,
+		MappedModel:                 m.MappedModel,
 		ResponseModel:               m.ResponseModel,
+		ReasoningEffort:             m.ReasoningEffort,
 		StartTime:                   fromTimestamp(m.StartTime),
 		EndTime:                     fromTimestamp(m.EndTime),
 		Duration:                    time.Duration(m.DurationMs) * time.Millisecond,
 		TTFT:                        time.Duration(m.TTFTMs) * time.Millisecond,
 		IsStream:                    m.IsStream == 1,
+		Protocol:                    m.Protocol,
 		Status:                      m.Status,
 		StatusCode:                  m.StatusCode,
 		RequestInfo:                 fromJSON[*domain.RequestInfo](string(m.RequestInfo)),
@@ -706,4 +1118,15 @@ func (r *ProxyRequestRepository) toDomainList(models []ProxyRequest) []*domain.P
 		requests[i] = r.toDomain(&m)
 	}
 	return requests
+}
+
+// ReassignAPITokenID moves proxy request history from a retired token to the
+// canonical token that replaces it.
+func (r *ProxyRequestRepository) ReassignAPITokenID(tenantID uint64, fromID uint64, toID uint64) error {
+	if fromID == 0 || toID == 0 || fromID == toID {
+		return nil
+	}
+	return tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Where("api_token_id = ?", fromID).
+		Update("api_token_id", toID).Error
 }

@@ -19,6 +19,16 @@ type ProviderConfigCustom struct {
 	// 中转站的 URL
 	BaseURL string `json:"baseURL"`
 
+	// Backend selects the custom provider's upstream protocol implementation.
+	// Empty means legacy HTTP passthrough. "ollama" converts Claude-compatible
+	// requests to Ollama /api/chat and wraps responses back to Claude format.
+	//
+	// Deprecated: use a dedicated provider type instead (e.g. type "ollama").
+	// Retained for backward compatibility with existing custom+backend:ollama
+	// providers, which keep working unchanged. New setups should pick the matching
+	// first-class provider type so each upstream's quirks live in its own adapter.
+	Backend string `json:"backend,omitempty"`
+
 	// API Key
 	APIKey string `json:"apiKey"`
 
@@ -43,6 +53,17 @@ type ProviderConfigCustom struct {
 
 	// ResponseModel 映射: UpstreamResponseModel → ClientResponseModel
 	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
+
+	// ResponsesPassthrough 控制 Codex Responses 请求转发到本下游时是否透传客户端
+	// 原始路径(/v1/responses 原样转,而不是被归一化成 /responses)。
+	// 不设置(nil)= 默认透传;显式 false = 用旧的、被砍掉 /v1 的 /responses。
+	// 用于适配只认 /responses 的特殊上游,或修正 base_url 已含 /v1 的旧配置。
+	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
+
+	// ResponsesWebSocket 控制本 custom 下游是否可作为 Codex Responses WebSocket 上游。
+	// 许多中转站只支持 HTTP/SSE；未显式开启时默认 false（opt-in），避免 WS 路由到
+	// 不支持的上游导致持续失败。
+	ResponsesWebSocket *bool `json:"responsesWebSocket,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching
@@ -227,6 +248,17 @@ type ProviderConfigCodex struct {
 	// 自定义 Codex API Base URL（默认使用官方地址）
 	BaseURL string `json:"baseURL,omitempty"`
 
+	// ResponsesPassthrough 控制配置了自定义 BaseURL 时,是否透传客户端原始
+	// Responses 路径(/v1/responses 原样转,而不是硬编码 /responses)。
+	// 不设置(nil)= 默认透传;显式 false = 切回旧的硬编码 /responses(+ /responses/compact)。
+	// 官方 ChatGPT 后端(未配 BaseURL)不受此开关影响。
+	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
+
+	// ResponsesWebSocket 控制本 Codex Provider 是否承接 Responses WebSocket。
+	// 不设置(nil)：官方路径(非 CLIProxy)默认 true；UseCLIProxyAPI 默认 false。
+	// 显式 true/false 始终优先。
+	ResponsesWebSocket *bool `json:"responsesWebSocket,omitempty"`
+
 	// 强制 reasoning effort（覆盖请求中的值）
 	// 可选值: "low", "medium", "high"
 	Reasoning string `json:"reasoning,omitempty"`
@@ -234,6 +266,43 @@ type ProviderConfigCodex struct {
 	// 强制 service_tier（覆盖请求中的值）
 	// 可选值: "auto", "default", "flex", "priority"
 	ServiceTier string `json:"serviceTier,omitempty"`
+}
+
+// ResponsesPassthroughEnabled reports whether Codex Responses path passthrough is
+// on for the given config flag. Unset (nil) defaults to true (passthrough); only
+// an explicit false restores the legacy hardcoded /responses path.
+func ResponsesPassthroughEnabled(flag *bool) bool {
+	return flag == nil || *flag
+}
+
+// ProviderResponsesWebSocketEnabled reports whether a provider is allowed to
+// serve Codex Responses over WebSocket. Custom/newapi relays default to false
+// (opt-in). Native codex adapters default to true unless CLIProxy is used.
+func ProviderResponsesWebSocketEnabled(provider *Provider) bool {
+	if provider == nil {
+		return false
+	}
+	switch provider.Type {
+	case "custom", "newapi":
+		if provider.Config != nil && provider.Config.Custom != nil && provider.Config.Custom.ResponsesWebSocket != nil {
+			return *provider.Config.Custom.ResponsesWebSocket
+		}
+		return false
+	case "codex":
+		if provider.Config != nil && provider.Config.Codex != nil {
+			if provider.Config.Codex.ResponsesWebSocket != nil {
+				return *provider.Config.Codex.ResponsesWebSocket
+			}
+			if provider.Config.Codex.UseCLIProxyAPI {
+				return false
+			}
+		}
+		return true
+	default:
+		// First-class adapters (and test doubles) that implement the WS
+		// interface remain eligible unless they use custom/newapi opt-in rules.
+		return true
+	}
 }
 
 // ProviderConfigCLIProxyAPIAntigravity CLIProxyAPI Antigravity 内部配置
@@ -268,18 +337,84 @@ type ProviderConfigCLIProxyAPICodex struct {
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
+// ProviderConfigOpenRouter 是 OpenRouter 一级供应商的配置。
+// OpenRouter 是 OpenAI 兼容且带 Anthropic Messages（"Anthropic Skin"）兼容端点的聚合网关，
+// baseURL 固定为 https://openrouter.ai/api，claude 客户端走 /v1/messages、openai 客户端走
+// /v1/chat/completions，鉴权统一用 Authorization: Bearer <apiKey>。运行时由 openrouter 适配器
+// 合成成一个 ProviderConfigCustom 委托给 custom 适配器执行，无需重复实现代理逻辑。
+//
+// 只保留 APIKey：模型映射走通用的 ModelMapping 实体（executor.mapModel 按 provider 类型+ID
+// 泛化匹配，与 custom 一致），不放在这里——因为 custom 适配器运行时并不读取内联的
+// ModelMapping，放进来只会是不生效的死配置。
+type ProviderConfigOpenRouter struct {
+	// API Key（sk-or-...）
+	APIKey string `json:"apiKey"`
+}
+
+// ProviderConfigGrok stores xAI/Grok OAuth credentials exported by CLIProxyAPI.
+// Sensitive token fields are stored server-side and must be redacted before any UI display/export.
+type ProviderConfigGrok struct {
+	Type          string            `json:"type,omitempty"`
+	AuthKind      string            `json:"authKind,omitempty"`
+	Email         string            `json:"email,omitempty"`
+	Sub           string            `json:"sub,omitempty"`
+	AccessToken   string            `json:"accessToken,omitempty"`
+	RefreshToken  string            `json:"refreshToken,omitempty"`
+	IDToken       string            `json:"idToken,omitempty"`
+	TokenType     string            `json:"tokenType,omitempty"`
+	ExpiresIn     int               `json:"expiresIn,omitempty"`
+	Expired       string            `json:"expired,omitempty"`
+	LastRefresh   string            `json:"lastRefresh,omitempty"`
+	RedirectURI   string            `json:"redirectURI,omitempty"`
+	TokenEndpoint string            `json:"tokenEndpoint,omitempty"`
+	BaseURL       string            `json:"baseURL,omitempty"`
+	Disabled      bool              `json:"disabled,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	ModelMapping  map[string]string `json:"modelMapping,omitempty"`
+}
+
 type ProviderConfig struct {
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
-	DisableErrorCooldown bool                       `json:"disableErrorCooldown,omitempty"`
-	Custom               *ProviderConfigCustom      `json:"custom,omitempty"`
-	Antigravity          *ProviderConfigAntigravity `json:"antigravity,omitempty"`
-	Bedrock              *ProviderConfigBedrock     `json:"bedrock,omitempty"`
-	Kiro                 *ProviderConfigKiro        `json:"kiro,omitempty"`
-	Codex                *ProviderConfigCodex       `json:"codex,omitempty"`
-	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`
+	DisableErrorCooldown bool `json:"disableErrorCooldown,omitempty"`
+	// 智能映射轮询重试：禁用错误自动冻结时，按候选映射模型轮询失败重试。
+	SmartMappingRetryEnabled bool `json:"smartMappingRetryEnabled,omitempty"`
+	// 每个映射模型失败多少次后切换到下一个候选模型。
+	SmartMappingRetryLimit int `json:"smartMappingRetryLimit,omitempty"`
+
+	Custom      *ProviderConfigCustom      `json:"custom,omitempty"`
+	Antigravity *ProviderConfigAntigravity `json:"antigravity,omitempty"`
+	Bedrock     *ProviderConfigBedrock     `json:"bedrock,omitempty"`
+	Kiro        *ProviderConfigKiro        `json:"kiro,omitempty"`
+	Codex       *ProviderConfigCodex       `json:"codex,omitempty"`
+	Claude      *ProviderConfigClaude      `json:"claude,omitempty"`
+	OpenRouter  *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
+	Grok        *ProviderConfigGrok        `json:"grok,omitempty"`
+
+	// Reasoning is the provider-scoped outbound reasoning-effort policy, applied
+	// by the executor's param stage for ALL provider types (not just Codex).
+	// nil / empty = no policy.
+	Reasoning *ReasoningPolicy `json:"reasoning,omitempty"`
+
 	// 内部运行时字段，仅用于 NewAdapter 委托，不序列化
 	CLIProxyAPIAntigravity *ProviderConfigCLIProxyAPIAntigravity `json:"-"`
 	CLIProxyAPICodex       *ProviderConfigCLIProxyAPICodex       `json:"-"`
+}
+
+// ReasoningPolicy is a scope-agnostic outbound reasoning-effort policy. The same
+// shape is used at global and provider scope; the executor resolves the two into
+// an effective policy (MaxEffort composes across scopes by the lower ceiling;
+// DefaultEffort is taken from the most specific scope that sets it).
+//
+// Effort vocabulary is ordered: none < minimal < low < medium < high, plus the
+// special "auto" (defer to provider) which a ceiling clamps down to the ceiling.
+// Empty strings mean "unset".
+type ReasoningPolicy struct {
+	// MaxEffort caps the outbound effort: anything above it (including "auto") is
+	// clamped down to this value. Empty = no ceiling.
+	MaxEffort string `json:"maxEffort,omitempty"`
+	// DefaultEffort fills the effort only when the request carries none. It never
+	// overrides a value the client (or a prior stage) already set. Empty = no default.
+	DefaultEffort string `json:"defaultEffort,omitempty"`
 }
 
 // Provider 供应商
@@ -315,8 +450,28 @@ type Provider struct {
 	// 空数组表示支持所有模型
 	SupportModels []string `json:"supportModels,omitempty"`
 
+	// Maximum number of upstream sessions allowed at once. Zero means unlimited.
+	MaxConcurrency int `json:"maxConcurrency,omitempty"`
+
 	// 为 true 时，该 provider 不参与导出/备份
 	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
+
+	// 为 true 时，该 provider 为黑盒配置：不可编辑，且 API/UI 不应暴露 URL/密钥等配置细节
+	BlackBox bool `json:"blackBox,omitempty"`
+}
+
+// ProviderBulkDeleteRequest deletes providers and all provider-scoped references in one request.
+type ProviderBulkDeleteRequest struct {
+	IDs []uint64 `json:"ids"`
+}
+
+// ProviderBulkDeleteResult reports the affected providers and cleaned references.
+type ProviderBulkDeleteResult struct {
+	DeletedCount             int      `json:"deletedCount"`
+	DeletedIDs               []uint64 `json:"deletedIDs"`
+	NotFoundIDs              []uint64 `json:"notFoundIDs"`
+	RouteDeletedCount        int      `json:"routeDeletedCount"`
+	ModelMappingDeletedCount int      `json:"modelMappingDeletedCount"`
 }
 
 type Project struct {
@@ -335,6 +490,32 @@ type Project struct {
 
 	// 启用自定义路由的 ClientType 列表，空数组表示所有 ClientType 都使用全局路由
 	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes"`
+
+	// 使用统计由 proxy_requests 聚合填充，用于项目清理候选检测；不落 projects 表。
+	LastRequestAt             *time.Time `json:"lastRequestAt,omitempty"`
+	LastSuccessfulRequestAt   *time.Time `json:"lastSuccessfulRequestAt,omitempty"`
+	RequestCount30d           int64      `json:"requestCount30d"`
+	SuccessfulRequestCount30d int64      `json:"successfulRequestCount30d"`
+	TotalRequestCount         int64      `json:"totalRequestCount"`
+}
+
+// ProjectUsageSummary is derived from proxy_requests and attached to Project reads.
+// It intentionally stays outside the projects table so cleanup detection does not
+// depend on write-path migrations or stale denormalized fields.
+type ProjectUsageSummary struct {
+	ProjectID                 uint64
+	LastRequestAt             *time.Time
+	LastSuccessfulRequestAt   *time.Time
+	RequestCount30d           int64
+	SuccessfulRequestCount30d int64
+	TotalRequestCount         int64
+}
+
+// ProjectArchiveInactiveResult reports which inactive projects were archived.
+type ProjectArchiveInactiveResult struct {
+	ArchivedCount int      `json:"archivedCount"`
+	ArchivedIDs   []uint64 `json:"archivedIDs"`
+	ThresholdDays int      `json:"thresholdDays"`
 }
 
 type Session struct {
@@ -372,8 +553,9 @@ type Route struct {
 
 	IsEnabled bool `json:"isEnabled"`
 
-	// 是否为原生支持的路由（自动创建，跟随 Provider 设置）
-	// false 表示通过 API 转换支持（手动创建，独立管理）
+	// IsNative 是后端根据目标 Provider 的原生 ClientType 能力计算出的
+	// 只读派生字段。客户端提交值会被忽略。
+	// 数据库 routes.is_native 仅保存物化快照，运行时不得直接信任历史值。
 	IsNative bool `json:"isNative"`
 
 	// 0 表示没有项目即全局
@@ -397,6 +579,54 @@ type RoutePositionUpdate struct {
 	Position int    `json:"position"`
 }
 
+// RouteBulkDeleteRequest deletes route bindings within an explicit client/project scope.
+// The scope guard prevents a stale or malicious UI selection from deleting routes
+// from another client tab or project/global context.
+type RouteBulkDeleteRequest struct {
+	IDs        []uint64   `json:"ids"`
+	ClientType ClientType `json:"clientType"`
+	ProjectID  uint64     `json:"projectID"`
+}
+
+// RouteBulkDeleteResult reports what the scoped bulk delete actually changed.
+type RouteBulkDeleteResult struct {
+	DeletedCount int      `json:"deletedCount"`
+	DeletedIDs   []uint64 `json:"deletedIDs"`
+	SkippedIDs   []uint64 `json:"skippedIDs"`
+	NotFoundIDs  []uint64 `json:"notFoundIDs"`
+}
+
+type RouteSyncMode string
+
+const (
+	RouteSyncModeOverwrite  RouteSyncMode = "overwrite"
+	RouteSyncModeAddMissing RouteSyncMode = "add_missing"
+)
+
+// RouteSyncRequest copies the route set for one client type from another
+// project/global scope into the target project/global scope.
+// ProjectID 0 means the global/default route scope.
+type RouteSyncRequest struct {
+	SourceProjectID uint64        `json:"sourceProjectID"`
+	TargetProjectID uint64        `json:"targetProjectID"`
+	ClientType      ClientType    `json:"clientType"`
+	Mode            RouteSyncMode `json:"mode"`
+}
+
+type RouteSyncResult struct {
+	SourceProjectID          uint64        `json:"sourceProjectID"`
+	EffectiveSourceProjectID uint64        `json:"effectiveSourceProjectID"`
+	TargetProjectID          uint64        `json:"targetProjectID"`
+	ClientType               ClientType    `json:"clientType"`
+	Mode                     RouteSyncMode `json:"mode"`
+	CreatedCount             int           `json:"createdCount"`
+	UpdatedCount             int           `json:"updatedCount"`
+	DeletedCount             int           `json:"deletedCount"`
+	SkippedCount             int           `json:"skippedCount"`
+	EnabledCustomRoutes      bool          `json:"enabledCustomRoutes"`
+	Routes                   []*Route      `json:"routes"`
+}
+
 type RequestInfo struct {
 	Method  string            `json:"method"`
 	Headers map[string]string `json:"headers"`
@@ -407,6 +637,25 @@ type ResponseInfo struct {
 	Status  int               `json:"status"`
 	Headers map[string]string `json:"headers"`
 	Body    string            `json:"body"`
+}
+
+// Client→Maxx transport protocol for a ProxyRequest.
+const (
+	ProxyRequestProtocolHTTP      = "http"
+	ProxyRequestProtocolSSE       = "sse"
+	ProxyRequestProtocolWebSocket = "websocket"
+)
+
+// ResolveProxyRequestProtocol returns the transport protocol for a new request.
+// WebSocket takes precedence over stream flags because Responses WS also sets isStream.
+func ResolveProxyRequestProtocol(isStream bool, isWebSocket bool) string {
+	if isWebSocket {
+		return ProxyRequestProtocolWebSocket
+	}
+	if isStream {
+		return ProxyRequestProtocolSSE
+	}
+	return ProxyRequestProtocolHTTP
 }
 
 // 追踪
@@ -425,8 +674,10 @@ type ProxyRequest struct {
 	SessionID  string     `json:"sessionID"`
 	ClientType ClientType `json:"clientType"`
 
-	RequestModel  string `json:"requestModel"`
-	ResponseModel string `json:"responseModel"`
+	RequestModel    string `json:"requestModel"`
+	MappedModel     string `json:"mappedModel"`
+	ResponseModel   string `json:"responseModel"`
+	ReasoningEffort string `json:"reasoningEffort"`
 
 	StartTime time.Time     `json:"startTime"`
 	EndTime   time.Time     `json:"endTime"`
@@ -437,6 +688,10 @@ type ProxyRequest struct {
 
 	// 是否为 SSE 流式请求
 	IsStream bool `json:"isStream"`
+
+	// Protocol 是客户端到 Maxx 的传输协议: "http" | "sse" | "websocket"。
+	// 历史记录可能为空，读侧应结合 IsStream / StatusCode 兜底。
+	Protocol string `json:"protocol"`
 
 	// PENDING, IN_PROGRESS, COMPLETED, FAILED, REJECTED
 	// REJECTED: 请求被拒绝（如：强制项目绑定超时）
@@ -487,6 +742,12 @@ type ProxyRequest struct {
 	DevMode bool `json:"devMode"`
 }
 
+// ProxyRequestCleanupFailedResult reports removed failed request records and attempts.
+type ProxyRequestCleanupFailedResult struct {
+	DeletedCount        int64 `json:"deletedCount"`
+	DeletedAttemptCount int64 `json:"deletedAttemptCount"`
+}
+
 type ProxyUpstreamAttempt struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -505,6 +766,7 @@ type ProxyUpstreamAttempt struct {
 
 	// PENDING, IN_PROGRESS, COMPLETED, FAILED
 	Status string `json:"status"`
+	Error  string `json:"error"`
 
 	ProxyRequestID uint64 `json:"proxyRequestID"`
 
@@ -549,6 +811,11 @@ type ProxyUpstreamAttempt struct {
 	Multiplier   uint64 `json:"multiplier"`   // 倍率（10000=1倍）
 
 	Cost uint64 `json:"cost"`
+
+	// UpstreamCostNanoUSD 是上游(OpenRouter usage.cost)自报的实际扣费,单位 nanoUSD,
+	// 不含合约倍率(倍率在 FinalizeAttemptCost/重算时才乘上)。0 表示不是按上游成本计费。
+	// 非零时优先于 token 价表计费,并把 ModelPriceID 记为 0;重算永远保留此值、只重乘历史倍率。
+	UpstreamCostNanoUSD uint64 `json:"upstreamCostNanoUSD,omitempty"`
 }
 
 // AttemptCostData contains minimal data needed for cost recalculation.
@@ -569,6 +836,7 @@ type AttemptCostData struct {
 	Cache5mWriteCount     uint64
 	Cache1hWriteCount     uint64
 	Cost                  uint64
+	UpstreamCostNanoUSD   uint64 // 上游自报扣费(nanoUSD, 不含倍率);非零时重算保留原值、只重乘历史倍率
 	Multiplier            uint64 // 历史倍率(10000=1×, 0 视作 10000)
 	ModelPriceID          uint64 // 历史 model_price_id;backfill 时跟新匹配 ID 对比来判断是否需要刷新
 }
@@ -609,6 +877,9 @@ type RetryConfig struct {
 
 	// 最大间隔上限
 	MaxInterval time.Duration `json:"maxInterval"`
+
+	// 是否强制将安全的上游/provider 错误纳入本重试策略
+	ForceRetryUpstreamErrors bool `json:"forceRetryUpstreamErrors"`
 }
 
 // 路由策略类型
@@ -675,23 +946,30 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeySessionRetentionHours         = "session_retention_hours"          // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyProxyPort                            = "proxy_port"                               // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours                = "request_retention_hours"                  // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeySessionRetentionHours                = "session_retention_hours"                  // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"         // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
 	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"   // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
 	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success" // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
 	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"  // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
-	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
-	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
-	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"
-	SettingKeyAutoSortCodex                 = "auto_sort_codex"                  // 是否自动排序 Codex 路由，"true" 或 "false"
-	SettingKeyCodexInstructionsEnabled      = "codex_instructions_enabled"       // 是否启用 Codex 官方 instructions，"true" 或 "false"
-	SettingKeyPayloadOverrideRules          = "payload_override_rules"           // 请求 payload 覆盖规则（JSON 数组）
-	SettingKeyProxyRequestsDisabled         = "proxy_requests_disabled"          // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
-	SettingKeyEnablePprof                   = "enable_pprof"                     // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
-	SettingKeyPprofPort                     = "pprof_port"                       // pprof 服务端口，默认 6060
-	SettingKeyPprofPassword                 = "pprof_password"                   // pprof 访问密码，为空表示不需要密码
+	SettingKeyTimezone                             = "timezone"                                 // 时区设置，默认 Asia/Shanghai
+	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                   // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"      // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
+	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                    // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyAutoSortCodex                        = "auto_sort_codex"                          // 是否自动排序 Codex 路由，"true" 或 "false"
+	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
+	SettingKeyReasoningPolicy                      = "reasoning_policy"                         // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
+	SettingKeyForceRetryUpstreamErrors             = "force_retry_upstream_errors"              // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
+	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"          // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                  // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"          // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"            // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"               // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "false"
+	SettingKeyEnablePprof                          = "enable_pprof"                             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort                            = "pprof_port"                               // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword                        = "pprof_password"                           // pprof 访问密码，为空表示不需要密码
 )
 
 // ModelPrice 模型价格（每个模型可有多条记录，每条代表一个版本）
@@ -713,7 +991,7 @@ type ModelPrice struct {
 	ImageInputPriceMicro  uint64 `json:"imageInputPriceMicro,omitempty"`
 	ImageOutputPriceMicro uint64 `json:"imageOutputPriceMicro,omitempty"`
 
-	// 1M Context 分层定价
+	// 长上下文整次请求溢价
 	Has1MContext       bool   `json:"has1mContext"`
 	Context1MThreshold uint64 `json:"context1mThreshold"`
 	InputPremiumNum    uint64 `json:"inputPremiumNum"`
@@ -958,10 +1236,27 @@ type APIToken struct {
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 }
 
+// APITokenInactiveExpiry is the inactivity window after a token was last used.
+// Tokens without LastUsedAt are not affected by this rule.
+const APITokenInactiveExpiry = 10 * 24 * time.Hour
+
 // APITokenCreateResult 创建 Token 的返回结果（包含明文 Token，仅返回一次）
 type APITokenCreateResult struct {
 	Token    string    `json:"token"`    // 明文 Token（仅创建时返回）
 	APIToken *APIToken `json:"apiToken"` // Token 元数据
+}
+
+// APITokenCleanupItem is the public summary returned for a token removed by a cleanup operation.
+type APITokenCleanupItem struct {
+	ID          uint64 `json:"id"`
+	Name        string `json:"name"`
+	TokenPrefix string `json:"tokenPrefix"`
+}
+
+// APITokenCleanupResult reports the outcome of a bulk expired-token cleanup.
+type APITokenCleanupResult struct {
+	DeletedCount int                   `json:"deletedCount"`
+	Tokens       []APITokenCleanupItem `json:"tokens"`
 }
 
 // ModelMappingScope 模型映射作用域

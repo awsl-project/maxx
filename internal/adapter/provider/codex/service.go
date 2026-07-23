@@ -49,7 +49,7 @@ func ValidateRefreshToken(ctx context.Context, refreshToken string) (*CodexToken
 	}
 
 	// 1. Refresh the token to get access token and ID token
-	tokenResp, err := RefreshAccessToken(ctx, refreshToken)
+	tokenResp, err := RefreshAccessTokenWithRetry(ctx, refreshToken, 3)
 	if err != nil {
 		result.Error = fmt.Sprintf("Token refresh failed: %v", err)
 		return result, nil
@@ -61,7 +61,7 @@ func ValidateRefreshToken(ctx context.Context, refreshToken string) (*CodexToken
 	}
 
 	// Calculate expiration time
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	expiresAt := TokenExpiresAt(tokenResp.ExpiresIn)
 	result.ExpiresAt = expiresAt.Format(time.RFC3339)
 
 	// 2. Parse ID token to get user info

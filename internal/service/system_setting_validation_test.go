@@ -37,55 +37,39 @@ func (r *stubSystemSettingRepo) Delete(key string) error {
 	return nil
 }
 
-func TestAdminServiceUpdateSettingRejectsInvalidPayloadOverrideRules(t *testing.T) {
-	repo := &stubSystemSettingRepo{}
-	svc := &AdminService{settingRepo: repo}
-
-	err := svc.UpdateSetting(domain.SettingKeyPayloadOverrideRules, `[{"models":[{"name":"gpt-5.4","protocol":"codex"}],"params":{}}]`)
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("expected invalid input error, got %v", err)
+func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
+	keys := []string{
+		domain.SettingKeyForceRetryUpstreamErrors,
+		domain.SettingKeyRequestFailureDetailsEnabled,
+		domain.SettingKeyProxyRequestsDisabled,
 	}
-	if len(repo.values) != 0 {
-		t.Fatalf("expected invalid setting not to be persisted")
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "true", value: "true"},
+		{name: "false", value: "false"},
+		{name: "trimmed uppercase", value: " TRUE "},
+		{name: "empty", value: "", wantErr: true},
+		{name: "invalid", value: "yes", wantErr: true},
 	}
-}
 
-func TestAdminServiceUpdateSettingRejectsInvalidProxyRequestsDisabledValue(t *testing.T) {
-	repo := &stubSystemSettingRepo{}
-	svc := &AdminService{settingRepo: repo}
-
-	err := svc.UpdateSetting(domain.SettingKeyProxyRequestsDisabled, "maybe")
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("expected invalid input error, got %v", err)
-	}
-	if len(repo.values) != 0 {
-		t.Fatalf("expected invalid setting not to be persisted")
-	}
-}
-
-func TestAdminServiceUpdateSettingAcceptsValidProxyRequestsDisabledValue(t *testing.T) {
-	repo := &stubSystemSettingRepo{}
-	svc := &AdminService{settingRepo: repo}
-
-	err := svc.UpdateSetting(domain.SettingKeyProxyRequestsDisabled, "true")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if got := repo.values[domain.SettingKeyProxyRequestsDisabled]; got != "true" {
-		t.Fatalf("stored value = %q, want true", got)
-	}
-}
-
-func TestAdminServiceUpdateSettingRejectsProxyRequestsDisabledValueWithWhitespace(t *testing.T) {
-	repo := &stubSystemSettingRepo{}
-	svc := &AdminService{settingRepo: repo}
-
-	err := svc.UpdateSetting(domain.SettingKeyProxyRequestsDisabled, " true ")
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("expected invalid input error, got %v", err)
-	}
-	if len(repo.values) != 0 {
-		t.Fatalf("expected invalid setting not to be persisted")
+	for _, key := range keys {
+		for _, tt := range tests {
+			t.Run(key+"/"+tt.name, func(t *testing.T) {
+				err := validateSystemSettingValue(key, tt.value)
+				if tt.wantErr {
+					if !errors.Is(err, domain.ErrInvalidInput) {
+						t.Fatalf("expected invalid input error, got %v", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -128,42 +112,5 @@ func TestAdminServiceDeleteSettingInvalidatesProxyBooleanCache(t *testing.T) {
 	}
 	if systemsettingcache.GetBoolean(repo, domain.SettingKeyProxyRequestsDisabled) {
 		t.Fatal("expected cache invalidation to expose deleted false value")
-	}
-}
-
-func TestBackupServiceImportSystemSettingsSkipsPayloadOverrideRules(t *testing.T) {
-	repo := &stubSystemSettingRepo{
-		values: map[string]string{},
-	}
-
-	svc := &BackupService{settingRepo: repo}
-	result := domain.NewImportResult()
-	svc.importSystemSettings(
-		[]domain.BackupSystemSetting{
-			{
-				Key:   domain.SettingKeyPayloadOverrideRules,
-				Value: `null`,
-			},
-			{Key: "other", Value: "new"},
-		},
-		domain.ImportOptions{ConflictStrategy: "skip"},
-		result,
-	)
-
-	if !result.Success {
-		t.Fatalf("expected import to succeed, got %+v", result)
-	}
-	if _, ok := repo.values[domain.SettingKeyPayloadOverrideRules]; ok {
-		t.Fatalf("expected payload override rules to be ignored during import")
-	}
-	if got := repo.values["other"]; got != "new" {
-		t.Fatalf("expected other setting to be imported, got %q", got)
-	}
-	summary, ok := result.Summary["systemSettings"]
-	if !ok {
-		t.Fatalf("expected systemSettings summary, got %+v", result.Summary)
-	}
-	if summary.Imported != 1 || summary.Skipped != 1 {
-		t.Fatalf("unexpected summary: %+v", summary)
 	}
 }

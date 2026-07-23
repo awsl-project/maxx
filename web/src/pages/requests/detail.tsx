@@ -75,6 +75,7 @@ export function RequestDetailPage() {
       (request.status === 'PENDING' &&
         forceProjectBinding &&
         (!request.projectID || request.projectID === 0)));
+  const enhancedFailureDetailsEnabled = settings?.request_failure_details_enabled === 'true';
 
   // Recalculate cost mutation
   const recalculateMutation = useMutation({
@@ -304,6 +305,7 @@ export function RequestDetailPage() {
                 projectMap={projectMap}
                 sessionMap={sessionMap}
                 tokenMap={tokenMap}
+                enhancedFailureDetailsEnabled={enhancedFailureDetailsEnabled}
               />
             </TabsContent>
           </Tabs>
@@ -332,6 +334,7 @@ export function RequestDetailPage() {
                 projectMap={projectMap}
                 sessionMap={sessionMap}
                 tokenMap={tokenMap}
+                enhancedFailureDetailsEnabled={enhancedFailureDetailsEnabled}
               />
             </ResizablePanel>
           </ResizablePanelGroup>

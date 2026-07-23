@@ -3,14 +3,17 @@ package sqlite
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
+	"github.com/awsl-project/maxx/internal/domain"
 	"gorm.io/gorm"
 )
 
@@ -486,6 +489,393 @@ var migrations = []Migration{
 			}
 		},
 	},
+	{
+		Version:     16,
+		Description: "Add proxy request created_at index for time-range search",
+		Up: func(db *gorm.DB) error {
+			var rowCount int64
+			if err := db.Raw("SELECT COUNT(*) FROM proxy_requests").Scan(&rowCount).Error; err != nil {
+				log.Printf("[Migration v16] could not count proxy_requests (%v); skipping index build. Apply manually if needed.", err)
+				return nil
+			}
+
+			if rowCount > detailCleanupIndexRowThreshold {
+				log.Printf("[Migration v16] SKIPPING idx_proxy_requests_created_at_id build: proxy_requests has %d rows (> %d threshold). "+
+					"Apply manually during a maintenance window: CREATE INDEX idx_proxy_requests_created_at_id ON proxy_requests(created_at, id);",
+					rowCount, detailCleanupIndexRowThreshold)
+				return nil
+			}
+
+			switch db.Dialector.Name() {
+			case "mysql":
+				err := db.Exec("CREATE INDEX idx_proxy_requests_created_at_id ON proxy_requests(created_at, id)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_proxy_requests_created_at_id ON proxy_requests(created_at, id)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_proxy_requests_created_at_id ON proxy_requests").Error; err != nil && !isMySQLMissingIndexError(err) {
+					log.Printf("[Migration] Warning: rollback v16 failed: %v", err)
+				}
+				return nil
+			default:
+				return db.Exec("DROP INDEX IF EXISTS idx_proxy_requests_created_at_id").Error
+			}
+		},
+	},
+	{
+		Version:     17,
+		Description: "Backfill providers.black_box defaults to 0",
+		Up: func(db *gorm.DB) error {
+			if !db.Migrator().HasColumn(&Provider{}, "black_box") {
+				return nil
+			}
+			return db.Exec("UPDATE providers SET black_box = 0 WHERE black_box IS NULL").Error
+		},
+		Down: func(db *gorm.DB) error {
+			return nil
+		},
+	},
+	{
+		Version:     18,
+		Description: "Add reasoning effort metadata to proxy requests",
+		Up: func(db *gorm.DB) error {
+			return runReasoningEffortColumnMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Keep the column on rollback: dropping a column can rebuild large
+			// MySQL tables and the older application safely ignores it.
+			return nil
+		},
+	},
+	{
+		Version:     19,
+		Description: "Add error metadata to proxy upstream attempts",
+		Up: func(db *gorm.DB) error {
+			return runAttemptErrorColumnMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Keep the column on rollback: dropping a column can rebuild large
+			// attempt tables and older application versions safely ignore it.
+			return nil
+		},
+	},
+	{
+		Version:     20,
+		Description: "Move force retry upstream errors setting into retry configs",
+		Up: func(db *gorm.DB) error {
+			return runForceRetryUpstreamErrorsRetryConfigMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Keep the column on rollback; older application versions ignore it.
+			return nil
+		},
+	},
+	{
+		Version:     21,
+		Description: "Canonicalize provider client types and route native flags",
+		Up: func(db *gorm.DB) error {
+			return backfillRouteNativeFlags(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Data-only correction; no schema change to reverse.
+			return nil
+		},
+	},
+}
+
+func backfillRouteNativeFlags(db *gorm.DB) error {
+	var providers []Provider
+	if err := db.
+		Where("deleted_at = 0").
+		Find(&providers).Error; err != nil {
+		return err
+	}
+
+	nativeTypesByProvider := make(map[uint64]map[string]struct{}, len(providers))
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		for _, row := range providers {
+			var configured []domain.ClientType
+
+			raw := strings.TrimSpace(string(row.SupportedClientTypes))
+			if raw != "" {
+				if err := json.Unmarshal([]byte(raw), &configured); err != nil {
+					return fmt.Errorf("decode provider %d supported_client_types: %w", row.ID, err)
+				}
+			}
+
+			canonical := domain.CanonicalSupportedClientTypes(row.Type, configured)
+			encoded, err := json.Marshal(canonical)
+			if err != nil {
+				return err
+			}
+
+			if err := tx.
+				Model(&Provider{}).
+				Where("id = ?", row.ID).
+				Update("supported_client_types", string(encoded)).Error; err != nil {
+				return err
+			}
+
+			set := make(map[string]struct{}, len(canonical))
+			for _, clientType := range canonical {
+				set[string(clientType)] = struct{}{}
+			}
+			nativeTypesByProvider[row.ID] = set
+		}
+
+		var routes []Route
+		if err := tx.
+			Where("deleted_at = 0").
+			Find(&routes).Error; err != nil {
+			return err
+		}
+
+		for _, route := range routes {
+			native := 0
+			if _, ok := nativeTypesByProvider[route.ProviderID][route.ClientType]; ok {
+				native = 1
+			}
+			if route.IsNative == native {
+				continue
+			}
+			if err := tx.
+				Model(&Route{}).
+				Where("id = ?", route.ID).
+				Update("is_native", native).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func runForceRetryUpstreamErrorsRetryConfigMigration(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&RetryConfig{}, "force_retry_upstream_errors") {
+		if err := db.Migrator().AddColumn(&RetryConfig{}, "ForceRetryUpstreamErrors"); err != nil && !isDuplicateColumnError(err) {
+			return err
+		}
+	}
+
+	var legacyValue string
+	if err := db.Table("system_settings").
+		Select("value").
+		Where("setting_key = ?", "force_retry_upstream_errors").
+		Limit(1).
+		Scan(&legacyValue).Error; err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(legacyValue), "true") {
+		return db.Exec("UPDATE retry_configs SET force_retry_upstream_errors = 1 WHERE force_retry_upstream_errors = 0").Error
+	}
+	return nil
+}
+
+func runAttemptErrorColumnMigration(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&ProxyUpstreamAttempt{}, "error") {
+		return nil
+	}
+
+	ddl := attemptErrorColumnDDL(db.Dialector.Name())
+	if db.Dialector.Name() != "mysql" {
+		if err := db.Exec(ddl).Error; err != nil {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err == nil && mysqlSupportsInstantAddColumn(version) {
+		if err := db.Exec(ddl + ", ALGORITHM=INSTANT").Error; err == nil {
+			return nil
+		} else {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			log.Printf("[Migration v19] MySQL instant ADD COLUMN unavailable (%v); evaluating safe fallback", err)
+		}
+	}
+
+	exceedsThreshold, err := tableExceedsRowThreshold(db, "proxy_upstream_attempts", detailCleanupIndexRowThreshold)
+	if err != nil {
+		log.Printf("[Migration v19] could not probe proxy_upstream_attempts row threshold (%v); skipping column add. Apply manually if needed: %s;", err, ddl)
+		return nil
+	}
+	if exceedsThreshold {
+		log.Printf("[Migration v19] SKIPPING error ADD COLUMN: proxy_upstream_attempts has more than %d rows. "+
+			"Apply manually during a maintenance window: %s;",
+			detailCleanupIndexRowThreshold, ddl)
+		return nil
+	}
+
+	if err := execMySQLDDLWithLockTimeout(db, ddl, "v19", "attempt error"); err != nil {
+		if isDuplicateColumnError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func attemptErrorColumnDDL(dialect string) string {
+	if dialect == "mysql" {
+		return "ALTER TABLE proxy_upstream_attempts ADD COLUMN error LONGTEXT NULL"
+	}
+	return "ALTER TABLE proxy_upstream_attempts ADD COLUMN error TEXT NULL"
+}
+
+func runReasoningEffortColumnMigration(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		return nil
+	}
+
+	const ddl = reasoningEffortColumnDDL
+	if db.Dialector.Name() != "mysql" {
+		if err := db.Exec(ddl).Error; err != nil {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err == nil && mysqlSupportsInstantAddColumn(version) {
+		if err := db.Exec(ddl + ", ALGORITHM=INSTANT").Error; err == nil {
+			return nil
+		} else {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			log.Printf("[Migration v18] MySQL instant ADD COLUMN unavailable (%v); evaluating safe fallback", err)
+		}
+	}
+
+	exceedsThreshold, err := proxyRequestsExceedReasoningMigrationThreshold(db, detailCleanupIndexRowThreshold)
+	if err != nil {
+		log.Printf("[Migration v18] could not probe proxy_requests row threshold (%v); skipping column add. Apply manually if needed: %s;", err, ddl)
+		return nil
+	}
+	if exceedsThreshold {
+		log.Printf("[Migration v18] SKIPPING reasoning_effort ADD COLUMN: proxy_requests has more than %d rows. "+
+			"Apply manually during a maintenance window: %s;",
+			detailCleanupIndexRowThreshold, ddl)
+		return nil
+	}
+
+	if err := execMySQLReasoningEffortDDLWithLockTimeout(db, ddl); err != nil {
+		if isDuplicateColumnError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+const reasoningEffortColumnDDL = "ALTER TABLE proxy_requests ADD COLUMN reasoning_effort VARCHAR(32) NULL"
+const reasoningEffortMigrationLockWaitTimeoutSeconds uint64 = 10
+
+func execMySQLReasoningEffortDDLWithLockTimeout(db *gorm.DB, ddl string) error {
+	return execMySQLDDLWithLockTimeout(db, ddl, "v18", "reasoning_effort")
+}
+
+func execMySQLDDLWithLockTimeout(db *gorm.DB, ddl, migrationVersion, label string) error {
+	return db.Connection(func(tx *gorm.DB) error {
+		ctx := tx.Statement.Context
+		conn := tx.Statement.ConnPool
+		var originalTimeout uint64
+		if err := conn.QueryRowContext(ctx, "SELECT @@SESSION.lock_wait_timeout").Scan(&originalTimeout); err != nil {
+			return fmt.Errorf("read MySQL session lock_wait_timeout: %w", err)
+		}
+		if _, err := conn.ExecContext(
+			ctx,
+			"SET SESSION lock_wait_timeout = ?",
+			reasoningEffortMigrationLockWaitTimeoutSeconds,
+		); err != nil {
+			return fmt.Errorf("set MySQL session lock_wait_timeout: %w", err)
+		}
+
+		_, ddlErr := conn.ExecContext(ctx, ddl)
+		if _, restoreErr := conn.ExecContext(
+			ctx,
+			"SET SESSION lock_wait_timeout = ?",
+			originalTimeout,
+		); restoreErr != nil {
+			if ddlErr != nil {
+				log.Printf("[Migration %s] %s DDL also failed before lock_wait_timeout restoration: %v", migrationVersion, label, ddlErr)
+			}
+			return fmt.Errorf("restore MySQL session lock_wait_timeout: %w", restoreErr)
+		}
+		return ddlErr
+	})
+}
+
+// proxyRequestsExceedReasoningMigrationThreshold checks only whether a row
+// exists immediately after the threshold. Unlike COUNT(*), the work is bounded
+// to at most threshold+1 primary-key entries even when proxy_requests is huge.
+func proxyRequestsExceedReasoningMigrationThreshold(db *gorm.DB, threshold int64) (bool, error) {
+	return tableExceedsRowThreshold(db, "proxy_requests", threshold)
+}
+
+func tableExceedsRowThreshold(db *gorm.DB, table string, threshold int64) (bool, error) {
+	var marker int
+	result := db.Raw(
+		"SELECT 1 FROM "+table+" ORDER BY id LIMIT 1 OFFSET ?",
+		threshold,
+	).Scan(&marker)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func isDuplicateColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1060 // ER_DUP_FIELDNAME
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists")
+}
+
+func mysqlSupportsInstantAddColumn(version string) bool {
+	if strings.Contains(strings.ToLower(version), "mariadb") {
+		return false
+	}
+	version = strings.SplitN(version, "-", 2)[0]
+	parts := strings.Split(version, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	major, errMajor := strconv.Atoi(parts[0])
+	minor, errMinor := strconv.Atoi(parts[1])
+	patch, errPatch := strconv.Atoi(parts[2])
+	if errMajor != nil || errMinor != nil || errPatch != nil {
+		return false
+	}
+	if major > 8 {
+		return true
+	}
+	return major == 8 && (minor > 0 || patch >= 12)
 }
 
 // runDetailClearedColumnMigration 显式添加 detail_cleared 列到两张大表,带 threshold-skip。

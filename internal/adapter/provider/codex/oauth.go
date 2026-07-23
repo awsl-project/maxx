@@ -30,6 +30,18 @@ type TokenResponse struct {
 	IDToken      string `json:"id_token,omitempty"`
 }
 
+const minTokenExpiresInSeconds = 60
+
+// TokenExpiresAt converts an OAuth expires_in value into an absolute expiry.
+// Malformed zero/negative values are clamped so callers do not persist an
+// already-expired access token and then hot-loop refresh attempts.
+func TokenExpiresAt(expiresIn int) time.Time {
+	if expiresIn < minTokenExpiresInSeconds {
+		expiresIn = minTokenExpiresInSeconds
+	}
+	return time.Now().Add(time.Duration(expiresIn) * time.Second)
+}
+
 // CodexAuthInfo contains authentication-related details specific to Codex
 type CodexAuthInfo struct {
 	ChatgptAccountID               string `json:"chatgpt_account_id"`
@@ -219,6 +231,66 @@ func RefreshAccessToken(ctx context.Context, refreshToken string) (*TokenRespons
 	}
 
 	return &tokenResp, nil
+}
+
+// RefreshAccessTokenWithRetry refreshes the access token, retrying transient
+// failures with a linear backoff. Non-retryable errors (e.g. a reused or
+// otherwise invalid refresh token) fail fast so callers don't keep hammering
+// the token endpoint with a credential that will never succeed.
+// Mirrors CLIProxyAPI's RefreshTokensWithRetry behaviour.
+func RefreshAccessTokenWithRetry(ctx context.Context, refreshToken string, maxRetries int) (*TokenResponse, error) {
+	if strings.TrimSpace(refreshToken) == "" {
+		return nil, fmt.Errorf("refresh token is required")
+	}
+	if maxRetries < 1 {
+		maxRetries = 1
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Linear backoff between attempts; abort early if the caller cancels.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+
+		tokenResp, err := RefreshAccessToken(ctx, refreshToken)
+		if err == nil {
+			return tokenResp, nil
+		}
+		if isNonRetryableRefreshErr(err) {
+			return nil, err
+		}
+		lastErr = err
+	}
+
+	return nil, fmt.Errorf("token refresh failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// isNonRetryableRefreshErr reports whether a refresh error is permanent and
+// should not be retried (the refresh token itself is invalid). Retrying these
+// only risks tripping further "reused token" protections upstream.
+//
+// Only the specific permanent OAuth error codes are matched. Generic codes such
+// as invalid_request / invalid_client are intentionally excluded: a malformed
+// request fails deterministically anyway, and substring-matching such common
+// tokens against an arbitrary upstream response body would risk misclassifying
+// a transient failure (e.g. a 5xx error page) as permanent.
+func isNonRetryableRefreshErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	raw := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(raw, "refresh_token_reused"),
+		strings.Contains(raw, "invalid_grant"):
+		return true
+	default:
+		return false
+	}
 }
 
 // ParseIDToken decodes the ID token (JWT) without verifying signature

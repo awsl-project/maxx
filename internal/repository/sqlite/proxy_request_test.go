@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 )
 
 func TestDetailCleanupBatchParams(t *testing.T) {
@@ -127,6 +128,345 @@ func TestProxyRequestListCursorReturnsNewestIDsFirst(t *testing.T) {
 	}
 }
 
+func TestProxyRequestListCursorIncludesFinalAttemptMappedModel(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	reqRepo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	req := buildTestProxyRequest("COMPLETED", 1)
+	req.RequestModel = "gpt-4.1"
+	req.ResponseModel = "fallback-from-request"
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		TenantID:       req.TenantID,
+		ProxyRequestID: req.ID,
+		Status:         "COMPLETED",
+		RequestModel:   "gpt-4.1",
+		MappedModel:    "openrouter/gpt-4.1-mini",
+		ResponseModel:  "openrouter/gpt-4.1-mini",
+	}
+	if err := attemptRepo.Create(attempt); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+	req.FinalProxyUpstreamAttemptID = attempt.ID
+	if err := reqRepo.Update(req); err != nil {
+		t.Fatalf("update request: %v", err)
+	}
+
+	items, err := reqRepo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	if got := items[0].MappedModel; got != "openrouter/gpt-4.1-mini" {
+		t.Fatalf("MappedModel = %q, want openrouter/gpt-4.1-mini", got)
+	}
+}
+
+func TestProxyRequestListCursorDerivesSummaryFromFinalAttempt(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	reqRepo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	req := buildTestProxyRequest("COMPLETED", 1)
+	req.ResponseModel = "request-response"
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		TenantID:          req.TenantID,
+		ProxyRequestID:    req.ID,
+		Status:            "COMPLETED",
+		RouteID:           71,
+		ProviderID:        81,
+		InputTokenCount:   123,
+		OutputTokenCount:  456,
+		CacheReadCount:    7,
+		CacheWriteCount:   8,
+		Cache5mWriteCount: 9,
+		Cache1hWriteCount: 10,
+		Cost:              98765,
+		TTFT:              350 * time.Millisecond,
+		Duration:          4 * time.Second,
+		MappedModel:       "mapped-from-attempt",
+		ResponseModel:     "response-from-attempt",
+	}
+	if err := attemptRepo.Create(attempt); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+	req.FinalProxyUpstreamAttemptID = attempt.ID
+	if err := reqRepo.Update(req); err != nil {
+		t.Fatalf("update request: %v", err)
+	}
+
+	items, err := reqRepo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	got := items[0]
+	if got.MappedModel != "mapped-from-attempt" || got.ResponseModel != "response-from-attempt" {
+		t.Fatalf("models = (%q, %q), want attempt values", got.MappedModel, got.ResponseModel)
+	}
+	if got.ProviderID != 81 || got.RouteID != 71 {
+		t.Fatalf("route/provider = (%d, %d), want (71, 81)", got.RouteID, got.ProviderID)
+	}
+	if got.InputTokenCount != 123 || got.OutputTokenCount != 456 || got.CacheReadCount != 7 || got.CacheWriteCount != 8 || got.Cache5mWriteCount != 9 || got.Cache1hWriteCount != 10 || got.Cost != 98765 {
+		t.Fatalf("usage summary not derived from attempt: %+v", got)
+	}
+	if got.TTFT != 350*time.Millisecond || got.Duration != 4*time.Second {
+		t.Fatalf("timing = (%v, %v), want (350ms, 4s)", got.TTFT, got.Duration)
+	}
+}
+
+func TestProxyRequestListCursorPreservesZeroValuesFromFinalAttempt(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	reqRepo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	req := buildTestProxyRequest("COMPLETED", 1)
+	req.ResponseModel = "request-response"
+	req.RouteID = 71
+	req.ProviderID = 81
+	req.InputTokenCount = 123
+	req.OutputTokenCount = 456
+	req.CacheReadCount = 7
+	req.CacheWriteCount = 8
+	req.Cache5mWriteCount = 9
+	req.Cache1hWriteCount = 10
+	req.Cost = 98765
+	req.TTFT = 350 * time.Millisecond
+	req.Duration = 4 * time.Second
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		TenantID:       req.TenantID,
+		ProxyRequestID: req.ID,
+		Status:         "COMPLETED",
+		MappedModel:    "mapped-from-attempt",
+		ResponseModel:  "response-from-attempt",
+	}
+	if err := attemptRepo.Create(attempt); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+	req.FinalProxyUpstreamAttemptID = attempt.ID
+	if err := reqRepo.Update(req); err != nil {
+		t.Fatalf("update request: %v", err)
+	}
+
+	items, err := reqRepo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	got := items[0]
+	if got.ProviderID != 0 || got.RouteID != 0 {
+		t.Fatalf("route/provider = (%d, %d), want zero values from final attempt", got.RouteID, got.ProviderID)
+	}
+	if got.InputTokenCount != 0 || got.OutputTokenCount != 0 || got.CacheReadCount != 0 || got.CacheWriteCount != 0 || got.Cache5mWriteCount != 0 || got.Cache1hWriteCount != 0 || got.Cost != 0 {
+		t.Fatalf("usage summary did not preserve zero attempt values: %+v", got)
+	}
+	if got.TTFT != 0 || got.Duration != 0 {
+		t.Fatalf("timing = (%v, %v), want zero values from final attempt", got.TTFT, got.Duration)
+	}
+}
+
+func TestProxyRequestListActiveUsesLatestAttemptMappedModelBeforeFinalAttempt(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	reqRepo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	req := buildTestProxyRequest("IN_PROGRESS", 1)
+	req.RequestModel = "claude-3-5-sonnet"
+	req.ResponseModel = ""
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		TenantID:       req.TenantID,
+		ProxyRequestID: req.ID,
+		Status:         "IN_PROGRESS",
+		RequestModel:   "claude-3-5-sonnet",
+		MappedModel:    "openrouter/anthropic/claude-3.5-sonnet",
+	}
+	if err := attemptRepo.Create(attempt); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+
+	items, err := reqRepo.ListActive(1)
+	if err != nil {
+		t.Fatalf("ListActive failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	if got := items[0].MappedModel; got != "openrouter/anthropic/claude-3.5-sonnet" {
+		t.Fatalf("MappedModel = %q, want openrouter/anthropic/claude-3.5-sonnet", got)
+	}
+}
+
+func TestProxyRequestReasoningEffortRoundTrip(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	if !db.gorm.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		t.Fatal("reasoning_effort column was not migrated")
+	}
+
+	repo := NewProxyRequestRepository(db)
+	request := buildTestProxyRequest("IN_PROGRESS", 1)
+	request.ReasoningEffort = "high"
+	if err := repo.Create(request); err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "high", true)
+
+	request.Status = "COMPLETED"
+	request.ResponseModel = "response-model"
+	if err := repo.Update(request); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "high", false)
+
+	var stored string
+	if err := db.gorm.Raw("SELECT reasoning_effort FROM proxy_requests WHERE id = ?", request.ID).Scan(&stored).Error; err != nil {
+		t.Fatalf("read stored reasoning_effort: %v", err)
+	}
+	if stored != "high" {
+		t.Fatalf("stored reasoning_effort = %q, want high", stored)
+	}
+}
+
+func TestProxyRequestHistoricalNullReasoningEffortReadsAsEmpty(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	request := buildTestProxyRequest("IN_PROGRESS", 1)
+	if err := repo.Create(request); err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	if err := db.gorm.Exec("UPDATE proxy_requests SET reasoning_effort = NULL WHERE id = ?", request.ID).Error; err != nil {
+		t.Fatalf("set historical reasoning_effort NULL: %v", err)
+	}
+
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "", true)
+}
+
+func TestProxyRequestRepositoryWorksWithoutReasoningEffortColumn(t *testing.T) {
+	gormDB := openRawSQLiteDB(t)
+	if err := gormDB.AutoMigrate(&ProxyRequest{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyRequest: %v", err)
+	}
+	db := &DB{gorm: gormDB, dialector: "sqlite"}
+	repo := NewProxyRequestRepository(db)
+	if repo.hasReasoningEffortColumn {
+		t.Fatal("expected guarded migration fallback to detect the missing column")
+	}
+
+	request := buildTestProxyRequest("IN_PROGRESS", 1)
+	request.ReasoningEffort = "high"
+	if err := repo.Create(request); err != nil {
+		t.Fatalf("Create without reasoning_effort column: %v", err)
+	}
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "", true)
+
+	request.Status = "COMPLETED"
+	if err := repo.Update(request); err != nil {
+		t.Fatalf("Update without reasoning_effort column: %v", err)
+	}
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "", false)
+
+	count, err := repo.Count(1)
+	if err != nil {
+		t.Fatalf("Count without reasoning_effort column: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("Count without reasoning_effort column = %d, want 1", count)
+	}
+}
+
+func assertProxyRequestReasoningEffortReads(
+	t *testing.T,
+	repo *ProxyRequestRepository,
+	id uint64,
+	want string,
+	wantActive bool,
+) {
+	t.Helper()
+
+	got, err := repo.GetByID(1, id)
+	if err != nil {
+		t.Fatalf("GetByID reasoning effort: %v", err)
+	}
+	if got.ReasoningEffort != want {
+		t.Fatalf("GetByID reasoning effort = %q, want %q", got.ReasoningEffort, want)
+	}
+
+	list, err := repo.List(1, 10, 0)
+	if err != nil {
+		t.Fatalf("List reasoning effort: %v", err)
+	}
+	if len(list) != 1 || list[0].ReasoningEffort != want {
+		t.Fatalf("List reasoning effort = %#v, want %q", list, want)
+	}
+
+	cursor, err := repo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor reasoning effort: %v", err)
+	}
+	if len(cursor) != 1 || cursor[0].ReasoningEffort != want {
+		t.Fatalf("ListCursor reasoning effort = %#v, want %q", cursor, want)
+	}
+
+	active, err := repo.ListActive(1)
+	if err != nil {
+		t.Fatalf("ListActive reasoning effort: %v", err)
+	}
+	if wantActive {
+		if len(active) != 1 || active[0].ReasoningEffort != want {
+			t.Fatalf("ListActive reasoning effort = %#v, want %q", active, want)
+		}
+	} else if len(active) != 0 {
+		t.Fatalf("ListActive after completion = %#v, want empty", active)
+	}
+}
+
 func TestProxyRequestListCursorBeforeCursorDoesNotRepeatOrSkipRecords(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
@@ -184,6 +524,128 @@ func TestProxyRequestListCursorBeforeCursorDoesNotRepeatOrSkipRecords(t *testing
 	}
 	if fmt.Sprint(combined) != fmt.Sprint(expectedCombined) {
 		t.Fatalf("expected combined pages %v, got %v", expectedCombined, combined)
+	}
+}
+
+func TestProxyRequestListCursorAndCountFilterByCreatedAtRange(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	base := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	requests := []*domain.ProxyRequest{
+		buildTestProxyRequest("COMPLETED", 1),
+		buildTestProxyRequest("COMPLETED", 2),
+		buildTestProxyRequest("COMPLETED", 3),
+		buildTestProxyRequest("COMPLETED", 4),
+	}
+
+	for i, request := range requests {
+		if err := repo.Create(request); err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+		createdAt := base.Add(time.Duration(i) * time.Hour).UnixMilli()
+		if err := db.gorm.Model(&ProxyRequest{}).Where("id = ?", request.ID).Update("created_at", createdAt).Error; err != nil {
+			t.Fatalf("Failed to update created_at: %v", err)
+		}
+	}
+
+	start := base.Add(1 * time.Hour)
+	end := base.Add(2 * time.Hour)
+	filter := &repository.ProxyRequestFilter{
+		StartTime: &start,
+		EndTime:   &end,
+	}
+
+	items, err := repo.ListCursor(1, 10, 0, 0, filter)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	expected := []uint64{requests[2].ID, requests[1].ID}
+	if got := collectRequestIDs(items); fmt.Sprint(got) != fmt.Sprint(expected) {
+		t.Fatalf("expected filtered ids %v, got %v", expected, got)
+	}
+
+	count, err := repo.CountWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("CountWithFilter failed: %v", err)
+	}
+	if count != int64(len(expected)) {
+		t.Fatalf("expected filtered count %d, got %d", len(expected), count)
+	}
+}
+
+// TestProxyRequestUpdatePreservesRequestInfo 锁定 OOM 优化后的写入不变量:
+//   - Update 永不重写 request_info(Create 后不变),状态类 Update 不能把它清空;
+//   - Update 仅在 ResponseInfo 非 nil 时写 response_info;ResponseInfo 为 nil 时
+//     不能覆盖库中已有的 response_info。
+func TestProxyRequestUpdatePreservesRequestInfo(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+
+	req := buildTestProxyRequest("PENDING", 1)
+	req.RequestInfo = &domain.RequestInfo{Method: "POST", URL: "u", Body: "the-request-body"}
+	if err := repo.Create(req); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	reload := func() *ProxyRequest {
+		var m ProxyRequest
+		if err := repo.db.gorm.First(&m, req.ID).Error; err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		return &m
+	}
+
+	// 1) 状态类 Update(ResponseInfo 仍为 nil)：request_info 必须保留，
+	//    response_info 不得被写入响应体(Create 写的 nil 占位 "null" 可保留)。
+	req.Status = "IN_PROGRESS"
+	req.RequestInfo = nil // 模拟调用方在 Update 时并不携带 RequestInfo
+	if err := repo.Update(req); err != nil {
+		t.Fatalf("update status: %v", err)
+	}
+	if got := reload(); !strings.Contains(string(got.RequestInfo), "the-request-body") {
+		t.Fatalf("request_info wiped by status-only Update: %q", got.RequestInfo)
+	} else if strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("response_info unexpectedly written: %q", got.ResponseInfo)
+	}
+
+	// 2) 终态 Update 带 ResponseInfo：response_info 必须落库，request_info 仍保留。
+	req.Status = "COMPLETED"
+	req.ResponseInfo = &domain.ResponseInfo{Status: 200, Body: "the-response-body"}
+	if err := repo.Update(req); err != nil {
+		t.Fatalf("update completed: %v", err)
+	}
+	got := reload()
+	if !strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("response_info not persisted: %q", got.ResponseInfo)
+	}
+	if !strings.Contains(string(got.RequestInfo), "the-request-body") {
+		t.Fatalf("request_info lost after completion Update: %q", got.RequestInfo)
+	}
+	if got.Status != "COMPLETED" {
+		t.Fatalf("status not updated: %q", got.Status)
+	}
+
+	// 3) 关键不变量(CodeRabbit 指出):response_info 已落真实值后,再来一次
+	//    ResponseInfo==nil 的状态类 Update,必须 Omit 掉 response_info、不能把已有值清空。
+	req.Status = "FAILED"
+	req.ResponseInfo = nil
+	if err := repo.Update(req); err != nil {
+		t.Fatalf("status update after response set: %v", err)
+	}
+	if got := reload(); !strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("existing response_info wiped by nil-ResponseInfo Update: %q", got.ResponseInfo)
+	} else if got.Status != "FAILED" {
+		t.Fatalf("status not updated on nil-ResponseInfo Update: %q", got.Status)
 	}
 }
 
@@ -599,5 +1061,272 @@ func TestProxyUpstreamAttemptClearDetailOlderThan_UsesSentinelIndex(t *testing.T
 	}
 	if strings.Contains(plan, "TEMP B-TREE") {
 		t.Fatalf("plan should not require TEMP B-TREE sort, got:\n%s", plan)
+	}
+}
+
+func TestProxyRequestErrorModeFiltersStatusAndHTTPFailures(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	requests := []*domain.ProxyRequest{
+		buildTestProxyRequest("COMPLETED", 1),
+		buildTestProxyRequest("FAILED", 2),
+		buildTestProxyRequest("REJECTED", 3),
+		buildTestProxyRequest("COMPLETED", 4),
+		buildTestProxyRequest("CANCELLED", 5),
+	}
+	requests[3].StatusCode = 502
+	for _, request := range requests {
+		if err := repo.Create(request); err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+	}
+
+	errorFilter := &repository.ProxyRequestFilter{ErrorMode: repository.ProxyRequestErrorModeOnly}
+	errorCount, err := repo.CountWithFilter(1, errorFilter)
+	if err != nil {
+		t.Fatalf("CountWithFilter only failed: %v", err)
+	}
+	if errorCount != 4 {
+		t.Fatalf("error count = %d, want 4", errorCount)
+	}
+
+	errorItems, err := repo.ListCursor(1, 10, 0, 0, errorFilter)
+	if err != nil {
+		t.Fatalf("ListCursor only failed: %v", err)
+	}
+	expectedErrorIDs := []uint64{requests[4].ID, requests[3].ID, requests[2].ID, requests[1].ID}
+	if got := collectRequestIDs(errorItems); fmt.Sprint(got) != fmt.Sprint(expectedErrorIDs) {
+		t.Fatalf("error ids = %v, want %v", got, expectedErrorIDs)
+	}
+
+	excludeFilter := &repository.ProxyRequestFilter{ErrorMode: repository.ProxyRequestErrorModeExclude}
+	nonErrorCount, err := repo.CountWithFilter(1, excludeFilter)
+	if err != nil {
+		t.Fatalf("CountWithFilter exclude failed: %v", err)
+	}
+	if nonErrorCount != 1 {
+		t.Fatalf("non-error count = %d, want 1", nonErrorCount)
+	}
+
+	nonErrorItems, err := repo.ListCursor(1, 10, 0, 0, excludeFilter)
+	if err != nil {
+		t.Fatalf("ListCursor exclude failed: %v", err)
+	}
+	expectedNonErrorIDs := []uint64{requests[0].ID}
+	if got := collectRequestIDs(nonErrorItems); fmt.Sprint(got) != fmt.Sprint(expectedNonErrorIDs) {
+		t.Fatalf("non-error ids = %v, want %v", got, expectedNonErrorIDs)
+	}
+}
+
+func TestProxyRequestErrorStatsAggregatesCurrentFilter(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	requests := []*domain.ProxyRequest{
+		buildTestProxyRequest("COMPLETED", 1),
+		buildTestProxyRequest("FAILED", 2),
+		buildTestProxyRequest("REJECTED", 3),
+		buildTestProxyRequest("COMPLETED", 4),
+		buildTestProxyRequest("CANCELLED", 5),
+	}
+	requests[0].ProviderID = 7
+	requests[0].RequestModel = "claude-sonnet"
+	requests[1].ProviderID = 7
+	requests[1].RequestModel = "claude-sonnet"
+	requests[2].ProviderID = 8
+	requests[2].RequestModel = "gpt-5"
+	requests[3].ProviderID = 7
+	requests[3].RequestModel = "claude-sonnet"
+	requests[3].StatusCode = 502
+	requests[4].ProviderID = 9
+	requests[4].RequestModel = "cancelled-model"
+	for _, request := range requests {
+		if err := repo.Create(request); err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+	}
+
+	stats, err := repo.GetErrorStats(1, nil)
+	if err != nil {
+		t.Fatalf("GetErrorStats failed: %v", err)
+	}
+	if stats.TotalRequests != 5 {
+		t.Fatalf("total requests = %d, want 5", stats.TotalRequests)
+	}
+	if stats.ErrorRequests != 4 {
+		t.Fatalf("error requests = %d, want 4", stats.ErrorRequests)
+	}
+	if stats.ErrorRate != 0.8 {
+		t.Fatalf("error rate = %v, want 0.8", stats.ErrorRate)
+	}
+
+	statusCounts := map[string]int64{}
+	for _, item := range stats.StatusCounts {
+		statusCounts[item.Name] = item.Count
+	}
+	if statusCounts["FAILED"] != 1 || statusCounts["REJECTED"] != 1 || statusCounts["COMPLETED"] != 1 || statusCounts["CANCELLED"] != 1 {
+		t.Fatalf("unexpected status counts: %#v", statusCounts)
+	}
+
+	httpCounts := map[int]int64{}
+	for _, item := range stats.HTTPStatusCounts {
+		httpCounts[item.StatusCode] = item.Count
+	}
+	if httpCounts[502] != 1 {
+		t.Fatalf("unexpected HTTP status counts: %#v", httpCounts)
+	}
+
+	providerCounts := map[uint64]int64{}
+	for _, item := range stats.ProviderCounts {
+		providerCounts[item.ProviderID] = item.Count
+	}
+	if providerCounts[7] != 2 || providerCounts[8] != 1 || providerCounts[9] != 1 {
+		t.Fatalf("unexpected provider counts: %#v", providerCounts)
+	}
+
+	modelCounts := map[string]int64{}
+	for _, item := range stats.ModelCounts {
+		modelCounts[item.Name] = item.Count
+	}
+	if modelCounts["claude-sonnet"] != 2 || modelCounts["gpt-5"] != 1 || modelCounts["cancelled-model"] != 1 {
+		t.Fatalf("unexpected model counts: %#v", modelCounts)
+	}
+	if len(stats.Trend) == 0 {
+		t.Fatal("expected non-empty trend")
+	}
+}
+
+func TestProxyRequestDeleteFailedWithFilterDeletesAttemptsAndPreservesNonErrors(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+
+	failed := buildTestProxyRequest("FAILED", 100)
+	failed.StatusCode = 500
+	failed.ProjectID = 10
+	cancelled := buildTestProxyRequest("CANCELLED", 104)
+	cancelled.ProjectID = 10
+	completed := buildTestProxyRequest("COMPLETED", 101)
+	completed.ProjectID = 10
+	active := buildTestProxyRequest("IN_PROGRESS", 102)
+	active.StatusCode = 500
+	active.ProjectID = 10
+	rejectedOtherProject := buildTestProxyRequest("REJECTED", 103)
+	rejectedOtherProject.StatusCode = 403
+	rejectedOtherProject.ProjectID = 99
+
+	for _, req := range []*domain.ProxyRequest{failed, cancelled, completed, active, rejectedOtherProject} {
+		if err := repo.Create(req); err != nil {
+			t.Fatalf("create request %s: %v", req.Status, err)
+		}
+	}
+
+	seedAttemptForRequest(t, attemptRepo, db, failed.ID, time.Now())
+	seedAttemptForRequest(t, attemptRepo, db, cancelled.ID, time.Now())
+	seedAttemptForRequest(t, attemptRepo, db, completed.ID, time.Now())
+	seedAttemptForRequest(t, attemptRepo, db, active.ID, time.Now())
+	seedAttemptForRequest(t, attemptRepo, db, rejectedOtherProject.ID, time.Now())
+
+	filter := &repository.ProxyRequestFilter{ProjectID: &failed.ProjectID}
+	candidateCount, err := repo.CountFailedWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("CountFailedWithFilter: %v", err)
+	}
+	if candidateCount != 2 {
+		t.Fatalf("cleanup candidate count = %d, want 2", candidateCount)
+	}
+
+	deletedRequests, deletedAttempts, err := repo.DeleteFailedWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("DeleteFailedWithFilter: %v", err)
+	}
+	if deletedRequests != 2 || deletedAttempts != 2 {
+		t.Fatalf("deleted requests/attempts = %d/%d, want 2/2", deletedRequests, deletedAttempts)
+	}
+
+	if _, err := repo.GetByID(1, failed.ID); err == nil {
+		t.Fatalf("failed request still exists after cleanup")
+	}
+	if _, err := repo.GetByID(1, cancelled.ID); err == nil {
+		t.Fatalf("cancelled request still exists after cleanup")
+	}
+	for _, req := range []*domain.ProxyRequest{completed, active, rejectedOtherProject} {
+		if _, err := repo.GetByID(req.TenantID, req.ID); err != nil {
+			t.Fatalf("request %d (%s) should be preserved: %v", req.ID, req.Status, err)
+		}
+	}
+
+	var orphanAttempts int64
+	if err := db.gorm.Model(&ProxyUpstreamAttempt{}).Where("proxy_request_id IN ?", []uint64{failed.ID, cancelled.ID}).Count(&orphanAttempts).Error; err != nil {
+		t.Fatalf("count deleted attempts: %v", err)
+	}
+	if orphanAttempts != 0 {
+		t.Fatalf("failed request attempts left behind = %d, want 0", orphanAttempts)
+	}
+
+	var retainedAttempts int64
+	if err := db.gorm.Model(&ProxyUpstreamAttempt{}).
+		Where("proxy_request_id IN ?", []uint64{completed.ID, active.ID, rejectedOtherProject.ID}).
+		Count(&retainedAttempts).Error; err != nil {
+		t.Fatalf("count retained attempts: %v", err)
+	}
+	if retainedAttempts != 3 {
+		t.Fatalf("retained attempts = %d, want 3", retainedAttempts)
+	}
+}
+
+func TestProxyRequestRepositoryReassignAPITokenID(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	reqs := []*domain.ProxyRequest{
+		{TenantID: 1, InstanceID: "i", RequestID: "r1", APITokenID: 10, Status: "COMPLETED", StartTime: time.Now()},
+		{TenantID: 1, InstanceID: "i", RequestID: "r2", APITokenID: 11, Status: "COMPLETED", StartTime: time.Now()},
+		{TenantID: 2, InstanceID: "i", RequestID: "r3", APITokenID: 10, Status: "COMPLETED", StartTime: time.Now()},
+	}
+	for _, req := range reqs {
+		if err := repo.Create(req); err != nil {
+			t.Fatalf("seed request: %v", err)
+		}
+	}
+
+	if err := repo.ReassignAPITokenID(1, 10, 11); err != nil {
+		t.Fatalf("reassign: %v", err)
+	}
+
+	got, err := repo.List(1, 10, 0)
+	if err != nil {
+		t.Fatalf("list tenant 1: %v", err)
+	}
+	for _, req := range got {
+		if req.APITokenID != 11 {
+			t.Fatalf("tenant 1 request = %+v, want APITokenID 11", req)
+		}
+	}
+
+	other, err := repo.List(2, 10, 0)
+	if err != nil {
+		t.Fatalf("list tenant 2: %v", err)
+	}
+	if len(other) != 1 || other[0].APITokenID != 10 {
+		t.Fatalf("tenant 2 requests = %+v, want untouched token 10", other)
 	}
 }

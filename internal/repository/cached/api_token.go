@@ -55,8 +55,15 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	if exists && old != nil && old.Token != t.Token {
 		delete(r.tokenCache, old.Token)
 	}
+	for tokenValue, cached := range r.tokenCache {
+		if cached != nil && cached.ID == t.ID && tokenValue != t.Token {
+			delete(r.tokenCache, tokenValue)
+		}
+	}
 	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
+	if t.Token != "" {
+		r.tokenCache[t.Token] = t
+	}
 	r.mu.Unlock()
 	r.bc.publish(OpUpdate, t.ID)
 	return nil
@@ -80,6 +87,25 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.Unlock()
 	r.bc.publish(OpDelete, id)
 	return nil
+}
+
+func (r *APITokenRepository) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	tokens, err := r.repo.DeleteExpired(tenantID, now, inactiveExpiry)
+	if err != nil {
+		return nil, err
+	}
+	if len(tokens) == 0 {
+		return tokens, nil
+	}
+
+	r.mu.Lock()
+	for _, t := range tokens {
+		delete(r.cache, t.ID)
+		delete(r.tokenCache, t.Token)
+	}
+	r.mu.Unlock()
+	r.bc.publish(OpReload, 0)
+	return tokens, nil
 }
 
 func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {

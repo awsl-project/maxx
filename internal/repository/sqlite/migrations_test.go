@@ -1,16 +1,21 @@
 package sqlite
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	glebarezsqlite "github.com/glebarez/sqlite"
 	mysqlDriver "github.com/go-sql-driver/mysql"
+	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestIsMySQLDuplicateIndexError(t *testing.T) {
@@ -37,6 +42,746 @@ func TestIsMySQLMissingIndexError(t *testing.T) {
 	}
 	if isMySQLMissingIndexError(errors.New("some other error")) {
 		t.Fatalf("expected false for unrelated error")
+	}
+}
+
+func TestMySQLSupportsInstantAddColumn(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{version: "8.0.11", want: false},
+		{version: "8.0.12", want: true},
+		{version: "8.0.12-log", want: true},
+		{version: "8.4.1", want: true},
+		{version: "9.0.0", want: true},
+		{version: "5.7.44-log", want: false},
+		{version: "10.11.6-MariaDB", want: false},
+		{version: "8.0", want: false},
+		{version: "8.x.12", want: false},
+		{version: "invalid", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := mysqlSupportsInstantAddColumn(tt.version); got != tt.want {
+			t.Errorf("mysqlSupportsInstantAddColumn(%q) = %v, want %v", tt.version, got, tt.want)
+		}
+	}
+}
+
+func TestIsDuplicateColumnError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "mysql duplicate field", err: &mysqlDriver.MySQLError{Number: 1060, Message: "Duplicate column name"}, want: true},
+		{name: "mysql unrelated", err: &mysqlDriver.MySQLError{Number: 1146, Message: "Table doesn't exist"}, want: false},
+		{name: "sqlite duplicate", err: errors.New("duplicate column name: reasoning_effort"), want: true},
+		{name: "postgres duplicate", err: errors.New(`column "reasoning_effort" already exists`), want: true},
+		{name: "unrelated", err: errors.New("connection refused"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDuplicateColumnError(tt.err); got != tt.want {
+				t.Fatalf("isDuplicateColumnError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReasoningEffortColumnIsExcludedFromAutoMigrate(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyRequest{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyRequest: %v", err)
+	}
+	if db.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		t.Fatal("reasoning_effort must be added by guarded migration v18, not AutoMigrate")
+	}
+}
+
+func TestAttemptErrorColumnIsExcludedFromAutoMigrate(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyUpstreamAttempt{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyUpstreamAttempt: %v", err)
+	}
+	if db.Migrator().HasColumn(&ProxyUpstreamAttempt{}, "error") {
+		t.Fatal("attempt error must be added by guarded migration v19, not AutoMigrate")
+	}
+}
+
+func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
+	lastVersion := 0
+	v18Count := 0
+	v19Count := 0
+	v20Count := 0
+	v21Count := 0
+	for _, migration := range migrations {
+		if migration.Version <= lastVersion {
+			t.Fatalf("migrations are not strictly ordered: v%d follows v%d", migration.Version, lastVersion)
+		}
+		lastVersion = migration.Version
+		if migration.Version == 18 {
+			v18Count++
+		}
+		if migration.Version == 19 {
+			v19Count++
+		}
+		if migration.Version == 20 {
+			v20Count++
+		}
+		if migration.Version == 21 {
+			v21Count++
+		}
+	}
+	if lastVersion != 21 {
+		t.Fatalf("latest migration = v%d, want v21", lastVersion)
+	}
+	if v18Count != 1 {
+		t.Fatalf("migration v18 registered %d times, want once", v18Count)
+	}
+	if v19Count != 1 {
+		t.Fatalf("migration v19 registered %d times, want once", v19Count)
+	}
+	if v20Count != 1 {
+		t.Fatalf("migration v20 registered %d times, want once", v20Count)
+	}
+	if v21Count != 1 {
+		t.Fatalf("migration v21 registered %d times, want once", v21Count)
+	}
+}
+
+func TestMigrationV21CanonicalizesProviderClientTypes(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&Provider{}, &Route{}); err != nil {
+		t.Fatalf("AutoMigrate Provider/Route: %v", err)
+	}
+
+	fixtures := []struct {
+		name string
+		row  Provider
+		want string
+	}{
+		{
+			name: "codex ignores stale openai config",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "codex",
+				Name:                 "codex-stale",
+				SupportedClientTypes: LongText(`["openai"]`),
+			},
+			want: `["codex"]`,
+		},
+		{
+			name: "custom empty defaults openai",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "custom",
+				Name:                 "custom-empty",
+				SupportedClientTypes: LongText(""),
+			},
+			want: `["openai"]`,
+		},
+		{
+			name: "custom keeps configured openai",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "custom",
+				Name:                 "custom-openai",
+				SupportedClientTypes: LongText(`["openai"]`),
+			},
+			want: `["openai"]`,
+		},
+		{
+			name: "custom keeps configured codex",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "custom",
+				Name:                 "custom-codex",
+				SupportedClientTypes: LongText(`["codex"]`),
+			},
+			want: `["codex"]`,
+		},
+	}
+
+	for i := range fixtures {
+		if err := db.Create(&fixtures[i].row).Error; err != nil {
+			t.Fatalf("insert provider %s: %v", fixtures[i].name, err)
+		}
+	}
+
+	migration := findMigrationByVersion(t, 21)
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("run migration v21: %v", err)
+	}
+
+	for _, fixture := range fixtures {
+		var got string
+		if err := db.Model(&Provider{}).
+			Select("supported_client_types").
+			Where("id = ?", fixture.row.ID).
+			Scan(&got).Error; err != nil {
+			t.Fatalf("read provider %s supported_client_types: %v", fixture.name, err)
+		}
+		if got != fixture.want {
+			t.Fatalf("provider %s supported_client_types = %q, want %q", fixture.name, got, fixture.want)
+		}
+	}
+}
+
+func TestMigrationV21BackfillsRouteNativeFlags(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&Provider{}, &Route{}); err != nil {
+		t.Fatalf("AutoMigrate Provider/Route: %v", err)
+	}
+
+	providers := map[string]*Provider{
+		"codex": {
+			TenantID:             1,
+			Type:                 "codex",
+			Name:                 "codex-provider",
+			SupportedClientTypes: LongText(`["openai"]`),
+		},
+		"custom-openai": {
+			TenantID:             1,
+			Type:                 "custom",
+			Name:                 "custom-openai-provider",
+			SupportedClientTypes: LongText(`["openai"]`),
+		},
+		"custom-empty": {
+			TenantID:             1,
+			Type:                 "custom",
+			Name:                 "custom-empty-provider",
+			SupportedClientTypes: LongText(""),
+		},
+		"custom-codex": {
+			TenantID:             1,
+			Type:                 "custom",
+			Name:                 "custom-codex-provider",
+			SupportedClientTypes: LongText(`["codex"]`),
+		},
+	}
+	for name, provider := range providers {
+		if err := db.Create(provider).Error; err != nil {
+			t.Fatalf("insert provider %s: %v", name, err)
+		}
+	}
+
+	type routeFixture struct {
+		name       string
+		route      Route
+		wantNative int
+	}
+	routes := []routeFixture{
+		{
+			name: "codex provider + codex route forces native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["codex"].ID,
+				ClientType: "codex",
+				IsNative:   0,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 1,
+		},
+		{
+			name: "custom openai + codex route clears native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["custom-openai"].ID,
+				ClientType: "codex",
+				IsNative:   1,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 0,
+		},
+		{
+			name: "custom empty defaults openai + codex route clears native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["custom-empty"].ID,
+				ClientType: "codex",
+				IsNative:   1,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 0,
+		},
+		{
+			name: "custom codex + codex route forces native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["custom-codex"].ID,
+				ClientType: "codex",
+				IsNative:   0,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 1,
+		},
+		{
+			name: "codex provider + openai route clears native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["codex"].ID,
+				ClientType: "openai",
+				IsNative:   1,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 0,
+		},
+	}
+	for i := range routes {
+		if err := db.Create(&routes[i].route).Error; err != nil {
+			t.Fatalf("insert route %s: %v", routes[i].name, err)
+		}
+	}
+
+	migration := findMigrationByVersion(t, 21)
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("run migration v21: %v", err)
+	}
+
+	for _, fixture := range routes {
+		var got int
+		if err := db.Model(&Route{}).
+			Select("is_native").
+			Where("id = ?", fixture.route.ID).
+			Scan(&got).Error; err != nil {
+			t.Fatalf("read route %s is_native: %v", fixture.name, err)
+		}
+		if got != fixture.wantNative {
+			t.Fatalf("route %s is_native = %d, want %d", fixture.name, got, fixture.wantNative)
+		}
+	}
+}
+
+func TestAttemptErrorMigrationPreservesHistoricalNullAndIsIdempotent(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyUpstreamAttempt{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyUpstreamAttempt: %v", err)
+	}
+	historical := &ProxyUpstreamAttempt{TenantID: 1, Status: "FAILED", ProxyRequestID: 100}
+	if err := db.Omit("error").Create(historical).Error; err != nil {
+		t.Fatalf("insert historical attempt: %v", err)
+	}
+
+	migration := findMigrationByVersion(t, 19)
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("run migration v19: %v", err)
+	}
+	if !db.Migrator().HasColumn(&ProxyUpstreamAttempt{}, "error") {
+		t.Fatal("migration v19 did not add attempt error")
+	}
+
+	var attemptErr sql.NullString
+	if err := db.Raw("SELECT error FROM proxy_upstream_attempts WHERE id = ?", historical.ID).Row().Scan(&attemptErr); err != nil {
+		t.Fatalf("read historical attempt error: %v", err)
+	}
+	if attemptErr.Valid {
+		t.Fatalf("historical attempt error = %q, want SQL NULL", attemptErr.String)
+	}
+
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("rerun migration v19: %v", err)
+	}
+}
+
+func TestProxyRequestsExceedReasoningMigrationThreshold(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyRequest{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyRequest: %v", err)
+	}
+
+	insert := func(index int) {
+		t.Helper()
+		model := &ProxyRequest{TenantID: 1, RequestID: fmt.Sprintf("threshold-%d", index)}
+		if err := db.Omit("reasoning_effort").Create(model).Error; err != nil {
+			t.Fatalf("insert threshold fixture %d: %v", index, err)
+		}
+	}
+
+	for i := 1; i <= 3; i++ {
+		insert(i)
+	}
+	exceeds, err := proxyRequestsExceedReasoningMigrationThreshold(db, 3)
+	if err != nil {
+		t.Fatalf("probe exact threshold: %v", err)
+	}
+	if exceeds {
+		t.Fatal("exactly threshold rows must not be treated as exceeding the threshold")
+	}
+
+	insert(4)
+	exceeds, err = proxyRequestsExceedReasoningMigrationThreshold(db, 3)
+	if err != nil {
+		t.Fatalf("probe above threshold: %v", err)
+	}
+	if !exceeds {
+		t.Fatal("threshold+1 rows must be treated as exceeding the threshold")
+	}
+}
+
+func TestProxyRequestsExceedReasoningMigrationThresholdReturnsProbeError(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if _, err := proxyRequestsExceedReasoningMigrationThreshold(db, 1); err == nil {
+		t.Fatal("expected missing proxy_requests table to return an error")
+	}
+}
+
+func TestReasoningEffortMigrationPreservesHistoricalNullAndIsIdempotent(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyRequest{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyRequest: %v", err)
+	}
+	historical := &ProxyRequest{TenantID: 1, RequestID: "historical-before-v18"}
+	if err := db.Omit("reasoning_effort").Create(historical).Error; err != nil {
+		t.Fatalf("insert historical request: %v", err)
+	}
+
+	migration := findMigrationByVersion(t, 18)
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("run migration v18: %v", err)
+	}
+	if !db.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		t.Fatal("migration v18 did not add reasoning_effort")
+	}
+
+	var effort sql.NullString
+	if err := db.Raw("SELECT reasoning_effort FROM proxy_requests WHERE id = ?", historical.ID).Row().Scan(&effort); err != nil {
+		t.Fatalf("read historical reasoning_effort: %v", err)
+	}
+	if effort.Valid {
+		t.Fatalf("historical reasoning_effort = %q, want SQL NULL", effort.String)
+	}
+
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("rerun migration v18: %v", err)
+	}
+	var count int64
+	if err := db.Model(&ProxyRequest{}).Count(&count).Error; err != nil {
+		t.Fatalf("count requests after idempotent migration: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("request count after idempotent migration = %d, want 1", count)
+	}
+}
+
+func TestReasoningEffortMigrationMySQL(t *testing.T) {
+	t.Run("column already exists", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 1)
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("non-mysql duplicate column is idempotent", func(t *testing.T) {
+		db, mock := openMockSQLDB(t, "sqlite")
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL)).
+			WillReturnError(errors.New("duplicate column name: reasoning_effort"))
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("non-mysql add column error is returned", func(t *testing.T) {
+		db, mock := openMockSQLDB(t, "sqlite")
+		expectMySQLReasoningColumnLookup(mock, 0)
+		wantErr := errors.New("add column failed")
+		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL)).WillReturnError(wantErr)
+
+		if err := runReasoningEffortColumnMigration(db); !errors.Is(err, wantErr) {
+			t.Fatalf("run migration error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("mysql 8 uses instant add column", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.36"))
+		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL + ", ALGORITHM=INSTANT")).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("version query failure uses guarded fallback", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnError(errors.New("version unavailable"))
+		expectReasoningThresholdProbe(mock, false)
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, nil)
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("mysql 5.7 small table uses guarded add column", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
+		expectReasoningThresholdProbe(mock, false)
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, nil)
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("guarded add duplicate column is idempotent", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
+		expectReasoningThresholdProbe(mock, false)
+		expectReasoningDDLWithLockTimeout(
+			mock,
+			reasoningEffortColumnDDL,
+			&mysqlDriver.MySQLError{Number: 1060, Message: "Duplicate column name 'reasoning_effort'"},
+			nil,
+		)
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("guarded add error is returned", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
+		expectReasoningThresholdProbe(mock, false)
+		wantErr := &mysqlDriver.MySQLError{Number: 1205, Message: "Lock wait timeout exceeded"}
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, wantErr, nil)
+
+		if err := runReasoningEffortColumnMigration(db); !errors.Is(err, wantErr) {
+			t.Fatalf("run migration error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("instant failure falls back for a small table", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.36"))
+		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL + ", ALGORITHM=INSTANT")).
+			WillReturnError(&mysqlDriver.MySQLError{Number: 1846, Message: "ALGORITHM=INSTANT is not supported"})
+		expectReasoningThresholdProbe(mock, false)
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, nil)
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("large table skips blocking fallback", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
+		expectReasoningThresholdProbe(mock, true)
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("probe failure safely skips fallback", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 FROM proxy_requests ORDER BY id LIMIT 1 OFFSET ?")).
+			WithArgs(detailCleanupIndexRowThreshold).
+			WillReturnError(errors.New("probe failed"))
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("concurrent duplicate column is idempotent", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		expectMySQLReasoningColumnLookup(mock, 0)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
+			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.36"))
+		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL + ", ALGORITHM=INSTANT")).
+			WillReturnError(&mysqlDriver.MySQLError{Number: 1060, Message: "Duplicate column name 'reasoning_effort'"})
+
+		if err := runReasoningEffortColumnMigration(db); err != nil {
+			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+}
+
+func TestExecMySQLReasoningEffortDDLWithLockTimeoutErrors(t *testing.T) {
+	t.Run("read original timeout", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		wantErr := errors.New("read timeout failed")
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT @@SESSION.lock_wait_timeout")).WillReturnError(wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("set bounded timeout", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		wantErr := errors.New("set timeout failed")
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT @@SESSION.lock_wait_timeout")).
+			WillReturnRows(sqlmock.NewRows([]string{"@@SESSION.lock_wait_timeout"}).AddRow(uint64(31_536_000)))
+		mock.ExpectExec(regexp.QuoteMeta("SET SESSION lock_wait_timeout = ?")).
+			WithArgs(reasoningEffortMigrationLockWaitTimeoutSeconds).
+			WillReturnError(wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("restore timeout after successful DDL", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		wantErr := errors.New("restore timeout failed")
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("restore timeout error wins after failed DDL", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		ddlErr := errors.New("DDL failed")
+		wantErr := errors.New("restore timeout failed")
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, ddlErr, wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want restore error %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+}
+
+func openMockMySQLDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
+	t.Helper()
+	return openMockSQLDB(t, "mysql")
+}
+
+type testNamedDialector struct {
+	gorm.Dialector
+	name string
+}
+
+func (d testNamedDialector) Name() string {
+	return d.name
+}
+
+func openMockSQLDB(t *testing.T, dialectorName string) (*gorm.DB, sqlmock.Sqlmock) {
+	t.Helper()
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = rawDB.Close()
+	})
+
+	var dialector gorm.Dialector = gormmysql.New(gormmysql.Config{
+		Conn:                      rawDB,
+		SkipInitializeWithVersion: true,
+	})
+	if dialectorName != "mysql" {
+		dialector = testNamedDialector{Dialector: dialector, name: dialectorName}
+	}
+
+	db, err := gorm.Open(dialector, &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("open mock GORM MySQL database: %v", err)
+	}
+	return db, mock
+}
+
+func expectMySQLReasoningColumnLookup(mock sqlmock.Sqlmock, count int64) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DATABASE()")).
+		WillReturnRows(sqlmock.NewRows([]string{"DATABASE()"}).AddRow("maxx"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT SCHEMA_NAME from Information_schema.SCHEMATA where SCHEMA_NAME LIKE ? ORDER BY SCHEMA_NAME=? DESC,SCHEMA_NAME limit 1")).
+		WithArgs("maxx%", "maxx").
+		WillReturnRows(sqlmock.NewRows([]string{"SCHEMA_NAME"}).AddRow("maxx"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT count(*) FROM INFORMATION_SCHEMA.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?")).
+		WithArgs("maxx", "proxy_requests", "reasoning_effort").
+		WillReturnRows(sqlmock.NewRows([]string{"count(*)"}).AddRow(count))
+}
+
+func expectReasoningThresholdProbe(mock sqlmock.Sqlmock, exceeds bool) {
+	rows := sqlmock.NewRows([]string{"1"})
+	if exceeds {
+		rows.AddRow(1)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 FROM proxy_requests ORDER BY id LIMIT 1 OFFSET ?")).
+		WithArgs(detailCleanupIndexRowThreshold).
+		WillReturnRows(rows)
+}
+
+func expectReasoningDDLWithLockTimeout(mock sqlmock.Sqlmock, ddl string, ddlErr, restoreErr error) {
+	const originalTimeout uint64 = 31_536_000
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT @@SESSION.lock_wait_timeout")).
+		WillReturnRows(sqlmock.NewRows([]string{"@@SESSION.lock_wait_timeout"}).AddRow(originalTimeout))
+	mock.ExpectExec(regexp.QuoteMeta("SET SESSION lock_wait_timeout = ?")).
+		WithArgs(reasoningEffortMigrationLockWaitTimeoutSeconds).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	ddlExpectation := mock.ExpectExec(regexp.QuoteMeta(ddl))
+	if ddlErr != nil {
+		ddlExpectation.WillReturnError(ddlErr)
+	} else {
+		ddlExpectation.WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	restoreExpectation := mock.ExpectExec(regexp.QuoteMeta("SET SESSION lock_wait_timeout = ?")).
+		WithArgs(originalTimeout)
+	if restoreErr != nil {
+		restoreExpectation.WillReturnError(restoreErr)
+	} else {
+		restoreExpectation.WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+}
+
+func assertSQLMockExpectations(t *testing.T, mock sqlmock.Sqlmock) {
+	t.Helper()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
 	}
 }
 

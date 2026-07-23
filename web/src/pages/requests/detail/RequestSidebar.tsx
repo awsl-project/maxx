@@ -32,6 +32,10 @@ function EmptyState({ message, icon }: { message: string; icon?: React.ReactNode
   );
 }
 
+function shouldShowMappedModel(attempt: ProxyUpstreamAttempt) {
+  return Boolean(attempt.mappedModel && attempt.requestModel && attempt.mappedModel !== attempt.requestModel);
+}
+
 interface RequestSidebarProps {
   request: ProxyRequest;
   attempts: ProxyUpstreamAttempt[] | undefined;
@@ -191,6 +195,16 @@ export function RequestSidebar({
                     {attempt.duration > 0 ? formatDuration(attempt.duration) : '-'}
                   </span>
                 </div>
+                {shouldShowMappedModel(attempt) && (
+                  <div
+                    className="mt-2 flex items-center gap-1.5 min-w-0 text-[11px] font-mono text-muted-foreground"
+                    title={`${t('requests.requestModel')}: ${attempt.requestModel}\n${t('requests.mappedModel')}: ${attempt.mappedModel}`}
+                  >
+                    <span className="truncate opacity-80">{attempt.requestModel}</span>
+                    <span className="shrink-0 opacity-60">→</span>
+                    <span className="truncate text-foreground">{attempt.mappedModel}</span>
+                  </div>
+                )}
               </button>
             ))}
           </div>

@@ -8,16 +8,23 @@ import type { Transport, TransportConfig } from './interface';
 import type {
   Provider,
   CreateProviderData,
+  ProviderBulkDeleteRequest,
+  ProviderBulkDeleteResult,
   Project,
   CreateProjectData,
+  ProjectArchiveInactiveResult,
   Session,
   Route,
   CreateRouteData,
+  UpdateRouteData,
   RetryConfig,
   CreateRetryConfigData,
   RoutingStrategy,
   CreateRoutingStrategyData,
   ProxyRequest,
+  ProxyRequestErrorMode,
+  ProxyRequestErrorStats,
+  ProxyRequestCleanupFailedResult,
   ProxyUpstreamAttempt,
   ProxyStatus,
   ProviderStats,
@@ -31,6 +38,8 @@ import type {
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
   BedrockDiscoveredModelsResult,
+  ProviderRuntimeModelsResult,
+  ProviderRuntimeModelsPreviewRequest,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -61,9 +70,21 @@ import type {
   UpdateInviteCodeData,
   InviteCodeCreateResult,
   APIToken,
+  APITokenCleanupResult,
   APITokenCreateResult,
+  APITokenUpdateData,
   CreateAPITokenData,
+  UserPanelAPITokenResponse,
+  UserPanelAPITokenRevealResult,
+  RouteBulkDeleteRequest,
+  RouteBulkDeleteResult,
+  RouteSyncRequest,
+  RouteSyncResult,
   RoutePositionUpdate,
+  ClaudeProviderBatchRequest,
+  ClaudeProviderBatchResponse,
+  RouteTTFTProbeRequest,
+  RouteTTFTProbeResponse,
   UsageStats,
   UsageStatsFilter,
   RecalculateCostsResult,
@@ -232,6 +253,29 @@ export class HttpTransport implements Transport {
     return this.expectObject<Provider>(data, `/providers/${id}`);
   }
 
+  async getProviderRuntimeModels(providerId: number): Promise<ProviderRuntimeModelsResult> {
+    const { data } = await this.client.get<ProviderRuntimeModelsResult>(
+      `/admin/providers/${providerId}/runtime-models`,
+    );
+    return this.expectObject<ProviderRuntimeModelsResult>(
+      data,
+      `/admin/providers/${providerId}/runtime-models`,
+    );
+  }
+
+  async previewProviderRuntimeModels(
+    payload: ProviderRuntimeModelsPreviewRequest,
+  ): Promise<ProviderRuntimeModelsResult> {
+    const { data } = await this.client.post<ProviderRuntimeModelsResult>(
+      '/admin/providers/runtime-models/preview',
+      payload,
+    );
+    return this.expectObject<ProviderRuntimeModelsResult>(
+      data,
+      '/admin/providers/runtime-models/preview',
+    );
+  }
+
   async createProvider(payload: CreateProviderData): Promise<Provider> {
     const { data } = await this.client.post<Provider>('/providers', payload);
     return data;
@@ -244,6 +288,14 @@ export class HttpTransport implements Transport {
 
   async deleteProvider(id: number): Promise<void> {
     await this.client.delete(`/providers/${id}`);
+  }
+
+  async bulkDeleteProviders(data: ProviderBulkDeleteRequest): Promise<ProviderBulkDeleteResult> {
+    const { data: result } = await this.client.post<ProviderBulkDeleteResult>(
+      '/providers/bulk-delete',
+      data,
+    );
+    return result;
   }
 
   async exportProviders(): Promise<Provider[]> {
@@ -287,6 +339,16 @@ export class HttpTransport implements Transport {
     await this.client.delete(`/projects/${id}`);
   }
 
+  async archiveInactiveProjects(thresholdDays: number): Promise<ProjectArchiveInactiveResult> {
+    const { data } = await this.client.post<ProjectArchiveInactiveResult>(
+      '/projects/archive-inactive',
+      {
+        thresholdDays,
+      },
+    );
+    return data;
+  }
+
   // ===== Route API =====
 
   async getRoutes(): Promise<Route[]> {
@@ -304,7 +366,7 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async updateRoute(id: number, payload: Partial<Route>): Promise<Route> {
+  async updateRoute(id: number, payload: UpdateRouteData): Promise<Route> {
     const { data } = await this.client.put<Route>(`/routes/${id}`, payload);
     return data;
   }
@@ -313,8 +375,51 @@ export class HttpTransport implements Transport {
     await this.client.delete(`/routes/${id}`);
   }
 
+  async bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult> {
+    const { data: result } = await this.client.post<RouteBulkDeleteResult>(
+      '/routes/bulk-delete',
+      data,
+    );
+    return result;
+  }
+
+  async syncRoutesFromProject(data: RouteSyncRequest): Promise<RouteSyncResult> {
+    const { data: result } = await this.client.post<RouteSyncResult>(
+      '/routes/sync-from-project',
+      data,
+    );
+    return result;
+  }
+
   async batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void> {
     await this.client.put('/routes/batch-positions', updates);
+  }
+
+  async claudeProviderBatchTest(
+    payload: ClaudeProviderBatchRequest,
+    signal?: AbortSignal,
+  ): Promise<ClaudeProviderBatchResponse> {
+    const { data } = await this.client.post<ClaudeProviderBatchResponse>(
+      '/routes/claude-provider-batch-test',
+      payload,
+      { signal },
+    );
+    return this.expectObject<ClaudeProviderBatchResponse>(
+      data,
+      '/routes/claude-provider-batch-test',
+    );
+  }
+
+  async probeRouteTTFT(
+    payload: RouteTTFTProbeRequest,
+    signal?: AbortSignal,
+  ): Promise<RouteTTFTProbeResponse> {
+    const { data } = await this.adminClient.post<RouteTTFTProbeResponse>(
+      '/routes/ttft-probe',
+      payload,
+      { signal },
+    );
+    return this.expectObject<RouteTTFTProbeResponse>(data, '/admin/routes/ttft-probe');
   }
 
   // ===== Session API =====
@@ -416,6 +521,9 @@ export class HttpTransport implements Transport {
     status?: string,
     apiTokenId?: number,
     projectId?: number,
+    startTime?: string,
+    endTime?: string,
+    errorMode?: ProxyRequestErrorMode,
   ): Promise<number> {
     const params: Record<string, string> = {};
     if (providerId !== undefined) {
@@ -430,8 +538,55 @@ export class HttpTransport implements Transport {
     if (projectId !== undefined) {
       params.projectId = String(projectId);
     }
+    if (startTime !== undefined) {
+      params.startTime = startTime;
+    }
+    if (endTime !== undefined) {
+      params.endTime = endTime;
+    }
+    if (errorMode !== undefined && errorMode !== 'all') {
+      params.errorMode = errorMode;
+    }
     const { data } = await this.adminClient.get<number>('/requests/count', { params });
     return data ?? 0;
+  }
+
+  async getProxyRequestErrorStats(
+    params?: CursorPaginationParams,
+  ): Promise<ProxyRequestErrorStats> {
+    const { data } = await this.adminClient.get<ProxyRequestErrorStats>('/requests/error-stats', {
+      params,
+    });
+    return (
+      data ?? {
+        totalRequests: 0,
+        errorRequests: 0,
+        errorRate: 0,
+        statusCounts: [],
+        httpStatusCounts: [],
+        providerCounts: [],
+        modelCounts: [],
+        trend: [],
+      }
+    );
+  }
+
+  async getCleanupFailedProxyRequestsCount(params?: CursorPaginationParams): Promise<number> {
+    const { data } = await this.adminClient.get<number>('/requests/cleanup-failed-count', {
+      params,
+    });
+    return data ?? 0;
+  }
+
+  async cleanupFailedProxyRequests(
+    params?: CursorPaginationParams,
+  ): Promise<ProxyRequestCleanupFailedResult> {
+    const { data } = await this.adminClient.post<ProxyRequestCleanupFailedResult>(
+      '/requests/cleanup-failed',
+      undefined,
+      { params },
+    );
+    return data ?? { deletedCount: 0, deletedAttemptCount: 0 };
   }
 
   async getActiveProxyRequests(): Promise<ProxyRequest[]> {
@@ -554,18 +709,14 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async getBedrockDiscoveredModels(
-    providerId: number,
-  ): Promise<BedrockDiscoveredModelsResult> {
+  async getBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult> {
     const { data } = await this.client.get<BedrockDiscoveredModelsResult>(
       `/providers/${providerId}/bedrock-models`,
     );
     return data;
   }
 
-  async refreshBedrockDiscoveredModels(
-    providerId: number,
-  ): Promise<BedrockDiscoveredModelsResult> {
+  async refreshBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult> {
     // POST forces a fresh ListInferenceProfiles + ListFoundationModels
     // round-trip, bypassing the server-side TTL. Use this only when the
     // operator clicks the refresh button — routine page loads should
@@ -759,7 +910,10 @@ export class HttpTransport implements Transport {
     return this.expectArray<Cooldown>(data, '/cooldowns');
   }
 
-  async clearCooldown(providerId: number, options?: { clientType?: string; model?: string }): Promise<void> {
+  async clearCooldown(
+    providerId: number,
+    options?: { clientType?: string; model?: string },
+  ): Promise<void> {
     const searchParams = new URLSearchParams();
     if (options?.clientType) searchParams.set('clientType', options.clientType);
     if (options?.model) searchParams.set('model', options.model);
@@ -767,7 +921,12 @@ export class HttpTransport implements Transport {
     await this.adminClient.delete(`/cooldowns/${providerId}${qs ? `?${qs}` : ''}`);
   }
 
-  async setCooldown(providerId: number, untilTime: string, clientType?: string, model?: string): Promise<void> {
+  async setCooldown(
+    providerId: number,
+    untilTime: string,
+    clientType?: string,
+    model?: string,
+  ): Promise<void> {
     await this.adminClient.put(`/cooldowns/${providerId}`, { untilTime, clientType, model });
   }
 
@@ -925,18 +1084,47 @@ export class HttpTransport implements Transport {
     return this.expectArray<APIToken>(data, '/api-tokens');
   }
 
+  async getUserPanelAPIToken(): Promise<UserPanelAPITokenResponse> {
+    const { data } = await this.client.get<UserPanelAPITokenResponse>('/user-panel-token');
+    return data;
+  }
+
+  async createUserPanelAPIToken(): Promise<APITokenCreateResult> {
+    const { data } = await this.client.post<APITokenCreateResult>('/user-panel-token');
+    return data;
+  }
+
+  async regenerateUserPanelAPIToken(): Promise<APITokenCreateResult> {
+    const { data } = await this.client.post<APITokenCreateResult>('/user-panel-token/regenerate');
+    return data;
+  }
+
+  async revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult> {
+    const { data } = await this.client.post<UserPanelAPITokenRevealResult>(
+      '/user-panel-token/reveal',
+    );
+    return data;
+  }
+
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {
     const { data } = await this.adminClient.post<APITokenCreateResult>('/api-tokens', payload);
     return data;
   }
 
-  async updateAPIToken(id: number, payload: Partial<APIToken>): Promise<APIToken> {
+  async updateAPIToken(id: number, payload: APITokenUpdateData): Promise<APIToken> {
     const { data } = await this.adminClient.put<APIToken>(`/api-tokens/${id}`, payload);
     return data;
   }
 
   async deleteAPIToken(id: number): Promise<void> {
     await this.adminClient.delete(`/api-tokens/${id}`);
+  }
+
+  async cleanupExpiredAPITokens(): Promise<APITokenCleanupResult> {
+    const { data } = await this.adminClient.post<APITokenCleanupResult>(
+      '/api-tokens/cleanup-expired',
+    );
+    return data;
   }
 
   // ===== Invite Code API =====

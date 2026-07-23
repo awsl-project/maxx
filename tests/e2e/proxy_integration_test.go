@@ -13,17 +13,19 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
+	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/testutil/mockserver"
 	"github.com/tidwall/gjson"
 )
 
 // capturedRequest stores the last request received by a mock upstream.
 type capturedRequest struct {
-	mu      sync.Mutex
-	Method  string
-	Path    string
-	Headers http.Header
-	Body    []byte
+	mu       sync.Mutex
+	Method   string
+	Path     string
+	RawQuery string
+	Headers  http.Header
+	Body     []byte
 }
 
 func (c *capturedRequest) Set(r *http.Request) {
@@ -31,6 +33,7 @@ func (c *capturedRequest) Set(r *http.Request) {
 	defer c.mu.Unlock()
 	c.Method = r.Method
 	c.Path = r.URL.Path
+	c.RawQuery = r.URL.RawQuery
 	c.Headers = r.Header.Clone()
 	c.Body, _ = io.ReadAll(r.Body)
 }
@@ -39,6 +42,13 @@ func (c *capturedRequest) Get() (string, string, http.Header, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Method, c.Path, c.Headers, c.Body
+}
+
+// GetRawQuery returns the captured upstream request's raw query string.
+func (c *capturedRequest) GetRawQuery() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.RawQuery
 }
 
 // createProvider creates a custom provider via admin API and returns the provider ID.
@@ -386,6 +396,101 @@ func geminiRequest() map[string]any {
 
 // --- Passthrough Tests ---
 
+func newMockOllamaUpstream(t *testing.T, captured *capturedRequest) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Set(r)
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected Ollama path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"qwen3-coder-next:cloud","message":{"role":"assistant","content":"ollama claude ok"},"done":true,"done_reason":"stop","prompt_eval_count":11,"eval_count":7}`))
+	}))
+}
+
+func createOllamaProvider(t *testing.T, env *ProxyTestEnv, name, baseURL string) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": name,
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": baseURL,
+				"backend": "ollama",
+			},
+		},
+		"supportedClientTypes": []string{"claude"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Failed to create Ollama provider %s: status=%d body=%s", name, resp.StatusCode, body)
+	}
+	var result struct {
+		ID uint64 `json:"id"`
+	}
+	DecodeJSON(t, resp, &result)
+	return result.ID
+}
+
+func TestProxyClaudeToCustomOllamaBackendEndToEnd(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	captured := &capturedRequest{}
+	mock := newMockOllamaUpstream(t, captured)
+	defer mock.Close()
+
+	providerID := createOllamaProvider(t, env, "mock-ollama", mock.URL)
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages", map[string]any{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 32,
+		"thinking":   map[string]any{"type": "enabled", "budget_tokens": 16},
+		"system":     []map[string]any{{"type": "text", "text": "be precise"}},
+		"tools": []map[string]any{{
+			"name":         "lookup",
+			"description":  "lookup docs",
+			"input_schema": map[string]any{"type": "object", "properties": map[string]any{"q": map[string]any{"type": "string"}}},
+		}},
+		"messages": []map[string]any{
+			{"role": "user", "content": []map[string]any{{"type": "text", "text": "use the tool"}}},
+			{"role": "assistant", "content": []map[string]any{{"type": "tool_use", "id": "toolu_1", "name": "lookup", "input": map[string]any{"q": "ollama"}}}},
+			{"role": "user", "content": []map[string]any{{"type": "tool_result", "tool_use_id": "toolu_1", "content": "docs say OK"}}},
+		},
+	}, nil)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	if gjson.GetBytes(body, "type").String() != "message" || gjson.GetBytes(body, "content.0.text").String() != "ollama claude ok" {
+		t.Fatalf("unexpected Claude response: %s", body)
+	}
+	if gjson.GetBytes(body, "usage.input_tokens").Int() != 11 || gjson.GetBytes(body, "usage.output_tokens").Int() != 7 {
+		t.Fatalf("usage was not mapped from Ollama: %s", body)
+	}
+
+	_, path, _, upBody := captured.Get()
+	if path != "/api/chat" {
+		t.Fatalf("upstream path = %s", path)
+	}
+	if gjson.GetBytes(upBody, "model").String() != "claude-sonnet-4-20250514" {
+		t.Fatalf("upstream model = %s body=%s", gjson.GetBytes(upBody, "model").String(), upBody)
+	}
+	if !gjson.GetBytes(upBody, "think").Bool() {
+		t.Fatalf("upstream think not enabled: %s", upBody)
+	}
+	if gjson.GetBytes(upBody, "tools.0.function.name").String() != "lookup" {
+		t.Fatalf("upstream tools not mapped: %s", upBody)
+	}
+	if gjson.GetBytes(upBody, "messages.2.tool_calls.0.function.name").String() != "lookup" {
+		t.Fatalf("assistant tool_use not mapped to Ollama tool_calls: %s", upBody)
+	}
+	if gjson.GetBytes(upBody, "messages.3.role").String() != "tool" || gjson.GetBytes(upBody, "messages.3.tool_name").String() != "lookup" {
+		t.Fatalf("tool_result not mapped to Ollama tool message: %s", upBody)
+	}
+}
+
 func TestProxyClaudePassthrough(t *testing.T) {
 	captured := &capturedRequest{}
 	mock := newMockClaudeUpstream(t, captured)
@@ -437,6 +542,54 @@ func TestProxyOpenAIPassthrough(t *testing.T) {
 	}
 }
 
+func TestProxyOpenAIRootAliasPassthrough(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockOpenAIUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-root-alias", mock.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.ProxyPost("/chat/completions", openaiRequest("gpt-4o"), nil)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	_, path, _, _ := captured.Get()
+	if path != "/v1/chat/completions" {
+		t.Errorf("Expected upstream path /v1/chat/completions, got %s", path)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if gjson.GetBytes(respBody, "object").String() != "chat.completion" {
+		t.Errorf("Response should have object=chat.completion, got: %s", string(respBody))
+	}
+}
+
+func TestProxyOpenAIProviderBaseURLWithV1DoesNotDoublePrefix(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockOpenAIUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-versioned-root", mock.URL+"/v1", []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	_, path, _, _ := captured.Get()
+	if path != "/v1/chat/completions" {
+		t.Errorf("Expected upstream path /v1/chat/completions, got %s", path)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if gjson.GetBytes(respBody, "object").String() != "chat.completion" {
+		t.Errorf("Response should have object=chat.completion, got: %s", string(respBody))
+	}
+}
+
 func TestProxyCodexPassthrough(t *testing.T) {
 	captured := &capturedRequest{}
 	mock := newMockCodexUpstream(t, captured)
@@ -470,6 +623,7 @@ func TestProxyGeminiPassthrough(t *testing.T) {
 	defer mock.Close()
 
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 	providerID := createProvider(t, env, "mock-gemini", mock.URL, []string{"gemini"})
 	createRoute(t, env, "gemini", providerID)
 
@@ -901,6 +1055,9 @@ func TestProxyCrossProtocolConversions(t *testing.T) {
 			defer mock.Close()
 
 			env := NewProxyTestEnv(t)
+			if tc.clientType == "gemini" {
+				enableGeminiPublicProxyRoute(t, env)
+			}
 			providerID := createProvider(t, env, fmt.Sprintf("mock-%s", tc.upstreamType), mock.URL, []string{tc.upstreamType})
 			createRoute(t, env, tc.clientType, providerID)
 
@@ -972,7 +1129,7 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 	env := NewProxyTestEnv(t)
 
 	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	AssertStatus(t, resp, http.StatusBadGateway)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
 
 	var payload map[string]map[string]any
 	DecodeJSON(t, resp, &payload)
@@ -986,6 +1143,258 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 	if got := payload["error"]["retryable"]; got != false {
 		t.Fatalf("error.retryable = %v, want false", got)
 	}
+	assertRouteMatchRejectionRecorded(t, env, 1, "no routes available", http.StatusServiceUnavailable)
+}
+
+func TestProxyRouteWithoutConfiguredProviderRecordsRejectedRequest(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	// Route create requires a resolvable provider (IsNative is server-derived).
+	// Put that provider into cooldown so Match skips every candidate and returns
+	// no_available_provider — equivalent to the old dangling providerID case.
+	providerID := createProvider(t, env, "cooldown-only-provider", "http://127.0.0.1:1", []string{"openai"})
+	routeResp := env.AdminPost("/api/admin/routes", map[string]any{
+		"isEnabled":  true,
+		"clientType": "openai",
+		"providerID": providerID,
+		"projectID":  0,
+		"position":   1,
+	})
+	AssertStatus(t, routeResp, http.StatusCreated)
+
+	cooldown.Default().UpdateCooldown(providerID, "openai", "", time.Now().Add(time.Hour))
+	cooldown.Default().UpdateCooldown(providerID, "openai", "gpt-4o", time.Now().Add(time.Hour))
+	cooldown.Default().UpdateCooldown(providerID, "", "", time.Now().Add(time.Hour))
+	t.Cleanup(func() {
+		cooldown.Default().ClearCooldown(providerID, "", "")
+	})
+
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	}
+	assertRouteMatchRejectionRecorded(t, env, 1, "no available providers", http.StatusServiceUnavailable)
+}
+
+func TestProxyMatchedRouteWithUnsupportedProviderModelRecordsRejectedRequest(t *testing.T) {
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-model-filter", "http://127.0.0.1:1", []string{"openai"})
+
+	providerResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", providerID), map[string]any{
+		"name":                 "mock-openai-model-filter",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"only-this-model"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "http://127.0.0.1:1",
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, providerResp, http.StatusOK)
+	createRoute(t, env, "openai", providerID)
+
+	// The only provider's SupportModels allowlist is ["only-this-model"], so a
+	// request for gpt-4o is rejected before any upstream call. Because the
+	// emptiness is entirely a model-allowlist rejection (no cooldown masking a
+	// provider that might serve it), the client gets a clean, non-retryable 400
+	// naming the model — not the generic 503 "no available provider".
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "model_not_supported" {
+		t.Fatalf("error.code = %v, want model_not_supported", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "gpt-4o") || !strings.Contains(msg, "not supported by any configured provider") {
+		t.Fatalf("error.message = %q, want to name gpt-4o and 'not supported by any configured provider'", msg)
+	}
+	assertRouteMatchRejectionRecorded(t, env, 1, "not supported by any configured provider", http.StatusBadRequest)
+}
+
+func TestProxyMatchedRouteWithCooldownProviderRecordsRejectedRequest(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"message": "Rate limit exceeded",
+				"type":    "rate_limit_error",
+			},
+		})
+	}))
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-cooldown-provider", mock.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusTooManyRequests)
+	if got := len(getProxyRequests(t, env)); got != 1 {
+		t.Fatalf("expected first upstream failure to be recorded, got %d requests", got)
+	}
+
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	}
+	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers", http.StatusServiceUnavailable)
+}
+
+func TestProxyMatchedRouteWithUnsupportedModelAndCooldownProviderRecords503(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"message": "Rate limit exceeded",
+				"type":    "rate_limit_error",
+			},
+		})
+	}))
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+
+	unsupportedProviderID := createProvider(t, env, "mock-openai-unsupported-model", "http://127.0.0.1:1", []string{"openai"})
+	unsupportedProviderResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", unsupportedProviderID), map[string]any{
+		"name":                 "mock-openai-unsupported-model",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"only-this-model"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "http://127.0.0.1:1",
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, unsupportedProviderResp, http.StatusOK)
+	createRoute(t, env, "openai", unsupportedProviderID)
+
+	cooldownProviderID := createProvider(t, env, "mock-cooldown-supported-model", mock.URL, []string{"openai"})
+	cooldownProviderResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", cooldownProviderID), map[string]any{
+		"name":                 "mock-cooldown-supported-model",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"gpt-4o"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": mock.URL,
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, cooldownProviderResp, http.StatusOK)
+	createRoute(t, env, "openai", cooldownProviderID)
+
+	// First request reaches the supported provider and puts it into cooldown.
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusTooManyRequests)
+	if got := len(getProxyRequests(t, env)); got != 1 {
+		t.Fatalf("expected first upstream failure to be recorded, got %d requests", got)
+	}
+
+	// Second request sees both a model allowlist rejection and a transient
+	// cooldown skip. The cooldown may be masking a provider that supports the
+	// model, so the router must keep the generic 503 instead of mislabeling the
+	// model as unsupported.
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	}
+	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers", http.StatusServiceUnavailable)
+}
+
+func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTotal int, wantErrorPart string, wantStatus int) {
+	t.Helper()
+
+	requests := getProxyRequests(t, env)
+	if len(requests) != wantTotal {
+		t.Fatalf("requests = %d, want %d, got %#v", len(requests), wantTotal, requests)
+	}
+
+	var matched []map[string]any
+	for _, req := range requests {
+		if req["status"] != "REJECTED" {
+			continue
+		}
+		errorMsg, _ := req["error"].(string)
+		if strings.Contains(errorMsg, wantErrorPart) {
+			matched = append(matched, req)
+		}
+	}
+	if len(matched) != 1 {
+		t.Fatalf("route-match rejected requests = %d, want 1 in %#v", len(matched), requests)
+	}
+	rejected := matched[0]
+	if got := intFromJSONNumber(t, rejected["statusCode"]); got != wantStatus {
+		t.Fatalf("statusCode = %d, want %d", got, wantStatus)
+	}
+	if got := intFromJSONNumber(t, rejected["providerID"]); got != 0 {
+		t.Fatalf("providerID = %d, want 0 for route-match rejection", got)
+	}
+	if got := intFromJSONNumber(t, rejected["routeID"]); got != 0 {
+		t.Fatalf("routeID = %d, want 0 for route-match rejection", got)
+	}
+	if got := intFromJSONNumber(t, rejected["proxyUpstreamAttemptCount"]); got != 0 {
+		t.Fatalf("proxyUpstreamAttemptCount = %d, want 0 for route-match rejection", got)
+	}
+}
+
+func intFromJSONNumber(t *testing.T, v any) int {
+	t.Helper()
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	default:
+		t.Fatalf("value %v (%T) is not a JSON number", v, v)
+		return 0
+	}
+}
+
+func getProxyRequests(t *testing.T, env *ProxyTestEnv) []map[string]any {
+	t.Helper()
+
+	requestsResp := env.doRequest(http.MethodGet, "/api/admin/requests?limit=20", nil, env.Token)
+	AssertStatus(t, requestsResp, http.StatusOK)
+	var requests struct {
+		Items []map[string]any `json:"items"`
+	}
+	DecodeJSON(t, requestsResp, &requests)
+	return requests.Items
 }
 
 func TestProxyCodexToGeminiStreamingSSE(t *testing.T) {
@@ -1042,6 +1451,7 @@ func TestProxyGeminiToCodexStreamingSSE(t *testing.T) {
 	defer mock.Close()
 
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 	providerID := createProvider(t, env, "mock-codex-stream", mock.URL, []string{"codex"})
 	createRoute(t, env, "gemini", providerID)
 
@@ -1102,6 +1512,7 @@ func TestProxyAllProtocolsCoexist(t *testing.T) {
 	defer mockGemini.Close()
 
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 
 	// Create 4 providers, one for each protocol
 	claudeProviderID := createProvider(t, env, "mock-claude", mockClaude.URL, []string{"claude"})
@@ -1197,6 +1608,13 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 			runTokenConcurrencyLimitRecordsRejectedRequest(t, tc.configureRetention)
 		})
 	}
+}
+
+func enableGeminiPublicProxyRoute(t *testing.T, env *ProxyTestEnv) {
+	t.Helper()
+	resp := env.AdminPut("/api/admin/settings/proxy_route_gemini_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
 }
 
 func setRequestDetailRetentionSetting(t *testing.T, env *ProxyTestEnv, key, value string) {
@@ -1494,6 +1912,7 @@ func TestCooldown_200ClearsCooldown(t *testing.T) {
 
 func TestCooldown_GeminiProtocol(t *testing.T) {
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 	srv := mockserver.New()
 	defer srv.Close()
 
@@ -1529,5 +1948,92 @@ func TestCooldown_GeminiProtocol(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no cooldown for Gemini provider %d: %s", providerID, cdBody)
+	}
+}
+
+// TestProxyCodexResponsesPathPassthrough verifies that a Codex client's original
+// Responses path is forwarded verbatim to a custom (OpenAI-compatible, e.g. New
+// API) downstream — /v1/responses stays /v1/responses rather than being rewritten
+// to a hardcoded /responses. The query string must be preserved too, since the
+// passthrough captures the full request URI (path + query). Regression for New
+// API serving /v1/responses.
+func TestProxyCodexResponsesPathPassthrough(t *testing.T) {
+	cases := []struct {
+		name       string
+		clientPath string
+		wantUp     string
+		wantQuery  string
+	}{
+		{"v1_prefixed", "/v1/responses", "/v1/responses", ""},
+		{"bare", "/responses", "/responses", ""},
+		{"with_query", "/v1/responses?source=codex-cli", "/v1/responses", "source=codex-cli"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			captured := &capturedRequest{}
+			mock := newMockCodexUpstream(t, captured)
+			defer mock.Close()
+
+			env := NewProxyTestEnv(t)
+			providerID := createProvider(t, env, "mock-newapi", mock.URL, []string{"codex"})
+			createRoute(t, env, "codex", providerID)
+
+			resp := env.ProxyPost(tc.clientPath, codexRequest("gpt-5"), nil)
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+			}
+			_, upPath, _, _ := captured.Get()
+			if upPath != tc.wantUp {
+				t.Fatalf("client %s: upstream path=%q, want %q", tc.clientPath, upPath, tc.wantUp)
+			}
+			if gotQuery := captured.GetRawQuery(); gotQuery != tc.wantQuery {
+				t.Fatalf("client %s: upstream query=%q, want %q", tc.clientPath, gotQuery, tc.wantQuery)
+			}
+		})
+	}
+}
+
+// TestProxyCodexResponsesPassthroughDisabled verifies the per-provider switch:
+// with responsesPassthrough=false the legacy hardcoded /responses path is used
+// even when the client sent /v1/responses.
+func TestProxyCodexResponsesPassthroughDisabled(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockCodexUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	resp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": "mock-legacy",
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL":              mock.URL,
+				"apiKey":               "sk-mock-test-key",
+				"responsesPassthrough": false,
+			},
+		},
+		"supportedClientTypes": []string{"codex"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create provider: status=%d body=%s", resp.StatusCode, body)
+	}
+	var created struct {
+		ID uint64 `json:"id"`
+	}
+	DecodeJSON(t, resp, &created)
+	createRoute(t, env, "codex", created.ID)
+
+	r := env.ProxyPost("/v1/responses", codexRequest("gpt-5"), nil)
+	body, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", r.StatusCode, body)
+	}
+	_, upPath, _, _ := captured.Get()
+	if upPath != "/responses" {
+		t.Fatalf("passthrough disabled: upstream path=%q, want /responses", upPath)
 	}
 }

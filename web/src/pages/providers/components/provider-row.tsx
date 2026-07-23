@@ -1,7 +1,17 @@
-import type { KeyboardEvent } from 'react';
-import { Activity, Mail, Globe, Snowflake } from 'lucide-react';
+import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { Activity, Ban, Check, Copy, Globe, Mail, Repeat2, Share2, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
@@ -12,6 +22,7 @@ import type {
   AntigravityQuotaData,
   KiroQuotaData,
   CodexQuotaData,
+  ModelMapping,
 } from '@/lib/transport';
 import { getProviderTypeConfig } from '../types';
 import { cn } from '@/lib/utils';
@@ -19,6 +30,7 @@ import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-co
 import { useCodexQuotaFromContext } from '@/contexts/codex-quotas-context';
 import { useKiroQuota } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
+import { buildCustomProviderShareCommand } from '../utils/bulk-custom-provider-import';
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -47,9 +59,12 @@ function formatCost(nanoUsd: number): string {
 interface ProviderRowProps {
   provider: Provider;
   stats?: ProviderStats;
+  statsLoading?: boolean;
   streamingCount: number;
+  providerModelMappings?: ModelMapping[];
   onClick?: () => void;
   title?: string;
+  className?: string;
 }
 
 // 获取 Claude 模型额度百分比和重置时间
@@ -202,12 +217,25 @@ function getCodexWeekQuotaInfo(
   };
 }
 
-export function ProviderRow({ provider, stats, streamingCount, onClick, title }: ProviderRowProps) {
+export function ProviderRow({
+  provider,
+  stats,
+  statsLoading = false,
+  streamingCount,
+  providerModelMappings = [],
+  onClick,
+  title,
+  className,
+}: ProviderRowProps) {
   const { t } = useTranslation();
+  const [shareCommandOpen, setShareCommandOpen] = useState(false);
+  const [shareCommandCopied, setShareCommandCopied] = useState(false);
   // 使用通用配置系统
   const typeConfig = getProviderTypeConfig(provider.type);
   const color = typeConfig.color;
-  const displayInfo = typeConfig.getDisplayInfo(provider);
+  const displayInfo = provider.blackBox
+    ? t('provider.blackBoxDisplayInfo')
+    : typeConfig.getDisplayInfo(provider);
 
   const isAntigravity = provider.type === 'antigravity';
   const isKiro = provider.type === 'kiro';
@@ -232,6 +260,11 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
   const healthLevel = getProviderHealthLevel(provider.id);
   const worstCooldown = providerCooldowns[0];
   const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
+  const shareCommand = useMemo(
+    () => buildCustomProviderShareCommand(provider, { providerModelMappings }),
+    [provider, providerModelMappings],
+  );
+  const canShareCommand = provider.type === 'custom' && !!shareCommand && !provider.blackBox;
 
   const isInteractive = !!onClick;
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -246,6 +279,19 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
       event.preventDefault();
       onClick();
     }
+  };
+
+  const stopRowClick = (event: MouseEvent) => {
+    event.stopPropagation();
+  };
+
+  const handleCopyShareCommand = async () => {
+    if (!shareCommand || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      return;
+    }
+    await navigator.clipboard.writeText(shareCommand);
+    setShareCommandCopied(true);
+    window.setTimeout(() => setShareCommandCopied(false), 1200);
   };
 
   return (
@@ -265,9 +311,19 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
           : isInteractive
             ? 'bg-card/60 border-border hover:bg-card hover:border-primary/40 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)] hover:scale-[1.01] shadow-sm'
             : 'bg-card/60 border-border shadow-sm',
+        className,
       )}
       style={{
-        borderColor: streamingCount > 0 ? `${color}60` : healthLevel === 'frozen' ? 'rgb(6 182 212 / 0.3)' : healthLevel === 'limited' ? 'rgb(234 179 8 / 0.3)' : healthLevel === 'degraded' ? 'rgb(249 115 22 / 0.2)' : undefined,
+        borderColor:
+          streamingCount > 0
+            ? `${color}60`
+            : healthLevel === 'frozen'
+              ? 'rgb(6 182 212 / 0.3)'
+              : healthLevel === 'limited'
+                ? 'rgb(234 179 8 / 0.3)'
+                : healthLevel === 'degraded'
+                  ? 'rgb(249 115 22 / 0.2)'
+                  : undefined,
         boxShadow: streamingCount > 0 ? `0 0 20px ${color}15` : undefined,
       }}
     >
@@ -321,6 +377,11 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
       <div className="relative z-10 flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-[15px] font-bold text-foreground truncate">{provider.name}</h3>
+          {provider.blackBox && (
+            <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+              {t('provider.blackBoxBadge')}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {/* 对于 Antigravity，显示 Claude 和 Imagen Quota */}
@@ -463,6 +524,36 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
           )}
         </div>
       </div>
+      {(provider.config?.disableErrorCooldown || provider.config?.smartMappingRetryEnabled) && (
+        <div className="relative z-10 flex shrink-0 items-center self-stretch gap-1">
+          {provider.config?.disableErrorCooldown && (
+            <span
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-700 shadow-[0_0_0_1px_rgba(245,158,11,0.08)] dark:text-amber-200"
+              title={t('provider.disableSwitchBadgeDesc')}
+              aria-label={t('provider.disableSwitchBadgeDesc')}
+            >
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-background shadow-sm">
+                <Ban className="h-2.5 w-2.5 stroke-[3]" />
+              </span>
+            </span>
+          )}
+          {provider.config?.disableErrorCooldown && provider.config?.smartMappingRetryEnabled && (
+            <span
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-sky-500/40 bg-sky-500/15 text-sky-700 shadow-[0_0_0_1px_rgba(14,165,233,0.08)] dark:text-sky-200"
+              title={t('provider.smartMappingRetryBadgeDesc', {
+                count: provider.config.smartMappingRetryLimit ?? 1,
+              })}
+              aria-label={t('provider.smartMappingRetryBadgeDesc', {
+                count: provider.config.smartMappingRetryLimit ?? 1,
+              })}
+            >
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-sky-500 text-background shadow-sm">
+                <Repeat2 className="h-2.5 w-2.5 stroke-[3]" />
+              </span>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Kiro Quota Area */}
       {isKiro && (
@@ -524,13 +615,19 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
           {healthLevel === 'frozen' && worstCooldown && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
               <Snowflake size={12} className="text-cyan-500 animate-pulse" />
-              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-cyan-500 tabular-nums" />
+              <CooldownTimer
+                cooldown={worstCooldown}
+                className="text-[11px] font-mono font-bold text-cyan-500 tabular-nums"
+              />
             </div>
           )}
           {healthLevel === 'limited' && worstCooldown && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
               <Snowflake size={12} className="text-yellow-500" />
-              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-yellow-500 tabular-nums" />
+              <CooldownTimer
+                cooldown={worstCooldown}
+                className="text-[11px] font-mono font-bold text-yellow-500 tabular-nums"
+              />
             </div>
           )}
           {healthLevel === 'degraded' && modelCooldowns.length > 0 && (
@@ -539,8 +636,13 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
               <div className="flex items-center gap-1.5 flex-wrap">
                 {modelCooldowns.slice(0, 3).map((cd, i) => (
                   <div key={i} className="flex items-center gap-1">
-                    <span className="text-[10px] font-mono text-orange-400 truncate max-w-[120px]">{cd.model}</span>
-                    <CooldownTimer cooldown={cd} className="text-[10px] font-mono font-bold text-orange-500 tabular-nums" />
+                    <span className="text-[10px] font-mono text-orange-400 truncate max-w-[120px]">
+                      {cd.model}
+                    </span>
+                    <CooldownTimer
+                      cooldown={cd}
+                      className="text-[10px] font-mono font-bold text-orange-500 tabular-nums"
+                    />
                   </div>
                 ))}
                 {modelCooldowns.length > 3 && (
@@ -549,6 +651,61 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Custom Provider Share Command */}
+      {provider.type === 'custom' && (
+        <div className="relative z-10 shrink-0" onClick={stopRowClick} onMouseDown={stopRowClick}>
+          <Dialog open={shareCommandOpen} onOpenChange={setShareCommandOpen}>
+            <DialogTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={!canShareCommand}
+                  aria-label={t('provider.shareCommand')}
+                  title={
+                    provider.blackBox
+                      ? t('provider.shareCommandBlackBoxDisabled')
+                      : t('provider.shareCommand')
+                  }
+                />
+              }
+            >
+              <Share2 className="h-3.5 w-3.5" />
+            </DialogTrigger>
+            <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{t('provider.shareCommandTitle')}</DialogTitle>
+                <DialogDescription>{t('provider.shareCommandDesc')}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 min-w-0">
+                {provider.excludeFromExport && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                    {t('provider.shareCommandHiddenSecretHint')}
+                  </div>
+                )}
+                <pre className="max-h-64 overflow-auto rounded-lg border bg-muted/50 p-3 text-xs leading-relaxed text-foreground whitespace-pre-wrap break-all">
+                  {shareCommand}
+                </pre>
+                <p className="text-xs text-muted-foreground">
+                  {t('provider.shareCommandApiKeyHint')}
+                </p>
+              </div>
+              <DialogFooter>
+                <Button type="button" className="gap-2" onClick={handleCopyShareCommand}>
+                  {shareCommandCopied ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  {shareCommandCopied ? t('proxy.copied') : t('provider.copyShareCommand')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 
@@ -601,6 +758,11 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
               </span>
             </div>
           </>
+        ) : statsLoading ? (
+          <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/50">
+            <Activity size={12} className="animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">—</span>
+          </div>
         ) : (
           <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/30">
             <Activity size={12} />

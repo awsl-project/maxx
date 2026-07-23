@@ -1,18 +1,42 @@
 import type { ClientType, DisguiseType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
-import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud } from 'lucide-react';
+import {
+  Wand2,
+  Zap,
+  Server,
+  Mail,
+  Globe,
+  Code2,
+  Sparkles,
+  Cloud,
+  Waypoints,
+  Bot,
+  Network,
+  Boxes,
+} from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
 import logo88code from '@/assets/icons/88code.svg';
 import aicodemirrorLogo from '@/assets/icons/aicodemirror.png';
 import zhipuLogo from '@/assets/icons/zhipu.svg';
+import deepseekLogo from '@/assets/icons/deepseek.png';
 
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
 
-export type ProviderTypeKey = 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude';
+export type ProviderTypeKey =
+  | 'custom'
+  | 'antigravity'
+  | 'bedrock'
+  | 'kiro'
+  | 'codex'
+  | 'claude'
+  | 'openrouter'
+  | 'grok'
+  | 'newapi'
+  | 'ollama';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -73,6 +97,38 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
       return `AWS Bedrock (${region})`;
     },
   },
+  openrouter: {
+    key: 'openrouter',
+    label: 'OpenRouter',
+    icon: Waypoints,
+    color: getProviderColorVar('openrouter'),
+    isAccountBased: false,
+    getDisplayInfo: () => 'openrouter.ai',
+  },
+  grok: {
+    key: 'grok',
+    label: 'Grok',
+    icon: Bot,
+    color: getProviderColorVar('grok'),
+    isAccountBased: true,
+    getDisplayInfo: (p) => p.config?.grok?.email || 'Grok Account',
+  },
+  newapi: {
+    key: 'newapi',
+    label: 'New API',
+    icon: Network,
+    color: getProviderColorVar('newapi'),
+    isAccountBased: false,
+    getDisplayInfo: (p) => p.config?.custom?.baseURL || 'Not configured',
+  },
+  ollama: {
+    key: 'ollama',
+    label: 'Ollama',
+    icon: Boxes,
+    color: getProviderColorVar('ollama'),
+    isAccountBased: false,
+    getDisplayInfo: (p) => p.config?.custom?.baseURL || 'Not configured',
+  },
   custom: {
     key: 'custom',
     label: 'Custom',
@@ -80,6 +136,7 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('custom'),
     isAccountBased: false,
     getDisplayInfo: (p) => {
+      if (p.blackBox) return 'Black box';
       if (p.config?.custom?.baseURL) return p.config.custom.baseURL;
       for (const ct of p.supportedClientTypes || []) {
         const url = p.config?.custom?.clientBaseURL?.[ct];
@@ -89,6 +146,34 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     },
   },
 };
+
+export const PROVIDER_TYPE_ORDER = Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[];
+
+export function getKnownProviderTypeKey(type: string): ProviderTypeKey {
+  return type in PROVIDER_TYPE_CONFIGS ? (type as ProviderTypeKey) : 'custom';
+}
+
+export function createProviderTypeGroups<T extends Pick<Provider, 'name' | 'type'>>(
+  providers: readonly T[] | undefined,
+): Record<ProviderTypeKey, T[]> {
+  const groups = PROVIDER_TYPE_ORDER.reduce(
+    (acc, typeKey) => {
+      acc[typeKey] = [];
+      return acc;
+    },
+    {} as Record<ProviderTypeKey, T[]>,
+  );
+
+  providers?.forEach((provider) => {
+    groups[getKnownProviderTypeKey(provider.type)].push(provider);
+  });
+
+  for (const key of PROVIDER_TYPE_ORDER) {
+    groups[key].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  return groups;
+}
 
 // 获取 Provider 类型配置的辅助函数
 export function getProviderTypeConfig(type: string): ProviderTypeConfig {
@@ -177,7 +262,7 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'freeduck',
     name: 'Free Duck',
-    description: '免费站点 · 只有 Claude Code',
+    description: 'Claude',
     nameKey: 'addProvider.templates.freeduck.name',
     descriptionKey: 'addProvider.templates.freeduck.description',
     icon: 'grid',
@@ -190,33 +275,50 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'nvidia',
     name: 'NVIDIA',
-    description: 'NVIDIA NIM · OpenAI 兼容',
+    description: 'OpenAI',
     nameKey: 'addProvider.templates.nvidia.name',
     descriptionKey: 'addProvider.templates.nvidia.description',
     icon: 'layers',
     logoUrl: nvidiaLogo,
     supportedClients: ['openai'],
     clientBaseURLs: {
-      openai: 'https://integrate.api.nvidia.com',
+      openai: 'https://integrate.api.nvidia.com/v1',
     },
     modelMappings: [{ pattern: '*', target: 'minimaxai/minimax-m2.1' }],
   },
   {
     id: 'zhipu',
     name: '智谱 AI',
-    description: 'Claude Code · GLM-4.7',
+    description: 'Claude + OpenAI',
     nameKey: 'addProvider.templates.zhipu.name',
     descriptionKey: 'addProvider.templates.zhipu.description',
     icon: 'grid',
     logoUrl: zhipuLogo,
-    supportedClients: ['claude'],
+    supportedClients: ['claude', 'openai'],
     clientBaseURLs: {
       claude: 'https://open.bigmodel.cn/api/anthropic',
+      openai: 'https://open.bigmodel.cn/api/paas/v4',
+    },
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    description: 'Claude + OpenAI',
+    nameKey: 'addProvider.templates.deepseek.name',
+    descriptionKey: 'addProvider.templates.deepseek.description',
+    icon: 'grid',
+    logoUrl: deepseekLogo,
+    supportedClients: ['claude', 'openai'],
+    clientBaseURLs: {
+      claude: 'https://api.deepseek.com/anthropic',
+      openai: 'https://api.deepseek.com',
     },
   },
 ];
 
 // Client config
+export type CustomBackend = 'http' | 'ollama';
+
 export type ClientConfig = {
   id: ClientType;
   name: string;
@@ -234,10 +336,21 @@ export const defaultClients: ClientConfig[] = [
 
 // Form data types
 export type ProviderFormData = {
-  type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude';
+  type:
+    | 'custom'
+    | 'antigravity'
+    | 'bedrock'
+    | 'kiro'
+    | 'codex'
+    | 'claude'
+    | 'openrouter'
+    | 'grok'
+    | 'newapi'
+    | 'ollama';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;
+  backend: CustomBackend;
   apiKey: string;
   clients: ClientConfig[];
   // Disguise: which client identity to present to the upstream relay.
@@ -250,7 +363,14 @@ export type ProviderFormData = {
   modelMappings?: TemplateModelMapping[]; // 模型映射
   logo?: string; // Logo URL
   disableErrorCooldown?: boolean;
+  smartMappingRetryEnabled?: boolean;
+  smartMappingRetryLimit?: number;
+  maxConcurrency?: number;
   excludeFromExport?: boolean;
+  blackBox?: boolean;
+  // undefined = 默认透传;false = 旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
+  responsesWebSocket?: boolean;
 };
 
 // Create step type

@@ -45,6 +45,31 @@ func (c *geminiToOpenAIRequest) Transform(body []byte, model string, stream bool
 				openaiReq.ReasoningEffort = mapBudgetToEffort(req.GenerationConfig.ThinkingConfig.ThinkingBudget)
 			}
 		}
+
+		// Image generation: mirror of openai_to_gemini_request.go so a Gemini
+		// image request keeps its output modality and sizing when converted to
+		// OpenAI (e.g. a Gemini client routed to an OpenAI-speaking provider like
+		// OpenRouter). Without this the aspect ratio / image output are dropped.
+		if len(req.GenerationConfig.ResponseModalities) > 0 {
+			var mods []string
+			for _, m := range req.GenerationConfig.ResponseModalities {
+				switch strings.ToUpper(strings.TrimSpace(m)) {
+				case "TEXT":
+					mods = append(mods, "text")
+				case "IMAGE":
+					mods = append(mods, "image")
+				}
+			}
+			if len(mods) > 0 {
+				openaiReq.Modalities = mods
+			}
+		}
+		if req.GenerationConfig.ImageConfig != nil {
+			openaiReq.ImageConfig = &OpenAIImageConfig{
+				AspectRatio: req.GenerationConfig.ImageConfig.AspectRatio,
+				ImageSize:   req.GenerationConfig.ImageConfig.ImageSize,
+			}
+		}
 	}
 
 	// Convert systemInstruction

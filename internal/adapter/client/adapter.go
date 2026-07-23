@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -13,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/tidwall/gjson"
 )
 
 // RequestInfo contains extracted request information
@@ -45,9 +45,9 @@ func (a *Adapter) Match(req *http.Request) (domain.ClientType, bool) {
 		return domain.ClientTypeCodex, true
 	case strings.HasPrefix(path, "/v1/responses"):
 		return domain.ClientTypeCodex, true
-	case strings.HasPrefix(path, "/v1/chat/completions"):
+	case isOpenAIChatCompletionsPath(path):
 		return domain.ClientTypeOpenAI, true
-	case strings.HasPrefix(path, "/v1/images/"):
+	case isOpenAIImagesPath(path):
 		// OpenAI Images API (generations/edits). Body carries no messages/input,
 		// so body-detection can't classify it — key off the path.
 		return domain.ClientTypeOpenAI, true
@@ -73,38 +73,8 @@ func (a *Adapter) detectFromBody(req *http.Request) (domain.ClientType, bool) {
 	// Restore body for later use
 	req.Body = io.NopCloser(bytes.NewReader(body))
 
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return "", false
-	}
-
-	// Check for Gemini format
-	if _, ok := data["contents"]; ok {
-		if _, hasRequest := data["request"]; !hasRequest {
-			return domain.ClientTypeGemini, true
-		}
-	}
-
-	// Check for Gemini CLI (envelope)
-	if _, ok := data["request"]; ok {
-		return domain.ClientTypeGemini, true
-	}
-
-	// Check for Codex (Response API)
-	if _, ok := data["input"]; ok {
-		return domain.ClientTypeCodex, true
-	}
-
-	// Check for Claude vs OpenAI
-	if _, ok := data["messages"]; ok {
-		// Claude has system as array or string at top level
-		if _, hasSystem := data["system"]; hasSystem {
-			return domain.ClientTypeClaude, true
-		}
-		return domain.ClientTypeOpenAI, true
-	}
-
-	return "", false
+	detected := a.detectFromBodyBytes(body)
+	return detected, detected != ""
 }
 
 // ExtractInfo extracts session ID and model from the request
@@ -141,36 +111,27 @@ func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientTy
 		}
 	}
 
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err == nil {
-		// 2. For Codex client, try previous_response_id or prompt_cache_key
-		if clientType == domain.ClientTypeCodex {
-			// First try previous_response_id (used for conversation tracking in Codex)
-			if prevID, ok := data["previous_response_id"].(string); ok && prevID != "" {
-				return prevID
-			}
-			// Then try prompt_cache_key (used for session identification)
-			if cacheKey, ok := data["prompt_cache_key"].(string); ok && cacheKey != "" {
-				return cacheKey
-			}
+	// Read the few session fields directly instead of materializing the complete
+	// request into map[string]interface{}. Responses transcripts can be tens of
+	// MiB, so a full decode here dominates both CPU and allocation volume.
+	if clientType == domain.ClientTypeCodex {
+		if prevID := jsonStringField(body, "previous_response_id"); prevID != "" {
+			return prevID
 		}
+		if cacheKey := jsonStringField(body, "prompt_cache_key"); cacheKey != "" {
+			return cacheKey
+		}
+	}
 
-		// 3. Try metadata.session_id or metadata.user_id (Claude)
-		if metadata, ok := data["metadata"].(map[string]interface{}); ok {
-			// First try explicit session_id
-			if sid, ok := metadata["session_id"].(string); ok && sid != "" {
-				return sid
-			}
-			// Then try user_id (Claude Code format: "user_{hash}_account__session_{uuid}")
-			if userID, ok := metadata["user_id"].(string); ok && userID != "" {
-				const sessionMarker = "_session_"
-				if idx := strings.LastIndex(userID, sessionMarker); idx != -1 {
-					return userID[idx+len(sessionMarker):]
-				}
-				// Fallback: return full user_id if no _session_ marker
-				return userID
-			}
+	if sid := jsonStringField(body, "metadata.session_id"); sid != "" {
+		return sid
+	}
+	if userID := jsonStringField(body, "metadata.user_id"); userID != "" {
+		const sessionMarker = "_session_"
+		if idx := strings.LastIndex(userID, sessionMarker); idx != -1 {
+			return userID[idx+len(sessionMarker):]
 		}
+		return userID
 	}
 
 	// 4. Try Header X-Session-Id
@@ -220,9 +181,9 @@ func (a *Adapter) DetectClientType(req *http.Request, body []byte) domain.Client
 		return domain.ClientTypeCodex
 	case strings.HasPrefix(path, "/responses"):
 		return domain.ClientTypeCodex
-	case strings.HasPrefix(path, "/v1/chat/completions"):
+	case isOpenAIChatCompletionsPath(path):
 		return domain.ClientTypeOpenAI
-	case strings.HasPrefix(path, "/v1/images/"):
+	case isOpenAIImagesPath(path):
 		// OpenAI Images API (generations/edits). Body carries no messages/input,
 		// so body-detection can't classify it — key off the path.
 		return domain.ClientTypeOpenAI
@@ -241,38 +202,50 @@ func (a *Adapter) DetectClientType(req *http.Request, body []byte) domain.Client
 }
 
 func (a *Adapter) detectFromBodyBytes(body []byte) domain.ClientType {
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
+	if !gjson.ValidBytes(body) {
 		return ""
 	}
 
 	// Check for Gemini format
-	if _, ok := data["contents"]; ok {
-		if _, hasRequest := data["request"]; !hasRequest {
+	if gjson.GetBytes(body, "contents").Exists() {
+		if !gjson.GetBytes(body, "request").Exists() {
 			return domain.ClientTypeGemini
 		}
 	}
 
 	// Check for Gemini CLI (envelope)
-	if _, ok := data["request"]; ok {
+	if gjson.GetBytes(body, "request").Exists() {
 		return domain.ClientTypeGemini
 	}
 
 	// Check for Codex (Response API)
-	if _, ok := data["input"]; ok {
+	if gjson.GetBytes(body, "input").Exists() {
 		return domain.ClientTypeCodex
 	}
 
 	// Check for Claude vs OpenAI
-	if _, ok := data["messages"]; ok {
+	if gjson.GetBytes(body, "messages").Exists() {
 		// Claude has system as array or string at top level
-		if _, hasSystem := data["system"]; hasSystem {
+		if gjson.GetBytes(body, "system").Exists() {
 			return domain.ClientTypeClaude
 		}
 		return domain.ClientTypeOpenAI
 	}
 
 	return ""
+}
+
+func isOpenAIChatCompletionsPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/chat/completions") || strings.HasPrefix(path, "/chat/completions")
+}
+
+func isOpenAIImagesPath(path string) bool {
+	// Bare /v1/images (and /images) is OpenRouter's unified image endpoint; the
+	// /…/ prefixes cover the OpenAI Images API (generations/edits). A bare-path
+	// {model,prompt} body has no messages/input/contents, so without this the
+	// body-based detection returns "" and the request 400s.
+	return path == "/v1/images" || path == "/images" ||
+		strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/images/")
 }
 
 func isClaudeUserAgent(userAgent string) bool {
@@ -292,10 +265,9 @@ func (a *Adapter) ExtractModel(req *http.Request, body []byte, clientType domain
 		}
 	}
 
-	// Try JSON body (chat/completions, images/generations, messages, ...).
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err == nil {
-		if model, ok := data["model"].(string); ok {
+	// Try the JSON field directly without decoding the complete request tree.
+	if gjson.ValidBytes(body) {
+		if model := jsonStringField(body, "model"); model != "" {
 			return model
 		}
 		return ""
@@ -358,15 +330,16 @@ func (a *Adapter) IsStreamRequest(req *http.Request, body []byte) bool {
 		return true
 	}
 
-	// Claude/OpenAI use body field
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return false
-	}
+	// Claude/OpenAI use a top-level boolean field. Avoid materializing the full
+	// body merely to read it.
+	stream := gjson.GetBytes(body, "stream")
+	return stream.Type == gjson.True
+}
 
-	if stream, ok := data["stream"].(bool); ok {
-		return stream
+func jsonStringField(body []byte, path string) string {
+	value := gjson.GetBytes(body, path)
+	if value.Type != gjson.String {
+		return ""
 	}
-
-	return false
+	return value.String()
 }

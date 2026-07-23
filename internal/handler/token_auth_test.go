@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 )
@@ -67,6 +69,10 @@ func (r *tokenAuthTestRepo) Update(token *domain.APIToken) error {
 }
 
 func (r *tokenAuthTestRepo) Delete(tenantID uint64, id uint64) error { return nil }
+
+func (r *tokenAuthTestRepo) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	return []*domain.APIToken{}, nil
+}
 
 func (r *tokenAuthTestRepo) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	if r.token == nil || r.token.ID != id {
@@ -151,6 +157,182 @@ func TestTokenAuthValidateRequestUpdatesLastSeenWithClientIP(t *testing.T) {
 		t.Fatal("timed out waiting for UpdateLastSeen call")
 	}
 }
+
+func TestTokenAuthWrapModelListRequiresTokenWhenEnabled(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	apiToken := &domain.APIToken{
+		TenantID:    7,
+		Token:       "maxx_models_token_123",
+		TokenPrefix: "maxx_models...",
+		Name:        "models-token",
+		IsEnabled:   true,
+	}
+	if err := cachedRepo.Create(apiToken); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := maxxctx.GetTenantID(r.Context()); got != 7 {
+			t.Fatalf("tenant id = %d, want 7", got)
+		}
+		if got := maxxctx.GetAPITokenID(r.Context()); got != apiToken.ID {
+			t.Fatalf("api token id = %d, want %d", got, apiToken.ID)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+	})
+	handler := middleware.WrapModelList(next)
+
+	missingReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	missingRec := httptest.NewRecorder()
+	handler.ServeHTTP(missingRec, missingReq)
+	if missingRec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing-token status = %d, want 401", missingRec.Code)
+	}
+
+	badReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	badReq.Header.Set("Authorization", "Bearer maxx_wrong")
+	badRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad-token status = %d, want 401", badRec.Code)
+	}
+
+	validReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	validReq.Header.Set("Authorization", "Bearer "+apiToken.Token)
+	validRec := httptest.NewRecorder()
+	handler.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("valid-token status = %d, want 200", validRec.Code)
+	}
+}
+
+func TestTokenAuthWrapModelListAcceptsGeminiKeyHeader(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	apiToken := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
+		Token:       "maxx_models_gemini_token",
+		TokenPrefix: "maxx_models...",
+		Name:        "gemini-models-token",
+		IsEnabled:   true,
+	}
+	if err := cachedRepo.Create(apiToken); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	handler := middleware.WrapModelList(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("x-goog-api-key", apiToken.Token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Gemini key header status = %d, want 200", rec.Code)
+	}
+}
+
+func TestTokenAuthInactiveExpiryRejectsTokenLastUsedFifteenDaysAgo(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	lastUsedAt := time.Now().Add(-15 * 24 * time.Hour)
+	token := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
+		Token:       "maxx_test_token_inactive",
+		TokenPrefix: "maxx_test...",
+		Name:        "inactive-token",
+		IsEnabled:   true,
+		LastUsedAt:  &lastUsedAt,
+	}
+	if err := cachedRepo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	req := httptest.NewRequest("POST", "http://example.test/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+
+	validated, err := middleware.ValidateRequest(req, domain.ClientTypeOpenAI)
+	if err != ErrTokenExpired {
+		t.Fatalf("ValidateRequest() error = %v, want %v", err, ErrTokenExpired)
+	}
+	if validated != nil {
+		t.Fatalf("ValidateRequest() token = %#v, want nil", validated)
+	}
+
+	select {
+	case update := <-repo.updates:
+		t.Fatalf("expired token should not update last seen, got %#v", update)
+	default:
+	}
+}
+
+func TestTokenAuthInactiveExpiryIgnoresMissingLastUsedAt(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	token := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
+		Token:       "maxx_test_token_no_last_used",
+		TokenPrefix: "maxx_test...",
+		Name:        "no-last-used-token",
+		IsEnabled:   true,
+	}
+	if err := cachedRepo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	req := httptest.NewRequest("POST", "http://example.test/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+
+	validated, err := middleware.ValidateRequest(req, domain.ClientTypeOpenAI)
+	if err != nil {
+		t.Fatalf("ValidateRequest() error = %v", err)
+	}
+	if validated == nil || validated.Token != token.Token {
+		t.Fatalf("ValidateRequest() token = %#v, want %q", validated, token.Token)
+	}
+
+	select {
+	case update := <-repo.updates:
+		if update.lastSeenAt.IsZero() {
+			t.Fatal("lastSeenAt should be set")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for UpdateLastSeen call")
+	}
+}
+
+func TestInactiveAPITokenExpiredBoundary(t *testing.T) {
+	now := time.Date(2026, 6, 17, 11, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		lastUsedAt *time.Time
+		want       bool
+	}{
+		{name: "missing last used", want: false},
+		{name: "exactly ten days", lastUsedAt: ptrTime(now.Add(-domain.APITokenInactiveExpiry)), want: false},
+		{name: "over ten days", lastUsedAt: ptrTime(now.Add(-domain.APITokenInactiveExpiry - time.Nanosecond)), want: true},
+		{name: "fifteen days", lastUsedAt: ptrTime(now.Add(-15 * 24 * time.Hour)), want: true},
+		{name: "within ten days", lastUsedAt: ptrTime(now.Add(-domain.APITokenInactiveExpiry + time.Nanosecond)), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isInactiveAPITokenExpired(&domain.APIToken{LastUsedAt: tt.lastUsedAt}, now)
+			if got != tt.want {
+				t.Fatalf("isInactiveAPITokenExpired() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }
 
 func TestTokenAuthConcurrentLimitDefaultsToFive(t *testing.T) {
 	repo := newTokenAuthTestRepo()

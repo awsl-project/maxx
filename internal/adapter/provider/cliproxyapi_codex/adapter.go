@@ -13,16 +13,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/awsl-project/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/awsl-project/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	"github.com/awsl-project/CLIProxyAPI/v7/sdk/exec"
-	"github.com/awsl-project/CLIProxyAPI/v7/sdk/translator"
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/usage"
-	"github.com/tidwall/sjson"
+	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/exec"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 )
 
 // TokenCache caches access tokens
@@ -241,19 +240,9 @@ func (a *CLIProxyAPICodexAdapter) Execute(c *flow.Ctx, p *domain.Provider) error
 	stream := flow.GetIsStream(c)
 	model := flow.GetMappedModel(c)
 
-	// Apply provider-level overrides for reasoning and service_tier
-	cfg := a.codexConfig()
-	if cfg.Reasoning != "" {
-		if updated, err := sjson.SetBytes(requestBody, "reasoning.effort", cfg.Reasoning); err == nil {
-			requestBody = updated
-		}
-	}
-	if cfg.ServiceTier != "" {
-		if updated, err := sjson.SetBytes(requestBody, "service_tier", cfg.ServiceTier); err == nil {
-			requestBody = updated
-		}
-	}
-	requestBody = payloadoverride.ApplyGlobal(requestBody, "codex", model)
+	// Semantic outbound params (reasoning effort, service_tier) are applied
+	// authoritatively by the executor's param stage before the body reaches this
+	// adapter — see executor.applyOutboundParamPolicy.
 
 	// Codex CLI 请求体本质是 OpenAI Responses schema；保持与 CLIProxyAPI 一致。
 	sourceFormat := translator.FormatOpenAIResponse
@@ -288,6 +277,7 @@ func (a *CLIProxyAPICodexAdapter) Execute(c *flow.Ctx, p *domain.Provider) error
 
 	execOpts := executor.Options{
 		Stream:          stream,
+		Headers:         cliProxyAPIRequestHeaders(c),
 		OriginalRequest: requestBody,
 		SourceFormat:    sourceFormat,
 	}
@@ -298,11 +288,40 @@ func (a *CLIProxyAPICodexAdapter) Execute(c *flow.Ctx, p *domain.Provider) error
 	return a.executeNonStream(c, w, execReq, execOpts)
 }
 
-func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseWriter, execReq executor.Request, execOpts executor.Options) error {
-	ctx := context.Background()
-	if c.Request != nil {
-		ctx = c.Request.Context()
+func cliProxyAPIRequestHeaders(c *flow.Ctx) http.Header {
+	headers := make(http.Header)
+	if c != nil && c.Request != nil {
+		for _, name := range []string{"User-Agent", "Version"} {
+			if values, ok := c.Request.Header[name]; ok {
+				headers[name] = append([]string(nil), values...)
+			}
+		}
 	}
+	if c != nil {
+		originalClientType := flow.GetOriginalClientType(c)
+		targetClientType := flow.GetClientType(c)
+		if originalClientType != "" && targetClientType != "" && originalClientType != targetClientType {
+			headers.Del("User-Agent")
+			headers.Del("Version")
+		}
+	}
+	return headers
+}
+
+func cliProxyAPIRequestContext(c *flow.Ctx, headers http.Header) context.Context {
+	ctx := context.Background()
+	if c == nil || c.Request == nil {
+		return ctx
+	}
+	ctx = c.Request.Context()
+	request := c.Request.Clone(ctx)
+	request.Header = headers.Clone()
+	// CLIProxyAPI reads passthrough headers from the Gin request in its execution context.
+	return context.WithValue(ctx, "gin", &gin.Context{Request: request})
+}
+
+func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseWriter, execReq executor.Request, execOpts executor.Options) error {
+	ctx := cliProxyAPIRequestContext(c, execOpts.Headers)
 
 	resp, err := a.executor.Execute(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
@@ -348,10 +367,7 @@ func (a *CLIProxyAPICodexAdapter) executeStream(c *flow.Ctx, w http.ResponseWrit
 		return a.executeNonStream(c, w, execReq, execOpts)
 	}
 
-	ctx := context.Background()
-	if c.Request != nil {
-		ctx = c.Request.Context()
-	}
+	ctx := cliProxyAPIRequestContext(c, execOpts.Headers)
 
 	stream, err := a.executor.ExecuteStream(ctx, a.authObj, execReq, execOpts)
 	if err != nil {

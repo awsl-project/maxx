@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Badge,
+  Switch,
+} from '@/components/ui';
 import { useRetryConfigs, useUpdateRetryConfig, useCreateRetryConfig } from '@/hooks/queries';
 import { PageHeader } from '@/components/layout/page-header';
 import { Save, RefreshCw, AlertTriangle, ShieldCheck } from 'lucide-react';
@@ -20,6 +29,7 @@ export function RetryConfigsPage() {
   const [initialInterval, setInitialInterval] = useState('1000');
   const [backoffRate, setBackoffRate] = useState('2');
   const [maxInterval, setMaxInterval] = useState('30000');
+  const [forceRetryUpstreamErrors, setForceRetryUpstreamErrors] = useState(false);
 
   useEffect(() => {
     if (configs) {
@@ -32,6 +42,7 @@ export function RetryConfigsPage() {
           setInitialInterval(String(def.initialInterval / 1_000_000));
           setBackoffRate(String(def.backoffRate));
           setMaxInterval(String(def.maxInterval / 1_000_000));
+          setForceRetryUpstreamErrors(Boolean(def.forceRetryUpstreamErrors));
         }
       }
     }
@@ -50,6 +61,7 @@ export function RetryConfigsPage() {
       initialInterval: Number(initialInterval) * 1_000_000,
       backoffRate: Number(backoffRate),
       maxInterval: Number(maxInterval) * 1_000_000,
+      forceRetryUpstreamErrors,
     };
 
     if (defaultConfig) {
@@ -79,6 +91,7 @@ export function RetryConfigsPage() {
       setInitialInterval(String(defaultConfig.initialInterval / 1_000_000));
       setBackoffRate(String(defaultConfig.backoffRate));
       setMaxInterval(String(defaultConfig.maxInterval / 1_000_000));
+      setForceRetryUpstreamErrors(Boolean(defaultConfig.forceRetryUpstreamErrors));
       setHasChanges(false);
     }
   };
@@ -241,6 +254,31 @@ export function RetryConfigsPage() {
                     </span>
                   </div>
                 </div>
+              </div>
+
+              <div className="h-px bg-border/50" />
+
+              <div className="flex items-start justify-between gap-4 rounded-lg border border-border/50 bg-muted/20 p-4">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-text-primary">
+                    {t('retryConfigs.forceRetryUpstreamErrors')}
+                  </label>
+                  <p className="text-xs text-text-secondary">
+                    {t('retryConfigs.forceRetryUpstreamErrorsDesc')}
+                  </p>
+                  <p className="text-xs text-warning">
+                    {t('retryConfigs.forceRetryUpstreamErrorsHint')}
+                  </p>
+                </div>
+                <Switch
+                  aria-label={t('retryConfigs.forceRetryUpstreamErrors')}
+                  checked={forceRetryUpstreamErrors}
+                  onCheckedChange={(checked) => {
+                    setForceRetryUpstreamErrors(checked);
+                    setHasChanges(true);
+                  }}
+                  disabled={isSaving}
+                />
               </div>
 
               <div className="bg-muted/30 rounded-lg p-4 text-xs border border-border/50">

@@ -3,7 +3,15 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTransport, type Route, type CreateRouteData } from '@/lib/transport';
+import {
+  getTransport,
+  type CreateRouteData,
+  type UpdateRouteData,
+  type ClaudeProviderBatchRequest,
+  type RouteBulkDeleteRequest,
+  type RouteSyncRequest,
+} from '@/lib/transport';
+import { projectKeys } from './use-projects';
 
 // Query Keys
 export const routeKeys = {
@@ -48,7 +56,7 @@ export function useUpdateRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<Route> }) =>
+    mutationFn: ({ id, data }: { id: number; data: UpdateRouteData }) =>
       getTransport().updateRoute(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: routeKeys.detail(id) });
@@ -65,6 +73,31 @@ export function useDeleteRoute() {
     mutationFn: (id: number) => getTransport().deleteRoute(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+    },
+  });
+}
+
+// 批量删除 Route
+export function useBulkDeleteRoutes() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: RouteBulkDeleteRequest) => getTransport().bulkDeleteRoutes(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+    },
+  });
+}
+
+// 从默认路由或其他项目同步当前 client type 的路由配置
+export function useSyncRoutesFromProject() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: RouteSyncRequest) => getTransport().syncRoutesFromProject(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
     },
   });
 }
@@ -103,6 +136,20 @@ export function useUpdateRoutePositions() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+    },
+  });
+}
+
+// Claude 路由页：批量测试/导入 provider，并可按结果创建 Claude route
+export function useClaudeProviderBatchTest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ data, signal }: { data: ClaudeProviderBatchRequest; signal?: AbortSignal }) =>
+      getTransport().claudeProviderBatchTest(data, signal),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
     },
   });
 }

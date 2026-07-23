@@ -4,15 +4,19 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
 	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/grok"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/newapi"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/ollama"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/coordinator"
@@ -20,11 +24,11 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
+	"github.com/awsl-project/maxx/internal/reqpolicy"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
 	"github.com/awsl-project/maxx/internal/waiter"
@@ -77,29 +81,30 @@ type DatabaseRepos struct {
 
 // ServerComponents 包含服务器运行所需的所有组件
 type ServerComponents struct {
-	Router               *router.Router
-	WebSocketHub         *handler.WebSocketHub
-	WailsBroadcaster     *event.WailsBroadcaster
-	Executor             *executor.Executor
-	ClientAdapter        *client.Adapter
-	AdminService         *service.AdminService
-	ProxyHandler         *handler.ProxyHandler
-	ModelsHandler        *handler.ModelsHandler
-	AdminHandler         *handler.AdminHandler
-	SelfServiceHandler   *handler.SelfServiceHandler
-	AntigravityHandler   *handler.AntigravityHandler
-	KiroHandler          *handler.KiroHandler
-	CodexHandler         *handler.CodexHandler
-	CodexOAuthServer     *CodexOAuthServer
-	ClaudeHandler        *handler.ClaudeHandler
-	ClaudeOAuthServer    *ClaudeOAuthServer
-	ProjectProxyHandler  *handler.ProjectProxyHandler
-	ProviderProxyHandler *handler.ProviderProxyHandler
-	RequestTracker       *RequestTracker
-	PprofManager         *PprofManager
-	AuthMiddleware       *handler.AuthMiddleware
-	AuthHandler          *handler.AuthHandler
-	BackupService        *service.BackupService
+	Router                 *router.Router
+	WebSocketHub           *handler.WebSocketHub
+	WailsBroadcaster       *event.WailsBroadcaster
+	Executor               *executor.Executor
+	ClientAdapter          *client.Adapter
+	AdminService           *service.AdminService
+	ProxyHandler           *handler.ProxyHandler
+	ModelsHandler          *handler.ModelsHandler
+	ProtectedModelsHandler http.Handler
+	AdminHandler           *handler.AdminHandler
+	SelfServiceHandler     *handler.SelfServiceHandler
+	AntigravityHandler     *handler.AntigravityHandler
+	KiroHandler            *handler.KiroHandler
+	CodexHandler           *handler.CodexHandler
+	CodexOAuthServer       *CodexOAuthServer
+	ClaudeHandler          *handler.ClaudeHandler
+	ClaudeOAuthServer      *ClaudeOAuthServer
+	ProjectProxyHandler    *handler.ProjectProxyHandler
+	ProviderProxyHandler   *handler.ProviderProxyHandler
+	RequestTracker         *RequestTracker
+	PprofManager           *PprofManager
+	AuthMiddleware         *handler.AuthMiddleware
+	AuthHandler            *handler.AuthHandler
+	BackupService          *service.BackupService
 
 	// Coordinator wiring (desktop launcher 与 cmd/maxx 共用此字段)
 	Coordinator        coordinator.Coordinator
@@ -348,28 +353,18 @@ func InitializeServerComponents(
 		enabled := strings.EqualFold(strings.TrimSpace(val), "true")
 		return &converter.GlobalSettings{CodexInstructionsEnabled: enabled}, nil
 	})
-	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
-		val, err := repos.SettingRepo.Get(domain.SettingKeyPayloadOverrideRules)
+	reqpolicy.SetGlobalPolicyGetter(func() (*domain.ReasoningPolicy, error) {
+		val, err := repos.SettingRepo.Get(domain.SettingKeyReasoningPolicy)
 		if err != nil {
-			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyPayloadOverrideRules, err)
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyReasoningPolicy, err)
 		}
-		if strings.TrimSpace(val) == "" {
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		if err := payloadoverride.ValidateRulesJSON(val); err != nil {
-			log.Printf("[Core] Warning: Ignoring invalid payload override rules: %v", err)
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		rules, err := payloadoverride.ParseRules(val)
+		policy, err := reqpolicy.ParsePolicyJSON(val)
 		if err != nil {
-			log.Printf("[Core] Warning: Failed to parse payload override rules: %v", err)
-			return &payloadoverride.GlobalSettings{}, nil
+			log.Printf("[Core] Warning: Ignoring invalid global reasoning policy: %v", err)
+			return nil, nil
 		}
-		return &payloadoverride.GlobalSettings{Rules: rules}, nil
+		return policy, nil
 	})
-	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
-		log.Printf("[Core] Warning: Failed to warm payload override cache: %v", err)
-	}
 
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(
@@ -457,7 +452,9 @@ func InitializeServerComponents(
 		repos.ResponseModelRepo,
 		repos.CachedProviderRepo,
 		repos.CachedModelMappingRepo,
+		r,
 	)
+	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	adminHandler.SetUserRepo(repos.UserRepo)
@@ -470,38 +467,41 @@ func InitializeServerComponents(
 	claudeHandler := handler.NewClaudeHandler(adminService, wailsBroadcaster)
 	claudeOAuthServer := NewClaudeOAuthServer(claudeHandler)
 	claudeHandler.SetOAuthServer(claudeOAuthServer)
-	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, repos.CachedProjectRepo)
+	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, protectedModelsHandler, repos.CachedProjectRepo, repos.SettingRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, protectedModelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo, repos.SettingRepo)
+	adminHandler.SetProviderProxyHandler(providerProxyHandler)
 
 	log.Printf("[Core] Creating request tracker for graceful shutdown")
 	requestTracker := NewRequestTracker()
 	proxyHandler.SetRequestTracker(requestTracker)
 
 	components := &ServerComponents{
-		Router:               r,
-		WebSocketHub:         wsHub,
-		WailsBroadcaster:     wailsBroadcaster,
-		Executor:             exec,
-		ClientAdapter:        clientAdapter,
-		AdminService:         adminService,
-		ProxyHandler:         proxyHandler,
-		ModelsHandler:        modelsHandler,
-		AdminHandler:         adminHandler,
-		SelfServiceHandler:   selfServiceHandler,
-		AntigravityHandler:   antigravityHandler,
-		KiroHandler:          kiroHandler,
-		CodexHandler:         codexHandler,
-		CodexOAuthServer:     codexOAuthServer,
-		ClaudeHandler:        claudeHandler,
-		ClaudeOAuthServer:    claudeOAuthServer,
-		ProjectProxyHandler:  projectProxyHandler,
-		ProviderProxyHandler: handler.NewProviderProxyHandler(proxyHandler, modelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo),
-		RequestTracker:       requestTracker,
-		PprofManager:         pprofMgr,
-		AuthMiddleware:       authMiddleware,
-		AuthHandler:          authHandler,
-		BackupService:        backupService,
-		Coordinator:          coordComp.Coordinator,
-		CoordinatorCleanup:   coordComp.Cleanup,
+		Router:                 r,
+		WebSocketHub:           wsHub,
+		WailsBroadcaster:       wailsBroadcaster,
+		Executor:               exec,
+		ClientAdapter:          clientAdapter,
+		AdminService:           adminService,
+		ProxyHandler:           proxyHandler,
+		ModelsHandler:          modelsHandler,
+		ProtectedModelsHandler: protectedModelsHandler,
+		AdminHandler:           adminHandler,
+		SelfServiceHandler:     selfServiceHandler,
+		AntigravityHandler:     antigravityHandler,
+		KiroHandler:            kiroHandler,
+		CodexHandler:           codexHandler,
+		CodexOAuthServer:       codexOAuthServer,
+		ClaudeHandler:          claudeHandler,
+		ClaudeOAuthServer:      claudeOAuthServer,
+		ProjectProxyHandler:    projectProxyHandler,
+		ProviderProxyHandler:   providerProxyHandler,
+		RequestTracker:         requestTracker,
+		PprofManager:           pprofMgr,
+		AuthMiddleware:         authMiddleware,
+		AuthHandler:            authHandler,
+		BackupService:          backupService,
+		Coordinator:            coordComp.Coordinator,
+		CoordinatorCleanup:     coordComp.Cleanup,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")

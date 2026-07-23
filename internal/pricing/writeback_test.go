@@ -44,6 +44,49 @@ func TestFinalizeAttemptCost_WritesAllBillingFields(t *testing.T) {
 	}
 }
 
+// A response with an authoritative upstream cost (OpenRouter usage.cost) bills
+// from it directly — even with ZERO tokens (per-image / per-megapixel models) —
+// applying the contract multiplier and marking ModelPriceID=0 (not price-table).
+func TestFinalizeAttemptCost_UpstreamCostOverridesTokenTable(t *testing.T) {
+	resetGlobalCalculator(t)
+	// A price-table row exists for the model, but upstream cost must win.
+	GlobalCalculator().LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 7, ModelID: "bytedance-seed/seedream-4.5", InputPriceMicro: 999_000_000},
+	})
+
+	att := &domain.ProxyUpstreamAttempt{
+		ResponseModel:       "bytedance-seed/seedream-4.5",
+		UpstreamCostNanoUSD: 40_000_000, // $0.04 charged upstream, zero tokens
+	}
+
+	res := FinalizeAttemptCost(att, 15_000) // 1.5×
+
+	// $0.04 = 40_000_000 nanoUSD × 1.5 = 60_000_000
+	const expected = uint64(60_000_000)
+	if res.Cost != expected || att.Cost != expected {
+		t.Errorf("cost = res=%d attempt=%d, want %d", res.Cost, att.Cost, expected)
+	}
+	if res.ModelPriceID != 0 || att.ModelPriceID != 0 {
+		t.Errorf("ModelPriceID = res=%d attempt=%d, want 0 (upstream-billed)", res.ModelPriceID, att.ModelPriceID)
+	}
+	if att.Multiplier != 15_000 {
+		t.Errorf("attempt.Multiplier = %d, want 15000", att.Multiplier)
+	}
+}
+
+// Upstream cost with a default (0 → 1×) multiplier passes through unscaled.
+func TestFinalizeAttemptCost_UpstreamCostDefaultMultiplier(t *testing.T) {
+	resetGlobalCalculator(t)
+	att := &domain.ProxyUpstreamAttempt{UpstreamCostNanoUSD: 40_000_000}
+	res := FinalizeAttemptCost(att, 0) // 0 → DefaultMultiplier (1×)
+	if res.Cost != 40_000_000 || att.Cost != 40_000_000 {
+		t.Errorf("cost = res=%d attempt=%d, want 40000000", res.Cost, att.Cost)
+	}
+	if att.Multiplier != DefaultMultiplier {
+		t.Errorf("attempt.Multiplier = %d, want %d", att.Multiplier, DefaultMultiplier)
+	}
+}
+
 func TestFinalizeAttemptCost_NoTokensKeepsMultiplierOnly(t *testing.T) {
 	// 失败 attempt 经常没有 token,这种情况下 FinalizeAttemptCost 不该去查表写 cost
 	// (会被 unknown-model 日志污染,也容易在 attempt 上塞个 0 把已有合理字段覆盖)。

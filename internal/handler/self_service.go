@@ -2,24 +2,36 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/service"
 )
 
 var publicSettingsAllowlist = map[string]struct{}{
-	"api_token_auth_enabled": {},
-	"force_project_binding":  {},
-	"force_project_timeout":  {},
-	"auto_sort_antigravity":  {},
-	"auto_sort_codex":        {},
-	"ui_multitenant_enabled": {},
+	"api_token_auth_enabled":                         {},
+	"force_project_binding":                          {},
+	"force_project_timeout":                          {},
+	"auto_sort_antigravity":                          {},
+	"auto_sort_codex":                                {},
+	"ui_multitenant_enabled":                         {},
+	"ui_multitenant_layout":                          {},
+	domain.SettingKeyRequestFailureDetailsEnabled:    {},
+	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},
+	domain.SettingKeyProxyRouteOpenAIChatEnabled:     {},
+	domain.SettingKeyProxyRouteResponsesEnabled:      {},
+	domain.SettingKeyProxyRouteGeminiEnabled:         {},
 }
+
+const userPanelAPITokenDescriptionPrefix = "managed-by=maxx-user-panel;user-id="
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
 type SelfServiceHandler struct {
@@ -65,6 +77,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case len(parts) == 2:
 			h.handleProviders(w, r, 0)
+		case len(parts) == 3 && parts[2] == "bulk-delete":
+			h.handleBulkDeleteProviders(w, r)
 		case len(parts) == 3 && parts[2] == "export":
 			h.handleProvidersExport(w, r)
 		case len(parts) == 3 && parts[2] == "import":
@@ -106,8 +120,14 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case len(parts) == 2:
 			h.handleRoutes(w, r, 0)
+		case len(parts) == 3 && parts[2] == "sync-from-project":
+			h.handleSyncRoutesFromProject(w, r)
 		case len(parts) == 3 && parts[2] == "batch-positions":
 			h.handleBatchUpdateRoutePositions(w, r)
+		case len(parts) == 3 && parts[2] == "bulk-delete":
+			h.handleBulkDeleteRoutes(w, r)
+		case len(parts) == 3 && parts[2] == "claude-provider-batch-test":
+			h.handleClaudeProviderBatchTest(w, r)
 		case len(parts) == 3:
 			id, ok := parseSelfServiceID(w, "route", parts[2])
 			if !ok {
@@ -121,6 +141,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case len(parts) == 2:
 			h.handleProjects(w, r, 0, parts)
+		case len(parts) == 3 && parts[2] == "archive-inactive":
+			h.handleArchiveInactiveProjects(w, r)
 		case len(parts) >= 3 && parts[2] == "by-slug":
 			if len(parts) > 4 {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -184,6 +206,12 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleProxyStatus(w, r)
+	case "usage-stats":
+		if len(parts) != 2 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		h.handleUsageStats(w, r)
 	case "api-tokens":
 		switch {
 		case len(parts) == 2:
@@ -194,6 +222,17 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.handleAPITokens(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+	case "user-panel-token":
+		switch {
+		case len(parts) == 2:
+			h.handleUserPanelAPIToken(w, r, false)
+		case len(parts) == 3 && parts[2] == "regenerate":
+			h.handleUserPanelAPIToken(w, r, true)
+		case len(parts) == 3 && parts[2] == "reveal":
+			h.handleUserPanelAPITokenReveal(w, r)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
@@ -233,7 +272,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 				return
 			}
-			if !isAdmin {
+			if shouldSanitizeProviderSecrets(provider, isAdmin) {
 				provider = sanitizeProvider(provider)
 			}
 			writeJSON(w, http.StatusOK, provider)
@@ -245,9 +284,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 			writeSelfServiceInternalError(w, "GetProviders failed", err)
 			return
 		}
-		if !isAdmin {
-			providers = sanitizeProviders(providers)
-		}
+		providers = sanitizeProvidersForRole(providers, isAdmin)
 		if providers == nil {
 			providers = []*domain.Provider{}
 		}
@@ -265,7 +302,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 			writeSelfServiceInternalError(w, "CreateProvider failed", err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, provider)
+		writeJSON(w, http.StatusCreated, sanitizeProviderAfterMutation(&provider))
 	case http.MethodPut:
 		if !h.requireAdmin(w, r) {
 			return
@@ -289,10 +326,10 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 		provider.TenantID = existing.TenantID
 		provider.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
-			writeSelfServiceInternalError(w, "UpdateProvider failed", err)
+			writeProviderMutationError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, provider)
+		writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(&provider))
 	case http.MethodDelete:
 		if !h.requireAdmin(w, r) {
 			return
@@ -448,6 +485,36 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+func (h *SelfServiceHandler) handleArchiveInactiveProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var body struct {
+		ThresholdDays int `json:"thresholdDays"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if body.ThresholdDays <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "thresholdDays must be positive"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.ArchiveInactiveProjects(tenantID, body.ThresholdDays)
+	if err != nil {
+		writeSelfServiceInternalError(w, "ArchiveInactiveProjects failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *SelfServiceHandler) handleProjectBySlug(w http.ResponseWriter, r *http.Request, parts []string) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -465,6 +532,31 @@ func (h *SelfServiceHandler) handleProjectBySlug(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, project)
+}
+
+func (h *SelfServiceHandler) handleBulkDeleteProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var req domain.ProviderBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.BulkDeleteProviders(tenantID, req)
+	if err != nil {
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *SelfServiceHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id uint64) {
@@ -530,11 +622,7 @@ func (h *SelfServiceHandler) handleRoutes(w http.ResponseWriter, r *http.Request
 				existing.IsEnabled = b
 			}
 		}
-		if v, ok := updates["isNative"]; ok {
-			if b, ok := v.(bool); ok {
-				existing.IsNative = b
-			}
-		}
+		// isNative is a server-derived field; ignore client-supplied values.
 		if v, ok := updates["projectID"]; ok {
 			if f, ok := v.(float64); ok {
 				existing.ProjectID = uint64(f)
@@ -614,6 +702,81 @@ func (h *SelfServiceHandler) handleBatchUpdateRoutePositions(w http.ResponseWrit
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "positions updated successfully"})
+}
+
+func (h *SelfServiceHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var req domain.RouteBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.BulkDeleteRoutes(tenantID, req)
+	if err != nil {
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *SelfServiceHandler) handleClaudeProviderBatchTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var req service.ClaudeProviderBatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.ClaudeProviderBatchTest(r.Context(), tenantID, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *SelfServiceHandler) handleSyncRoutesFromProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var req domain.RouteSyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.SyncRoutesFromProject(tenantID, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *SelfServiceHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request, id uint64) {
@@ -908,6 +1071,324 @@ func (h *SelfServiceHandler) handleSettings(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, filtered)
 }
 
+func (h *SelfServiceHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	query := r.URL.Query()
+	filter := repository.UsageStatsFilter{}
+
+	switch query.Get("granularity") {
+	case "minute":
+		filter.Granularity = domain.GranularityMinute
+	case "day":
+		filter.Granularity = domain.GranularityDay
+	case "month":
+		filter.Granularity = domain.GranularityMonth
+	default:
+		filter.Granularity = domain.GranularityHour
+	}
+
+	if startStr := query.Get("start"); startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			utc := t.UTC()
+			filter.StartTime = &utc
+		}
+	}
+	if endStr := query.Get("end"); endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			utc := t.UTC()
+			filter.EndTime = &utc
+		}
+	}
+	if routeIDStr := query.Get("routeId"); routeIDStr != "" {
+		if id, err := strconv.ParseUint(routeIDStr, 10, 64); err == nil {
+			filter.RouteID = &id
+		}
+	}
+	if providerIDStr := query.Get("providerId"); providerIDStr != "" {
+		if id, err := strconv.ParseUint(providerIDStr, 10, 64); err == nil {
+			filter.ProviderID = &id
+		}
+	}
+	if projectIDStr := query.Get("projectId"); projectIDStr != "" {
+		if id, err := strconv.ParseUint(projectIDStr, 10, 64); err == nil {
+			filter.ProjectID = &id
+		}
+	}
+	if clientType := query.Get("clientType"); clientType != "" {
+		filter.ClientType = &clientType
+	}
+	if apiTokenIDStr := query.Get("apiTokenId"); apiTokenIDStr != "" {
+		if id, err := strconv.ParseUint(apiTokenIDStr, 10, 64); err == nil {
+			filter.APITokenID = &id
+		}
+	}
+	if model := query.Get("model"); model != "" {
+		filter.Model = &model
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	var stats []*domain.UsageStats
+	var err error
+	if h.userPanelLayoutEnabled() {
+		userID := maxxctx.GetUserID(r.Context())
+		if userID == 0 {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+			return
+		}
+		stats, err = getUserPanelUsageStatsForUser(h.svc, tenantID, userID, filter)
+	} else {
+		stats, err = h.svc.GetUsageStats(tenantID, filter)
+	}
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUsageStats failed", err)
+		return
+	}
+	if stats == nil {
+		stats = []*domain.UsageStats{}
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func getUserPanelUsageStatsForUser(svc *service.AdminService, tenantID uint64, userID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+	tokens, err := findUserPanelAPITokensForUser(svc, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(tokens) == 0 {
+		return []*domain.UsageStats{}, nil
+	}
+
+	stats := []*domain.UsageStats{}
+	for _, token := range tokens {
+		if token == nil || token.ID == 0 {
+			continue
+		}
+		tokenFilter := filter
+		tokenID := token.ID
+		tokenFilter.APITokenID = &tokenID
+		tokenStats, err := svc.GetUsageStats(tenantID, tokenFilter)
+		if err != nil {
+			return nil, err
+		}
+		stats = append(stats, tokenStats...)
+	}
+	return stats, nil
+}
+
+func (h *SelfServiceHandler) handleUserPanelAPITokenReveal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token is not enabled"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token not found"})
+		return
+	}
+	if canonicalToken.Token == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token secret is not available"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"token": canonicalToken.Token})
+}
+
+func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *http.Request, regenerate bool) {
+	if regenerate {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+	} else if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token is not enabled"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		if canonicalToken == nil || !canonicalToken.IsEnabled {
+			writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": nil})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(canonicalToken)})
+		return
+	}
+
+	if !regenerate && canonicalToken != nil && canonicalToken.IsEnabled {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":    "user panel token already exists",
+			"apiToken": sanitizeAPIToken(canonicalToken),
+		})
+		return
+	}
+
+	if canonicalToken != nil {
+		canonicalToken.Name = userPanelAPITokenName(userID)
+		canonicalToken.Description = userPanelAPITokenDescription(userID)
+		canonicalToken.ProjectID = 0
+		result, err := h.svc.RotateAPIToken(tenantID, canonicalToken)
+		if err != nil {
+			writeSelfServiceInternalError(w, "RotateUserPanelAPIToken failed", err)
+			return
+		}
+		if result != nil {
+			result.APIToken = sanitizeAPIToken(result.APIToken)
+		}
+		writeJSON(w, http.StatusCreated, result)
+		return
+	}
+
+	result, err := h.svc.CreateAPIToken(
+		tenantID,
+		userPanelAPITokenName(userID),
+		userPanelAPITokenDescription(userID),
+		0,
+		nil,
+	)
+	if err != nil {
+		writeSelfServiceInternalError(w, "CreateUserPanelAPIToken failed", err)
+		return
+	}
+	if result != nil {
+		result.APIToken = sanitizeAPIToken(result.APIToken)
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *SelfServiceHandler) userPanelLayoutEnabled() bool {
+	enabled, err := h.svc.GetSetting("ui_multitenant_enabled")
+	if err != nil || enabled != "true" {
+		return false
+	}
+	layout, err := h.svc.GetSetting("ui_multitenant_layout")
+	return err == nil && layout == "user_panel"
+}
+
+func findUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, userID uint64) ([]*domain.APIToken, error) {
+	tokens, err := svc.GetAPITokens(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	marker := userPanelAPITokenDescription(userID)
+	var matches []*domain.APIToken
+	for _, token := range tokens {
+		if token != nil && token.Description == marker {
+			matches = append(matches, token)
+		}
+	}
+	return matches, nil
+}
+
+func normalizeUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, userID uint64, tokens []*domain.APIToken) (*domain.APIToken, error) {
+	canonical := selectCanonicalUserPanelAPIToken(tokens)
+	if canonical == nil {
+		return nil, nil
+	}
+
+	marker := userPanelAPITokenDescription(userID)
+	name := userPanelAPITokenName(userID)
+	if canonical.Name != name || canonical.Description != marker || canonical.ProjectID != 0 {
+		canonical.Name = name
+		canonical.Description = marker
+		canonical.ProjectID = 0
+		if err := svc.UpdateAPIToken(tenantID, canonical); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, token := range tokens {
+		if token == nil || token.ID == canonical.ID {
+			continue
+		}
+		if err := svc.ReassignAPITokenHistory(tenantID, token.ID, canonical.ID); err != nil {
+			return nil, err
+		}
+		if err := svc.DeleteAPIToken(tenantID, token.ID); err != nil {
+			return nil, err
+		}
+	}
+	return canonical, nil
+}
+
+func selectCanonicalUserPanelAPIToken(tokens []*domain.APIToken) *domain.APIToken {
+	var best *domain.APIToken
+	for _, token := range tokens {
+		if token == nil {
+			continue
+		}
+		if best == nil || isBetterUserPanelAPIToken(token, best) {
+			best = token
+		}
+	}
+	return best
+}
+
+func isBetterUserPanelAPIToken(candidate *domain.APIToken, current *domain.APIToken) bool {
+	if candidate.IsEnabled != current.IsEnabled {
+		return candidate.IsEnabled
+	}
+	if !candidate.CreatedAt.Equal(current.CreatedAt) {
+		return candidate.CreatedAt.After(current.CreatedAt)
+	}
+	return candidate.ID > current.ID
+}
+
+func userPanelAPITokenName(userID uint64) string {
+	return fmt.Sprintf("user %d", userID)
+}
+
+func userPanelAPITokenDescription(userID uint64) string {
+	return fmt.Sprintf("%s%d", userPanelAPITokenDescriptionPrefix, userID)
+}
+
 func (h *SelfServiceHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, id uint64) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -974,11 +1455,19 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 	if provider.Config == nil {
 		return &sanitized
 	}
+	if provider.BlackBox {
+		sanitized.Config = nil
+		return &sanitized
+	}
 
 	config := *provider.Config
 	if config.Custom != nil {
 		custom := *config.Custom
 		custom.APIKey = ""
+		if provider.ExcludeFromExport {
+			custom.BaseURL = ""
+			custom.ClientBaseURL = nil
+		}
 		if custom.Disguise != nil {
 			disguise := *custom.Disguise
 			if disguise.ClaudeCode != nil {
@@ -993,6 +1482,11 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		antigravity := *config.Antigravity
 		antigravity.RefreshToken = ""
 		config.Antigravity = &antigravity
+	}
+	if config.Bedrock != nil {
+		bedrock := *config.Bedrock
+		bedrock.SecretAccessKey = ""
+		config.Bedrock = &bedrock
 	}
 	if config.Kiro != nil {
 		kiro := *config.Kiro
@@ -1012,6 +1506,18 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		claude.AccessToken = ""
 		config.Claude = &claude
 	}
+	if config.OpenRouter != nil {
+		openrouter := *config.OpenRouter
+		openrouter.APIKey = ""
+		config.OpenRouter = &openrouter
+	}
+	if config.Grok != nil {
+		grok := *config.Grok
+		grok.AccessToken = ""
+		grok.RefreshToken = ""
+		grok.IDToken = ""
+		config.Grok = &grok
+	}
 	sanitized.Config = &config
 	return &sanitized
 }
@@ -1023,6 +1529,43 @@ func sanitizeProviders(providers []*domain.Provider) []*domain.Provider {
 	sanitized := make([]*domain.Provider, 0, len(providers))
 	for _, provider := range providers {
 		sanitized = append(sanitized, sanitizeProvider(provider))
+	}
+	return sanitized
+}
+
+func shouldSanitizeProviderSecrets(provider *domain.Provider, isAdmin bool) bool {
+	if provider == nil {
+		return false
+	}
+	return provider.BlackBox || !isAdmin || provider.ExcludeFromExport
+}
+
+func sanitizeProviderAfterMutation(provider *domain.Provider) *domain.Provider {
+	if provider == nil || (!provider.BlackBox && !provider.ExcludeFromExport) {
+		return provider
+	}
+	return sanitizeProvider(provider)
+}
+
+func writeProviderMutationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrProviderBlackBoxLocked) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+}
+
+func sanitizeProvidersForRole(providers []*domain.Provider, isAdmin bool) []*domain.Provider {
+	if len(providers) == 0 {
+		return providers
+	}
+	sanitized := make([]*domain.Provider, 0, len(providers))
+	for _, provider := range providers {
+		if shouldSanitizeProviderSecrets(provider, isAdmin) {
+			sanitized = append(sanitized, sanitizeProvider(provider))
+			continue
+		}
+		sanitized = append(sanitized, provider)
 	}
 	return sanitized
 }

@@ -6,6 +6,7 @@ package e2e_test
 // The captured "verify> ..." log lines are the evidence.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -139,9 +140,10 @@ func TestVerifyRoutingPhase2(t *testing.T) {
 	}
 
 	// =====================================================================
-	// Phase A: distribution across many distinct sessions
-	// Expected 70/20/10; with N=2000 each bucket's 99% CI is ~±3% (binomial
-	// std dev ≈ sqrt(N*p*(1-p)) → roughly ±1% per σ; we allow ±3% ≈ 3σ).
+	// Phase A: distribution across many distinct sessions. The router uses
+	// deterministic per-session hashing, so finite samples can skew slightly for a
+	// given session-id sequence; use the same binomial tolerance style as the
+	// cooldown probe below instead of a brittle fixed percentage window.
 	// =====================================================================
 	resetHits()
 	const N = 2000
@@ -156,15 +158,22 @@ func TestVerifyRoutingPhase2(t *testing.T) {
 	if total != int64(N) {
 		t.Fatalf("phase A: expected %d total hits, got %d", N, total)
 	}
-	check := func(label string, got int64, wantPct float64, tolPct float64) {
-		gotPct := pct(got)
-		if gotPct < wantPct-tolPct || gotPct > wantPct+tolPct {
-			t.Errorf("phase A %s: got %.1f%%, want ~%.1f%% (±%.1f%%)", label, gotPct, wantPct, tolPct)
+	weightTotal := 0
+	for _, w := range weights {
+		weightTotal += w
+	}
+	const phaseAK = 4.0
+	for i, w := range weights {
+		p := float64(w) / float64(weightTotal)
+		expected := float64(N) * p
+		sigma := math.Sqrt(float64(N) * p * (1 - p))
+		tol := phaseAK * sigma
+		got := float64(snapA[i])
+		if got < expected-tol || got > expected+tol {
+			t.Errorf("phase A p%d (weight %d): got %d hits (%.1f%%), want %.1f±%.1f",
+				i+1, w, snapA[i], pct(snapA[i]), expected, tol)
 		}
 	}
-	check("p1 (weight 7)", snapA[0], 70, 3)
-	check("p2 (weight 2)", snapA[1], 20, 3)
-	check("p3 (weight 1)", snapA[2], 10, 3)
 
 	// =====================================================================
 	// Phase B: seeded determinism — same session always lands on same provider
@@ -347,6 +356,73 @@ func togglableMock() (*httptest.Server, *hitMock, func(int)) {
 		})
 	}))
 	return hm.server, hm, func(code int) { status.Store(int32(code)) }
+}
+
+func TestVerifyRoutingStreamDisconnectBeforeFirstChunkFailsOver(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	var brokenHits atomic.Int64
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		brokenHits.Add(1)
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("test server does not support hijacking")
+		}
+		conn, bufrw, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("hijack upstream connection: %v", err)
+		}
+		_, _ = fmt.Fprint(bufrw, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
+		_ = bufrw.Flush()
+		_ = conn.Close()
+	}))
+	defer broken.Close()
+
+	var fallbackHits atomic.Int64
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackHits.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-fallback\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"fallback-ok\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer fallback.Close()
+
+	brokenID := createProvider(t, env, "broken-stream", broken.URL, []string{"openai"})
+	fallbackID := createProvider(t, env, "fallback-stream", fallback.URL, []string{"openai"})
+
+	for i, pid := range []uint64{brokenID, fallbackID} {
+		resp := env.AdminPost("/api/admin/routes", map[string]any{
+			"isEnabled":  true,
+			"clientType": "openai",
+			"providerID": pid,
+			"position":   i + 1,
+			"weight":     1,
+		})
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("create route %d: status=%d body=%s", i+1, resp.StatusCode, body)
+		}
+		resp.Body.Close()
+	}
+
+	req := openaiRequest("gpt-4o")
+	req["stream"] = true
+	resp := env.ProxyPost("/v1/chat/completions", req, nil)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("proxy status=%d body=%s", resp.StatusCode, body)
+	}
+	if brokenHits.Load() != 1 {
+		t.Fatalf("broken upstream hits=%d, want 1", brokenHits.Load())
+	}
+	if fallbackHits.Load() != 1 {
+		t.Fatalf("fallback upstream hits=%d, want 1", fallbackHits.Load())
+	}
+	if !bytes.Contains(body, []byte("fallback-ok")) {
+		t.Fatalf("fallback response body missing marker: %s", body)
+	}
 }
 
 // TestVerifyRoutingErrorClass exercises the failure / sticky-update story:

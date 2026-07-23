@@ -32,6 +32,10 @@ type OpenAIMessage struct {
 	Name             string           `json:"name,omitempty"`
 	ToolCalls        []OpenAIToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
+	// Images carries generated images on a response message. It is the
+	// non-standard array OpenRouter/Gemini image models return, each element
+	// {type:"image_url", image_url:{url:"data:...base64,..."}}.
+	Images []OpenAIContentPart `json:"images,omitempty"`
 }
 
 type OpenAIContentPart struct {

@@ -35,6 +35,7 @@ const initialFormData: ProviderFormData = {
   name: '',
   selectedTemplate: null,
   baseURL: '',
+  backend: 'http',
   apiKey: '',
   clients: [...defaultClients],
   disguiseType: 'claude-code',
@@ -42,7 +43,11 @@ const initialFormData: ProviderFormData = {
   cloakStrictMode: false,
   cloakSensitiveWords: '',
   disableErrorCooldown: false,
+  smartMappingRetryEnabled: false,
+  smartMappingRetryLimit: 1,
+  maxConcurrency: 0,
   excludeFromExport: false,
+  blackBox: false,
 };
 
 export function ProviderFormProvider({ children }: { children: ReactNode }) {
@@ -72,7 +77,7 @@ export function ProviderFormProvider({ children }: { children: ReactNode }) {
 
   const isValid = (): boolean => {
     if (!formData.name.trim()) return false;
-    if (!formData.apiKey.trim()) return false;
+    if (formData.backend !== 'ollama' && !formData.apiKey.trim()) return false;
     const hasEnabledClient = formData.clients.some((c) => c.enabled);
     const hasUrl =
       !!formData.baseURL.trim() || formData.clients.some((c) => c.enabled && c.urlOverride.trim());

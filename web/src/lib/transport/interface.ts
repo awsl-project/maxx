@@ -6,16 +6,23 @@
 import type {
   Provider,
   CreateProviderData,
+  ProviderBulkDeleteRequest,
+  ProviderBulkDeleteResult,
   Project,
   CreateProjectData,
+  ProjectArchiveInactiveResult,
   Session,
   Route,
   CreateRouteData,
+  UpdateRouteData,
   RetryConfig,
   CreateRetryConfigData,
   RoutingStrategy,
   CreateRoutingStrategyData,
   ProxyRequest,
+  ProxyRequestErrorMode,
+  ProxyRequestErrorStats,
+  ProxyRequestCleanupFailedResult,
   ProxyUpstreamAttempt,
   CursorPaginationParams,
   CursorPaginationResult,
@@ -28,6 +35,8 @@ import type {
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
   BedrockDiscoveredModelsResult,
+  ProviderRuntimeModelsResult,
+  ProviderRuntimeModelsPreviewRequest,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -60,9 +69,21 @@ import type {
   CreateUserData,
   UpdateUserData,
   APIToken,
+  APITokenCleanupResult,
   APITokenCreateResult,
+  APITokenUpdateData,
   CreateAPITokenData,
+  UserPanelAPITokenResponse,
+  UserPanelAPITokenRevealResult,
+  RouteBulkDeleteRequest,
+  RouteBulkDeleteResult,
+  RouteSyncRequest,
+  RouteSyncResult,
   RoutePositionUpdate,
+  ClaudeProviderBatchRequest,
+  ClaudeProviderBatchResponse,
+  RouteTTFTProbeRequest,
+  RouteTTFTProbeResponse,
   UsageStats,
   UsageStatsFilter,
   RecalculateCostsResult,
@@ -83,9 +104,14 @@ export interface Transport {
   // ===== Provider API =====
   getProviders(): Promise<Provider[]>;
   getProvider(id: number): Promise<Provider>;
+  getProviderRuntimeModels(providerId: number): Promise<ProviderRuntimeModelsResult>;
+  previewProviderRuntimeModels(
+    payload: ProviderRuntimeModelsPreviewRequest,
+  ): Promise<ProviderRuntimeModelsResult>;
   createProvider(data: CreateProviderData): Promise<Provider>;
   updateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
   deleteProvider(id: number): Promise<void>;
+  bulkDeleteProviders(data: ProviderBulkDeleteRequest): Promise<ProviderBulkDeleteResult>;
   exportProviders(): Promise<Provider[]>;
   importProviders(providers: Provider[]): Promise<ImportResult>;
 
@@ -96,14 +122,25 @@ export interface Transport {
   createProject(data: CreateProjectData): Promise<Project>;
   updateProject(id: number, data: Partial<Project>): Promise<Project>;
   deleteProject(id: number): Promise<void>;
+  archiveInactiveProjects(thresholdDays: number): Promise<ProjectArchiveInactiveResult>;
 
   // ===== Route API =====
   getRoutes(): Promise<Route[]>;
   getRoute(id: number): Promise<Route>;
   createRoute(data: CreateRouteData): Promise<Route>;
-  updateRoute(id: number, data: Partial<Route>): Promise<Route>;
+  updateRoute(id: number, data: UpdateRouteData): Promise<Route>;
   deleteRoute(id: number): Promise<void>;
+  bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult>;
+  syncRoutesFromProject(data: RouteSyncRequest): Promise<RouteSyncResult>;
   batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void>;
+  claudeProviderBatchTest(
+    data: ClaudeProviderBatchRequest,
+    signal?: AbortSignal,
+  ): Promise<ClaudeProviderBatchResponse>;
+  probeRouteTTFT(
+    data: RouteTTFTProbeRequest,
+    signal?: AbortSignal,
+  ): Promise<RouteTTFTProbeResponse>;
 
   // ===== Session API =====
   getSessions(): Promise<Session[]>;
@@ -134,7 +171,15 @@ export interface Transport {
     status?: string,
     apiTokenId?: number,
     projectId?: number,
+    startTime?: string,
+    endTime?: string,
+    errorMode?: ProxyRequestErrorMode,
   ): Promise<number>;
+  getProxyRequestErrorStats(params?: CursorPaginationParams): Promise<ProxyRequestErrorStats>;
+  getCleanupFailedProxyRequestsCount(params?: CursorPaginationParams): Promise<number>;
+  cleanupFailedProxyRequests(
+    params?: CursorPaginationParams,
+  ): Promise<ProxyRequestCleanupFailedResult>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;
   getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]>;
@@ -211,8 +256,16 @@ export interface Transport {
 
   // ===== Cooldown API =====
   getCooldowns(): Promise<Cooldown[]>;
-  clearCooldown(providerId: number, options?: { clientType?: string; model?: string }): Promise<void>;
-  setCooldown(providerId: number, untilTime: string, clientType?: string, model?: string): Promise<void>;
+  clearCooldown(
+    providerId: number,
+    options?: { clientType?: string; model?: string },
+  ): Promise<void>;
+  setCooldown(
+    providerId: number,
+    untilTime: string,
+    clientType?: string,
+    model?: string,
+  ): Promise<void>;
 
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;
@@ -248,9 +301,14 @@ export interface Transport {
   getAdminAPITokens(): Promise<APIToken[]>;
   getAdminAPIToken(id: number): Promise<APIToken>;
   getVisibleAPITokens(): Promise<APIToken[]>;
+  getUserPanelAPIToken(): Promise<UserPanelAPITokenResponse>;
+  createUserPanelAPIToken(): Promise<APITokenCreateResult>;
+  regenerateUserPanelAPIToken(): Promise<APITokenCreateResult>;
+  revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
-  updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
+  updateAPIToken(id: number, data: APITokenUpdateData): Promise<APIToken>;
   deleteAPIToken(id: number): Promise<void>;
+  cleanupExpiredAPITokens(): Promise<APITokenCleanupResult>;
 
   // ===== Invite Code API =====
   getInviteCodes(): Promise<InviteCode[]>;

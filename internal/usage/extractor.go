@@ -3,10 +3,10 @@
 package usage
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/jsonutil"
 )
 
 // Metrics represents extracted usage information from an API response.
@@ -26,28 +26,51 @@ type Metrics struct {
 	// rate instead of the text rate. Zero for text models.
 	InputImageTokens  uint64 `json:"inputImageTokens,omitempty"`
 	OutputImageTokens uint64 `json:"outputImageTokens,omitempty"`
+
+	// UpstreamCostNanoUSD is the authoritative cost the upstream reported it
+	// charged (OpenRouter's usage.cost, in nanoUSD, BEFORE our contract
+	// multiplier). Only OpenRouter emits usage.cost; it is 0 for every other
+	// provider. When nonzero, pricing bills from it directly (covering per-image
+	// / per-megapixel models that carry no billable tokens) instead of the
+	// token price table.
+	UpstreamCostNanoUSD uint64 `json:"upstreamCostNanoUSD,omitempty"`
 }
 
-// IsEmpty returns true if no tokens were extracted.
+// IsEmpty returns true if no tokens were extracted. An upstream-reported cost
+// counts as non-empty so per-image responses (no billable tokens) still emit
+// metrics and get billed.
 func (m *Metrics) IsEmpty() bool {
-	return m.InputTokens == 0 && m.OutputTokens == 0 && m.CacheCreationCount == 0 && m.CacheReadCount == 0
+	return m.InputTokens == 0 && m.OutputTokens == 0 && m.CacheCreationCount == 0 &&
+		m.CacheReadCount == 0 && m.UpstreamCostNanoUSD == 0
 }
 
 // ExtractFromResponse extracts usage metrics from a response body.
 // Supports JSON and SSE formats from Claude, OpenAI, Gemini, and Codex APIs.
 func ExtractFromResponse(body string) *Metrics {
+	return ExtractFromResponseWithOptions(body, ExtractOptions{})
+}
+
+// ExtractOptions controls trust boundaries for optional upstream-reported
+// billing fields. Token usage is always extracted, but authoritative upstream
+// cost must be explicitly enabled by the provider adapter that owns the
+// upstream contract.
+type ExtractOptions struct {
+	TrustUpstreamCost bool
+}
+
+func ExtractFromResponseWithOptions(body string, opts ExtractOptions) *Metrics {
 	if body == "" {
 		return nil
 	}
 
 	// Try parsing as JSON first
-	metrics := extractFromJSON(body)
+	metrics := extractFromJSON(body, opts)
 	if metrics != nil && !metrics.IsEmpty() {
 		return metrics
 	}
 
 	// Try parsing as SSE (for streaming responses)
-	metrics = extractFromSSE(body)
+	metrics = extractFromSSE(body, opts)
 	if metrics != nil && !metrics.IsEmpty() {
 		return metrics
 	}
@@ -56,18 +79,18 @@ func ExtractFromResponse(body string) *Metrics {
 }
 
 // extractFromJSON tries to parse usage from a JSON response body.
-func extractFromJSON(body string) *Metrics {
+func extractFromJSON(body string, opts ExtractOptions) *Metrics {
 	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
+	if err := jsonutil.UnmarshalString(body, &data); err != nil {
 		return nil
 	}
 
-	return extractUsageFromMap(data)
+	return extractUsageFromMap(data, opts)
 }
 
 // extractFromSSE extracts usage from SSE (Server-Sent Events) format.
 // Looks for the final event containing usage information.
-func extractFromSSE(body string) *Metrics {
+func extractFromSSE(body string, opts ExtractOptions) *Metrics {
 	lines := strings.Split(body, "\n")
 	var lastMetrics *Metrics
 
@@ -89,12 +112,12 @@ func extractFromSSE(body string) *Metrics {
 		}
 
 		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		if err := jsonutil.UnmarshalString(jsonStr, &data); err != nil {
 			continue
 		}
 
 		// Try to extract metrics from this event
-		metrics := extractUsageFromMap(data)
+		metrics := extractUsageFromMap(data, opts)
 		if metrics != nil && !metrics.IsEmpty() {
 			lastMetrics = metrics
 		}
@@ -128,7 +151,7 @@ func extractFromSSE(body string) *Metrics {
 
 // extractUsageFromMap extracts usage metrics from a parsed JSON map.
 // Handles multiple API formats.
-func extractUsageFromMap(data map[string]interface{}) *Metrics {
+func extractUsageFromMap(data map[string]interface{}, opts ExtractOptions) *Metrics {
 	// Try top-level { "usage": { ... } }. The same key serves both OpenAI chat
 	// completions (prompt_tokens / completion_tokens) and Claude / OpenAI Images
 	// (input_tokens / output_tokens), so we dispatch by inspecting the usage
@@ -138,10 +161,19 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 	// for Claude-client compatibility. Detecting OpenAI first prevents those
 	// zero-pads from silently zeroing chat-completions billing.
 	if usage, ok := data["usage"].(map[string]interface{}); ok {
+		var m *Metrics
 		if isOpenAIUsage(usage) {
-			return extractOpenAIUsage(usage)
+			m = extractOpenAIUsage(usage)
+		} else {
+			m = extractClaudeUsage(usage)
 		}
-		return extractClaudeUsage(usage)
+		// OpenRouter always reports an authoritative usage.cost here (chat
+		// completions and the /v1/images endpoint). Record it so per-image /
+		// per-megapixel responses with no billable tokens still bill correctly.
+		if opts.TrustUpstreamCost {
+			applyUpstreamCost(usage, m)
+		}
+		return m
 	}
 
 	// Try Gemini format: { "usageMetadata": { ... } }
@@ -172,10 +204,15 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 	return nil
 }
 
-// isOpenAIUsage reports whether a usage map uses OpenAI chat-completions naming
-// (prompt_tokens / completion_tokens). These keys are absent from Claude and
-// from the OpenAI Images API (which both use input_tokens / output_tokens), so
-// their presence is a reliable discriminator.
+// isOpenAIUsage reports whether a usage map uses an OpenAI extractor shape.
+// prompt_tokens / completion_tokens identify chat-completions; those keys are
+// absent from Claude and from the OpenAI Images API (both use
+// input_tokens / output_tokens), so their presence is a reliable discriminator.
+//
+// The Responses API (Codex) also uses input_tokens / output_tokens at the top
+// level, colliding with Claude, but carries cached_tokens/cache_write_tokens
+// under input_tokens_details — sub-keys Claude never emits. Routing on their
+// presence lets extractOpenAIUsage preserve prompt-cache billing metrics.
 func isOpenAIUsage(usage map[string]interface{}) bool {
 	if _, ok := usage["prompt_tokens"]; ok {
 		return true
@@ -183,13 +220,22 @@ func isOpenAIUsage(usage map[string]interface{}) bool {
 	if _, ok := usage["completion_tokens"]; ok {
 		return true
 	}
+	if details, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
+		if _, ok := details["cached_tokens"]; ok {
+			return true
+		}
+		if _, ok := details["cache_write_tokens"]; ok {
+			return true
+		}
+	}
 	return false
 }
 
 // extractClaudeUsage extracts metrics from Claude/Anthropic usage format.
 // Example: { "input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 20,
-//            "cache_creation_input_tokens": 30, "cache_creation_5m_input_tokens": 10,
-//            "cache_creation_1h_input_tokens": 20 }
+//
+//	"cache_creation_input_tokens": 30, "cache_creation_5m_input_tokens": 10,
+//	"cache_creation_1h_input_tokens": 20 }
 func extractClaudeUsage(usage map[string]interface{}) *Metrics {
 	metrics := &Metrics{}
 
@@ -227,6 +273,20 @@ func extractClaudeUsage(usage map[string]interface{}) *Metrics {
 	applyImageTokenDetails(usage, metrics)
 
 	return metrics
+}
+
+// applyUpstreamCost records OpenRouter's authoritative usage.cost (total USD
+// charged for the request) as raw nanoUSD on the metrics, before any contract
+// multiplier. Only OpenRouter emits this field, so for every other provider the
+// assertion fails and this is a no-op — leaving token-based billing untouched.
+func applyUpstreamCost(usage map[string]interface{}, m *Metrics) {
+	if m == nil {
+		return
+	}
+	if cost, ok := usage["cost"].(float64); ok && cost > 0 {
+		// 1 USD = 1e9 nanoUSD; round to nearest to avoid systematic under-billing.
+		m.UpstreamCostNanoUSD = uint64(cost*1e9 + 0.5)
+	}
 }
 
 // applyImageTokenDetails pulls the image-token breakdown out of a usage object.
@@ -294,12 +354,18 @@ func extractOpenAIUsage(usage map[string]interface{}) *Metrics {
 		if v, ok := details["cached_tokens"].(float64); ok {
 			metrics.CacheReadCount = uint64(v)
 		}
+		if v, ok := details["cache_write_tokens"].(float64); ok {
+			metrics.CacheCreationCount = uint64(v)
+		}
 	}
 
 	// Alternative: input_tokens_details (Codex format)
 	if details, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
 		if v, ok := details["cached_tokens"].(float64); ok {
 			metrics.CacheReadCount = uint64(v)
+		}
+		if v, ok := details["cache_write_tokens"].(float64); ok {
+			metrics.CacheCreationCount = uint64(v)
 		}
 	}
 
@@ -353,13 +419,18 @@ func extractGeminiUsage(usage map[string]interface{}) *Metrics {
 // ExtractFromStreamContent extracts usage from accumulated streaming content.
 // This is useful when you've collected all SSE chunks into a single string.
 func ExtractFromStreamContent(content string) *Metrics {
-	return extractFromSSE(content)
+	return ExtractFromStreamContentWithOptions(content, ExtractOptions{})
+}
+
+func ExtractFromStreamContentWithOptions(content string, opts ExtractOptions) *Metrics {
+	return extractFromSSE(content, opts)
 }
 
 // StreamCollector collects metrics and model incrementally from SSE lines,
 // avoiding the need to buffer the entire SSE stream in memory.
 type StreamCollector struct {
 	Metrics *Metrics
+	Options ExtractOptions
 }
 
 // ProcessSSELine processes a single SSE line (e.g. "data: {...}\n") and
@@ -375,14 +446,32 @@ func (sc *StreamCollector) ProcessSSELine(line string) {
 	if jsonStr == "" || jsonStr == "[DONE]" {
 		return
 	}
-
 	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+	if err := jsonutil.UnmarshalString(jsonStr, &data); err != nil {
 		return
 	}
+	sc.ProcessParsedPayload(data)
+}
 
+// ProcessSSEPayload updates the collector from a raw SSE data payload without
+// forcing byte-oriented WebSocket callers through a temporary string.
+func (sc *StreamCollector) ProcessSSEPayload(payload []byte) {
+	var data map[string]interface{}
+	if err := jsonutil.Unmarshal(payload, &data); err != nil {
+		return
+	}
+	sc.ProcessParsedPayload(data)
+}
+
+// ProcessParsedPayload updates the collector from an already decoded SSE JSON
+// payload. Stream adapters that also inspect model/error fields can parse each
+// data event once and share the result instead of decoding it repeatedly.
+func (sc *StreamCollector) ProcessParsedPayload(data map[string]interface{}) {
+	if len(data) == 0 {
+		return
+	}
 	// Extract metrics
-	if metrics := extractUsageFromMap(data); metrics != nil && !metrics.IsEmpty() {
+	if metrics := extractUsageFromMap(data, sc.Options); metrics != nil && !metrics.IsEmpty() {
 		sc.Metrics = metrics
 	}
 
@@ -409,18 +498,24 @@ func (sc *StreamCollector) ProcessSSELine(line string) {
 }
 
 // AdjustForClientType adjusts metrics based on client type specific quirks.
-// For Codex: input_tokens includes cached_tokens, so we subtract to avoid double counting.
+// For Codex: input_tokens includes cached_tokens and cache_write_tokens, so we
+// subtract both subsets to avoid double counting them at the uncached input rate.
 // For other clients: returns metrics unchanged.
 func AdjustForClientType(metrics *Metrics, clientType domain.ClientType) *Metrics {
 	if metrics == nil {
 		return nil
 	}
 
-	// Codex/OpenAI Response API: input_tokens includes cached_tokens
-	// We need to subtract to get actual input tokens (avoiding double billing)
+	// Codex/OpenAI Response API: input_tokens includes cached and cache-write
+	// subsets. Subtract both to get fresh uncached input tokens.
 	if clientType == domain.ClientTypeCodex {
-		if metrics.CacheReadCount > 0 && metrics.InputTokens >= metrics.CacheReadCount {
-			metrics.InputTokens = metrics.InputTokens - metrics.CacheReadCount
+		cacheWriteTokens := metrics.CacheCreationCount
+		if metrics.Cache5mCreationCount > 0 || metrics.Cache1hCreationCount > 0 {
+			cacheWriteTokens = metrics.Cache5mCreationCount + metrics.Cache1hCreationCount
+		}
+		cacheTokens := metrics.CacheReadCount + cacheWriteTokens
+		if cacheTokens > 0 && metrics.InputTokens >= cacheTokens {
+			metrics.InputTokens -= cacheTokens
 		}
 	}
 

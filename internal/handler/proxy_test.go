@@ -152,7 +152,8 @@ func TestWriteStreamErrorPreservesStatusAndRetryAfter(t *testing.T) {
 }
 
 func TestProxyHandlerRejectsRequestsWhenKillSwitchEnabled(t *testing.T) {
-	repo := &settingsTestRepo{values: map[string]string{domain.SettingKeyProxyRequestsDisabled: "true"}}
+	systemsettingcache.Invalidate(domain.SettingKeyProxyRequestsDisabled)
+	repo := &proxyBooleanSettingRepo{values: []string{"true"}}
 	h := NewProxyHandler(nil, nil, nil, repo, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "http://example.test/v1/chat/completions", strings.NewReader(`{"model":"gpt-5.4","messages":[]}`))
@@ -168,15 +169,15 @@ func TestProxyHandlerRejectsRequestsWhenKillSwitchEnabled(t *testing.T) {
 	}
 }
 
-func TestIsBooleanSystemSettingEnabledDefaultsFalse(t *testing.T) {
+func TestProxyKillSwitchDefaultsFalse(t *testing.T) {
 	systemsettingcache.Invalidate(domain.SettingKeyProxyRequestsDisabled)
-	repo := &settingsTestRepo{}
-	if isBooleanSystemSettingEnabled(repo, domain.SettingKeyProxyRequestsDisabled) {
+	repo := &proxyBooleanSettingRepo{}
+	if systemsettingcache.GetBoolean(repo, domain.SettingKeyProxyRequestsDisabled) {
 		t.Fatal("expected missing setting to default to false")
 	}
 }
 
-func TestIsBooleanSystemSettingEnabledCachesFreshValue(t *testing.T) {
+func TestProxyKillSwitchCachesFreshValue(t *testing.T) {
 	oldTTL := systemsettingcache.BooleanTTL
 	systemsettingcache.BooleanTTL = time.Hour
 	defer func() { systemsettingcache.BooleanTTL = oldTTL }()
@@ -185,10 +186,10 @@ func TestIsBooleanSystemSettingEnabledCachesFreshValue(t *testing.T) {
 	systemsettingcache.Invalidate(key)
 	repo := &proxyBooleanSettingRepo{values: []string{"true"}}
 
-	if !isBooleanSystemSettingEnabled(repo, key) {
+	if !systemsettingcache.GetBoolean(repo, key) {
 		t.Fatal("expected first read to return true")
 	}
-	if !isBooleanSystemSettingEnabled(repo, key) {
+	if !systemsettingcache.GetBoolean(repo, key) {
 		t.Fatal("expected cached read to return true")
 	}
 	if repo.reads != 1 {
@@ -196,7 +197,7 @@ func TestIsBooleanSystemSettingEnabledCachesFreshValue(t *testing.T) {
 	}
 }
 
-func TestIsBooleanSystemSettingEnabledFallsBackToLastKnownValueOnReadError(t *testing.T) {
+func TestProxyKillSwitchFallsBackToLastKnownValueOnReadError(t *testing.T) {
 	oldTTL := systemsettingcache.BooleanTTL
 	systemsettingcache.BooleanTTL = time.Nanosecond
 	defer func() { systemsettingcache.BooleanTTL = oldTTL }()
@@ -208,14 +209,50 @@ func TestIsBooleanSystemSettingEnabledFallsBackToLastKnownValueOnReadError(t *te
 		errs:   []error{nil, errors.New("db temporarily unavailable")},
 	}
 
-	if !isBooleanSystemSettingEnabled(repo, key) {
+	if !systemsettingcache.GetBoolean(repo, key) {
 		t.Fatal("expected first read to return true")
 	}
 	time.Sleep(time.Millisecond)
-	if !isBooleanSystemSettingEnabled(repo, key) {
+	if !systemsettingcache.GetBoolean(repo, key) {
 		t.Fatal("expected cached true value on refresh error")
 	}
 	if repo.reads != 2 {
 		t.Fatalf("reads = %d, want 2", repo.reads)
+	}
+}
+
+func TestUserPanelAPITokenProjectBindingGuard(t *testing.T) {
+	userPanelToken := &domain.APIToken{
+		Description: userPanelAPITokenDescription(123),
+		ProjectID:   42,
+	}
+	regularToken := &domain.APIToken{
+		Description: "regular token",
+		ProjectID:   42,
+	}
+
+	if !isUserPanelAPIToken(userPanelToken) {
+		t.Fatal("expected managed user panel token to be detected")
+	}
+	if canAPITokenUseProjectBinding(userPanelToken) {
+		t.Fatal("user panel token must not use header/token/session project binding")
+	}
+	if got, ok := apiTokenProjectBinding(userPanelToken, 0); ok || got != 0 {
+		t.Fatalf("user panel token project binding = (%d, %v), want (0, false)", got, ok)
+	}
+	if isUserPanelAPIToken(regularToken) {
+		t.Fatal("regular token must not be treated as user panel token")
+	}
+	if !canAPITokenUseProjectBinding(regularToken) {
+		t.Fatal("regular token should keep existing project binding behavior")
+	}
+	if got, ok := apiTokenProjectBinding(regularToken, 0); !ok || got != regularToken.ProjectID {
+		t.Fatalf("regular token project binding = (%d, %v), want (%d, true)", got, ok, regularToken.ProjectID)
+	}
+	if got, ok := apiTokenProjectBinding(regularToken, 7); ok || got != 7 {
+		t.Fatalf("existing project binding = (%d, %v), want (7, false)", got, ok)
+	}
+	if !canAPITokenUseProjectBinding(nil) {
+		t.Fatal("nil token should keep unauthenticated/default project behavior")
 	}
 }

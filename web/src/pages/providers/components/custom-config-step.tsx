@@ -1,17 +1,48 @@
-import { useState } from 'react';
-import { Globe, ChevronLeft, Key, Check, Plus, Trash2, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  Globe,
+  ChevronLeft,
+  Key,
+  Check,
+  Plus,
+  Trash2,
+  ArrowRight,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useCreateProvider, useCreateModelMapping } from '@/hooks/queries';
-import type { ClientType, CreateProviderData } from '@/lib/transport';
+import {
+  useCreateProvider,
+  useCreateModelMapping,
+  useProviderRuntimeModelsPreview,
+} from '@/hooks/queries';
+import type {
+  ClientType,
+  CreateProviderData,
+  ProviderRuntimeModelsPreviewRequest,
+} from '@/lib/transport';
 import { ClientsConfigSection } from './clients-config-section';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderForm } from '../context/provider-form-context';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { buildDisguisePayload } from '../utils/disguise';
+import { buildProviderRuntimeModelOptions } from './provider-model-mappings';
+import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -29,6 +60,54 @@ export function CustomConfigStep() {
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
   const createModelMapping = useCreateModelMapping();
+  const runtimeModelsPreview = useMemo<ProviderRuntimeModelsPreviewRequest | undefined>(() => {
+    const clientBaseURL: Partial<Record<ClientType, string>> = {};
+    formData.clients.forEach((client) => {
+      const url = client.urlOverride.trim();
+      if (client.enabled && url) {
+        clientBaseURL[client.id] = url;
+      }
+    });
+
+    const baseURL = formData.baseURL.trim();
+    if (!baseURL && !clientBaseURL.openai) return undefined;
+
+    return {
+      type: 'custom',
+      config: {
+        custom: {
+          baseURL,
+          backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+          apiKey: formData.apiKey.trim(),
+          clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
+        },
+      },
+    };
+  }, [formData.apiKey, formData.backend, formData.baseURL, formData.clients]);
+  const { data: runtimeModels } = useProviderRuntimeModelsPreview(
+    runtimeModelsPreview,
+    !!runtimeModelsPreview,
+  );
+  const runtimeModelOptions = useMemo(
+    () =>
+      buildProviderRuntimeModelOptions(
+        runtimeModels?.models,
+        undefined,
+        t('modelInput.currentProviderModels'),
+      ),
+    [runtimeModels?.models, t],
+  );
+  const mappingTargetCount = useMemo(
+    () =>
+      new Set(
+        (formData.modelMappings ?? []).map((mapping) => mapping.target.trim()).filter(Boolean),
+      ).size,
+    [formData.modelMappings],
+  );
+  const smartMappingRetryEnabled =
+    !!formData.disableErrorCooldown &&
+    mappingTargetCount > 1 &&
+    !!formData.smartMappingRetryEnabled;
 
   const handleSave = async () => {
     if (!isValid()) return;
@@ -60,11 +139,17 @@ export function CustomConfigStep() {
         type: 'custom',
         name: formData.name,
         logo: formData.logo,
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          smartMappingRetryEnabled,
+          smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           custom: {
             baseURL: formData.baseURL,
+            backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey: formData.apiKey,
+            responsesPassthrough: formData.responsesPassthrough,
+            responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -72,7 +157,8 @@ export function CustomConfigStep() {
           },
         },
         supportedClientTypes,
-        excludeFromExport: !!formData.excludeFromExport,
+        excludeFromExport: !!formData.excludeFromExport || !!formData.blackBox,
+        blackBox: !!formData.blackBox,
       };
 
       const provider = await createProvider.mutateAsync(data);
@@ -90,7 +176,7 @@ export function CustomConfigStep() {
       }
 
       setSaveStatus('success');
-      setTimeout(() => goToProviders(), 500);
+      goToProviders();
     } catch (error) {
       console.error('Failed to create provider:', error);
       setSaveStatus('error');
@@ -142,6 +228,36 @@ export function CustomConfigStep() {
                   className="w-full"
                 />
               </div>
+              <ProviderMaxConcurrencyField
+                value={formData.maxConcurrency ?? 0}
+                onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
+              />
+
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-2">
+                  {t('provider.customBackend')}
+                </label>
+                <Select
+                  value={formData.backend}
+                  onValueChange={(backend) =>
+                    updateFormData({ backend: backend === 'ollama' ? 'ollama' : 'http' })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
+                    <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formData.backend === 'ollama'
+                    ? t('provider.customBackendOllamaDesc')
+                    : t('provider.customBackendHttpDesc')}
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
@@ -166,7 +282,11 @@ export function CustomConfigStep() {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Key size={14} />
-                      <span>{t('provider.apiKey')}</span>
+                      <span>
+                        {formData.backend === 'ollama'
+                          ? t('provider.apiKeyOptional')
+                          : t('provider.apiKey')}
+                      </span>
                     </div>
                   </label>
                   <div className="relative">
@@ -174,7 +294,11 @@ export function CustomConfigStep() {
                       type={showApiKey ? 'text' : 'password'}
                       value={formData.apiKey}
                       onChange={(e) => updateFormData({ apiKey: e.target.value })}
-                      placeholder={t('provider.keyPlaceholder')}
+                      placeholder={
+                        formData.backend === 'ollama'
+                          ? t('provider.keyPlaceholderOptional')
+                          : t('provider.keyPlaceholder')
+                      }
                       className="w-full pr-10"
                     />
                     <button
@@ -213,6 +337,10 @@ export function CustomConfigStep() {
                     updates?.claudeCodeSensitiveWords ?? formData.cloakSensitiveWords,
                 })
               }
+              responsesWebSocket={formData.responsesWebSocket === true}
+              onUpdateResponsesWebSocket={(checked) =>
+                updateFormData({ responsesWebSocket: checked })
+              }
             />
           </div>
 
@@ -231,25 +359,75 @@ export function CustomConfigStep() {
               </div>
               <Switch
                 checked={!!formData.disableErrorCooldown}
-                onCheckedChange={(checked) => updateFormData({ disableErrorCooldown: checked })}
+                onCheckedChange={(checked) =>
+                  updateFormData({
+                    disableErrorCooldown: checked,
+                    smartMappingRetryEnabled: checked ? formData.smartMappingRetryEnabled : false,
+                  })
+                }
+              />
+            </div>
+            <SmartMappingRetrySettings
+              disableErrorCooldown={!!formData.disableErrorCooldown}
+              enabled={formData.smartMappingRetryEnabled}
+              retryLimit={formData.smartMappingRetryLimit}
+              mappingTargetCount={mappingTargetCount}
+              onEnabledChange={(checked) => updateFormData({ smartMappingRetryEnabled: checked })}
+              onRetryLimitChange={(limit) => updateFormData({ smartMappingRetryLimit: limit })}
+            />
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.responsesPassthrough')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.responsesPassthroughDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={formData.responsesPassthrough !== false}
+                onCheckedChange={(checked) => updateFormData({ responsesPassthrough: checked })}
               />
             </div>
           </div>
 
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
-              {t('provider.excludeFromExport')}
+              {t('provider.visibilityAndExport')}
             </h3>
-            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-              <div className="pr-4">
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('provider.excludeFromExportDesc')}
-                </p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.blackBox')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('provider.blackBoxDesc')}</p>
+                </div>
+                <Switch
+                  checked={!!formData.blackBox}
+                  onCheckedChange={(checked) =>
+                    updateFormData({
+                      blackBox: checked,
+                      excludeFromExport: checked ? true : formData.excludeFromExport,
+                    })
+                  }
+                />
               </div>
-              <Switch
-                checked={!!formData.excludeFromExport}
-                onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
-              />
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.excludeFromExport')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.excludeFromExportDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={!!formData.excludeFromExport || !!formData.blackBox}
+                  disabled={!!formData.blackBox}
+                  onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
+                />
+              </div>
             </div>
           </div>
 
@@ -308,6 +486,8 @@ export function CustomConfigStep() {
                           updateFormData({ modelMappings: newMappings });
                         }}
                         placeholder={t('modelInput.selectOrEnter')}
+                        extraModels={runtimeModelOptions}
+                        openSearchValue=""
                       />
                     </div>
                     <Button

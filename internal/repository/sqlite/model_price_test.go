@@ -179,6 +179,51 @@ func TestUpdate_NoOpWhenUnchanged(t *testing.T) {
 	}
 }
 
+func TestGetCurrentByModelID_UsesLongestPrefixForSuffixedModels(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	repo := NewModelPriceRepository(db)
+
+	base := &domain.ModelPrice{ModelID: "gpt-5.4", InputPriceMicro: 2_500_000, OutputPriceMicro: 15_000_000}
+	mini := &domain.ModelPrice{ModelID: "gpt-5.4-mini", InputPriceMicro: 750_000, OutputPriceMicro: 4_500_000}
+	if err := repo.Create(base); err != nil {
+		t.Fatalf("create base price: %v", err)
+	}
+	if err := repo.Create(mini); err != nil {
+		t.Fatalf("create mini price: %v", err)
+	}
+
+	tests := []struct {
+		modelID     string
+		wantModelID string
+		wantInput   uint64
+	}{
+		{"gpt-5.4-20260719", "gpt-5.4", 2_500_000},
+		{"gpt-5.4-mini-20260719", "gpt-5.4-mini", 750_000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.modelID, func(t *testing.T) {
+			got, err := repo.GetCurrentByModelID(tt.modelID)
+			if err != nil {
+				t.Fatalf("GetCurrentByModelID(%s): %v", tt.modelID, err)
+			}
+			if got == nil {
+				t.Fatalf("GetCurrentByModelID(%s) = nil, want %s", tt.modelID, tt.wantModelID)
+			}
+			if got.ModelID != tt.wantModelID {
+				t.Errorf("GetCurrentByModelID(%s).ModelID = %s, want %s", tt.modelID, got.ModelID, tt.wantModelID)
+			}
+			if got.InputPriceMicro != tt.wantInput {
+				t.Errorf("GetCurrentByModelID(%s).InputPriceMicro = %d, want %d", tt.modelID, got.InputPriceMicro, tt.wantInput)
+			}
+		})
+	}
+}
+
 // TestGetByIDIncludingDeleted_ReturnsSoftDeletedRow 锁住"历史快照按 ID 反查"
 // 的契约:Delete(软删) → GetByID 404,但 GetByIDIncludingDeleted 仍能取出
 // 该行(且 deleted_at != 0)。RecalcAttemptUpdate / Calculator 的历史价反查

@@ -79,7 +79,7 @@ func (r *ProjectRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *ProjectRepository) GetByID(tenantID uint64, id uint64) (*domain.Project, error) {
 	var model Project
-	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").First(&model, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}

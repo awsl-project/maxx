@@ -1,6 +1,11 @@
 package bedrock
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
+)
 
 func TestIsBedrockModelUnavailable(t *testing.T) {
 	tests := []struct {
@@ -52,5 +57,24 @@ func TestIsBedrockModelUnavailable(t *testing.T) {
 				t.Errorf("isBedrockModelUnavailable(%q) = %v, want %v", tt.body, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestClassifyBedrockHTTPError402InsufficientBalanceIsKeyQuota(t *testing.T) {
+	proxyErr := classifyBedrockHTTPError(
+		http.StatusPaymentRequired,
+		[]byte(`{"message":"Insufficient balance"}`),
+		make(http.Header),
+		"anthropic.claude",
+	)
+
+	if proxyErr.Scope != domain.ScopeKey {
+		t.Fatalf("Scope = %v, want ScopeKey", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonQuotaExhausted {
+		t.Fatalf("Reason = %v, want CooldownReasonQuotaExhausted", proxyErr.Reason)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("402 insufficient balance should not retry the same provider")
 	}
 }

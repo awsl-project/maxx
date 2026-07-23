@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
@@ -13,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/requestmeta"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -69,6 +71,22 @@ func (e *Executor) Use(handlers ...flow.HandlerFunc) {
 	e.middlewares = append(e.middlewares, handlers...)
 }
 
+func (e *Executor) CloseResponsesWebSocketConnection(connectionID string) {
+	if e != nil && e.router != nil {
+		e.router.CloseResponsesWebSocketConnection(connectionID)
+	}
+}
+
+// HasResponsesWebSocketProvider reports whether any Codex route can serve
+// Responses WebSocket for the given project scope (same rules as Match).
+// Used to reject upgrades with HTTP 426 for Codex fallback.
+func (e *Executor) HasResponsesWebSocketProvider(tenantID, projectID uint64) bool {
+	if e == nil || e.router == nil {
+		return false
+	}
+	return e.router.HasResponsesWebSocketProvider(tenantID, projectID)
+}
+
 // Execute runs the executor middleware chain with a new flow context.
 func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	c := flow.NewCtx(w, req)
@@ -101,7 +119,11 @@ func (e *Executor) ExecuteWith(c *flow.Ctx) error {
 }
 
 func (e *Executor) mapModel(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) string {
-	// Database model mapping with full query conditions
+	candidates := e.mapModelCandidates(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
+	return candidates[0]
+}
+
+func (e *Executor) mapModelCandidates(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) []string {
 	query := &domain.ModelMappingQuery{
 		ClientType:   clientType,
 		ProviderType: provider.Type,
@@ -111,14 +133,22 @@ func (e *Executor) mapModel(tenantID uint64, requestModel string, route *domain.
 		APITokenID:   apiTokenID,
 	}
 	mappings, _ := e.modelMappingRepo.ListByQuery(tenantID, query)
+	candidates := make([]string, 0, len(mappings))
+	seen := make(map[string]struct{}, len(mappings))
 	for _, m := range mappings {
-		if domain.MatchWildcard(m.Pattern, requestModel) {
-			return m.Target
+		if m == nil || !domain.MatchWildcard(m.Pattern, requestModel) {
+			continue
 		}
+		if _, exists := seen[m.Target]; exists {
+			continue
+		}
+		seen[m.Target] = struct{}{}
+		candidates = append(candidates, m.Target)
 	}
-
-	// No mapping, use original
-	return requestModel
+	if len(candidates) == 0 {
+		return []string{requestModel}
+	}
+	return candidates
 }
 
 func (e *Executor) getRetryConfig(tenantID uint64, config *domain.RetryConfig) *domain.RetryConfig {
@@ -193,28 +223,37 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	}
 
 	now := time.Now()
+	reasoningBody := flow.GetOriginalRequestBody(c)
+	if len(reasoningBody) == 0 {
+		reasoningBody = flow.GetRequestBody(c)
+	}
+	isStream := flow.GetIsStream(c)
+	isWebSocket := flow.GetResponsesWebSocketExchange(c) != nil
 	proxyReq := &domain.ProxyRequest{
-		TenantID:     tenantID,
-		InstanceID:   e.instanceID,
-		RequestID:    generateRequestID(),
-		SessionID:    flow.GetSessionID(c),
-		ClientType:   flow.GetClientType(c),
-		ProjectID:    projectID,
-		RequestModel: flow.GetRequestModel(c),
-		StartTime:    now,
-		EndTime:      now,
-		Duration:     0,
-		IsStream:     flow.GetIsStream(c),
-		Status:       "REJECTED",
-		StatusCode:   statusCode,
-		Error:        errMsg,
-		APITokenID:   apiTokenID,
-		DevMode:      devMode,
+		TenantID:        tenantID,
+		InstanceID:      e.instanceID,
+		RequestID:       generateRequestID(),
+		SessionID:       flow.GetSessionID(c),
+		ClientType:      flow.GetClientType(c),
+		ProjectID:       projectID,
+		RequestModel:    flow.GetRequestModel(c),
+		ReasoningEffort: requestmeta.ReasoningEffort(reasoningBody),
+		StartTime:       now,
+		EndTime:         now,
+		Duration:        0,
+		IsStream:        isStream,
+		Protocol:        domain.ResolveProxyRequestProtocol(isStream, isWebSocket),
+		Status:          "REJECTED",
+		StatusCode:      statusCode,
+		Error:           errMsg,
+		APITokenID:      apiTokenID,
+		DevMode:         devMode,
 	}
 
 	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})
 	if !clearDetail {
-		requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
+		rawHeaders := flow.GetRequestHeaders(c)
+		requestHeaders := flattenHeaders(rawHeaders)
 		requestURI := flow.GetRequestURI(c)
 		requestBody := flow.GetRequestBody(c)
 		if c.Request != nil {
@@ -228,7 +267,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 				Method:  c.Request.Method,
 				URL:     requestURI,
 				Headers: requestHeaders,
-				Body:    string(requestBody),
+				Body:    domain.RequestBodySnapshot(requestBody, rawHeaders.Get("Content-Type"), devMode),
 			}
 		}
 		proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
@@ -257,13 +296,18 @@ func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.
 	// Map domain CooldownReason to cooldown package CooldownReason
 	reason := cooldown.CooldownReason(proxyErr.Reason)
 
-	// Use explicit cooldown time if provided, otherwise let policy decide
+	// Use explicit upstream cooldown time first. Retry-After comes next.
+	// The configurable setting only replaces the local policy fallback for
+	// short request/concurrency throttles (the fixed 5s defaults in
+	// cooldown.DefaultPolicies), not quota reset/default times.
 	var explicitUntil *time.Time
 	if proxyErr.CooldownUntil != nil {
 		explicitUntil = proxyErr.CooldownUntil
 	} else if proxyErr.RetryAfter > 0 {
 		t := time.Now().Add(proxyErr.RetryAfter)
 		explicitUntil = &t
+	} else if isConfigurableRateLimitFallback(reason) {
+		explicitUntil = e.rateLimitDefaultCooldownUntil()
 	}
 
 	// Determine model for cooldown key
@@ -287,8 +331,79 @@ func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.
 	}
 }
 
+func isConfigurableRateLimitFallback(reason cooldown.CooldownReason) bool {
+	return reason == cooldown.ReasonRateLimit || reason == cooldown.ReasonConcurrentLimit || reason == cooldown.ReasonNetworkError
+}
+
+func (e *Executor) rateLimitDefaultCooldownUntil() *time.Time {
+	duration := 5 * time.Second
+	if e != nil && e.settingsRepo != nil {
+		value, err := e.settingsRepo.Get(domain.SettingKeyRateLimitCooldownDefaultSeconds)
+		if err == nil && strings.TrimSpace(value) != "" {
+			if seconds, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && seconds >= 1 && seconds <= 86400 {
+				duration = time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	until := time.Now().Add(duration)
+	return &until
+}
+
 func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown
+}
+
+func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {
+	if !shouldSkipErrorCooldown(provider) || proxyErr == nil {
+		return
+	}
+	if !isDisabledErrorCooldownRetryableError(proxyErr) {
+		return
+	}
+
+	// disableErrorCooldown is an explicit operator escape hatch: failures from
+	// this provider should not create cooldown state and should keep retrying the
+	// same provider beyond the matched retry config until the request succeeds or
+	// its context is cancelled.
+	proxyErr.Retryable = true
+}
+
+func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil {
+		return false
+	}
+	if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+		return true
+	}
+	return isCommittedStreamReadRetryableError(proxyErr)
+}
+
+func applyCommittedStreamReadRetryPolicy(proxyErr *domain.ProxyError) {
+	if isCommittedStreamReadRetryableError(proxyErr) {
+		proxyErr.Retryable = true
+	}
+}
+
+func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil {
+		return false
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		return false
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		return false
+	}
+	msg := proxyErr.Message
+	if proxyErr.Err != nil {
+		msg += " " + proxyErr.Err.Error()
+	}
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "stream read error") || strings.Contains(msg, "upstream stream") || strings.Contains(msg, "unexpected eof")
+}
+
+func shouldRetryCommittedResponseError(proxyErr *domain.ProxyError) bool {
+	return proxyErr != nil && proxyErr.Retryable && isCommittedStreamReadRetryableError(proxyErr)
 }
 
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers
@@ -339,6 +454,7 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 					attempt.CacheWriteCount = event.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
 					attempt.Cache1hWriteCount = event.Metrics.Cache1hCreationCount
+					attempt.UpstreamCostNanoUSD = event.Metrics.UpstreamCostNanoUSD
 				}
 			case domain.EventResponseModel:
 				if event.ResponseModel != "" {
@@ -421,6 +537,7 @@ func (e *Executor) processAdapterEventsRealtime(
 					attempt.CacheWriteCount = ev.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = ev.Metrics.Cache5mCreationCount
 					attempt.Cache1hWriteCount = ev.Metrics.Cache1hCreationCount
+					attempt.UpstreamCostNanoUSD = ev.Metrics.UpstreamCostNanoUSD
 					dirty = true
 				}
 			case domain.EventResponseModel:

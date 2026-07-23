@@ -39,6 +39,23 @@ func TestClassifyHTTPError429QuotaExhausted(t *testing.T) {
 	}
 }
 
+func TestClassifyHTTPError402InsufficientBalanceIsKeyQuota(t *testing.T) {
+	headers := make(http.Header)
+	body := []byte(`{"error":{"message":"Insufficient balance","type":"bad_response_status_code","code":"bad_response_status_code"}}`)
+
+	proxyErr := classifyHTTPError(http.StatusPaymentRequired, body, headers, domain.ClientTypeOpenAI, "gpt-4")
+
+	if proxyErr.Scope != domain.ScopeKey {
+		t.Fatalf("Scope = %v, want ScopeKey", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonQuotaExhausted {
+		t.Fatalf("Reason = %v, want CooldownReasonQuotaExhausted", proxyErr.Reason)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("402 insufficient balance should not retry the same provider")
+	}
+}
+
 func TestClassifyHTTPError401AuthFailure(t *testing.T) {
 	headers := make(http.Header)
 	proxyErr := classifyHTTPError(401, []byte(`{"error":{"message":"invalid api key"}}`), headers, domain.ClientTypeOpenAI, "gpt-4")
@@ -83,5 +100,19 @@ func TestExtractStructuredResetTimeFindsNestedQuotaResetTime(t *testing.T) {
 	want := time.Date(2026, 3, 17, 13, 20, 0, 0, time.UTC)
 	if !got.Equal(want) {
 		t.Fatalf("reset time = %v, want %v", got, want)
+	}
+}
+
+func TestClassifyHTTPErrorRequestTimeoutIsRetryableNetworkError(t *testing.T) {
+	proxyErr := classifyHTTPError(http.StatusRequestTimeout, []byte(`failed to connect to upstream: upstream error`), http.Header{}, domain.ClientTypeOpenAI, "gpt-4")
+
+	if proxyErr.Scope != domain.ScopeEndpoint {
+		t.Fatalf("scope = %q, want endpoint", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Fatalf("reason = %q, want network_error", proxyErr.Reason)
+	}
+	if !proxyErr.Retryable {
+		t.Fatal("408 upstream timeout should be retryable")
 	}
 }

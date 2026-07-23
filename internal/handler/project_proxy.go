@@ -13,20 +13,23 @@ import (
 // like /{slug}/v1/messages, /{slug}/v1/chat/completions, etc.
 type ProjectProxyHandler struct {
 	proxyHandler  *ProxyHandler
-	modelsHandler *ModelsHandler
+	modelsHandler http.Handler
 	projectRepo   repository.ProjectRepository
+	settingsRepo  repository.SystemSettingRepository
 }
 
 // NewProjectProxyHandler creates a new project proxy handler
 func NewProjectProxyHandler(
 	proxyHandler *ProxyHandler,
-	modelsHandler *ModelsHandler,
+	modelsHandler http.Handler,
 	projectRepo repository.ProjectRepository,
+	settingsRepo repository.SystemSettingRepository,
 ) *ProjectProxyHandler {
 	return &ProjectProxyHandler{
 		proxyHandler:  proxyHandler,
 		modelsHandler: modelsHandler,
 		projectRepo:   projectRepo,
+		settingsRepo:  settingsRepo,
 	}
 }
 
@@ -62,6 +65,10 @@ func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		h.modelsHandler.ServeHTTP(w, r)
 		return
 	}
+	if !proxyRouteExposureEnabled(h.settingsRepo, apiPath) {
+		http.NotFound(w, r)
+		return
+	}
 	h.proxyHandler.ServeHTTP(w, r)
 }
 
@@ -93,39 +100,11 @@ func (h *ProjectProxyHandler) parseProjectPath(path string) (slug, apiPath strin
 	return slug, apiPath, true
 }
 
-// isValidAPIPath checks if the path is a known proxy API endpoint
+// isValidAPIPath checks if the path is a known proxy API endpoint. It shares the
+// proxyAPIEndpoints table with isValidProviderAPIPath so the project- and
+// provider-scoped allowlists can never drift apart.
 func isValidAPIPath(path string) bool {
-	// Claude API
-	if strings.HasPrefix(path, "/v1/messages") {
-		return true
-	}
-	// OpenAI API
-	if strings.HasPrefix(path, "/v1/chat/completions") {
-		return true
-	}
-	// OpenAI Images API (gpt-image-* generation + edits). Match the exact
-	// endpoints proxy_routes.go registers at the root mux; widening this to
-	// HasPrefix("/v1/images/") would make project-prefixed routes more
-	// permissive than the root contract.
-	if path == "/v1/images/generations" || path == "/v1/images/edits" {
-		return true
-	}
-	// Codex API
-	if strings.HasPrefix(path, "/responses") {
-		return true
-	}
-	if strings.HasPrefix(path, "/v1/responses") {
-		return true
-	}
-	// Model list API
-	if strings.HasPrefix(path, "/v1/models") {
-		return true
-	}
-	// Gemini API
-	if path == "/v1beta/models" || strings.HasPrefix(path, "/v1beta/models/") {
-		return true
-	}
-	return false
+	return isValidProxyAPIPath(path)
 }
 
 // itoa converts uint64 to string without importing strconv

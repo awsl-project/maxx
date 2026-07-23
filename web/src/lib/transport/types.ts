@@ -36,6 +36,7 @@ export interface ProviderConfigCustomDisguise {
 
 export interface ProviderConfigCustom {
   baseURL: string;
+  backend?: 'ollama';
   apiKey: string;
   // 伪装配置：选择把对外发包装成什么客户端。替代旧的 cloak 字段。
   disguise?: ProviderConfigCustomDisguise;
@@ -43,6 +44,11 @@ export interface ProviderConfigCustom {
   clientMultiplier?: Partial<Record<ClientType, number>>; // 10000=1倍
   modelMapping?: Record<string, string>;
   responseModelMapping?: Record<string, string>;
+  // Codex Responses 请求是否透传客户端原始路径(/v1/responses)。
+  // 不设置=默认透传;false=用旧的、被砍掉 /v1 的 /responses。
+  responsesPassthrough?: boolean;
+  // 是否允许作为 Codex Responses WebSocket 上游（默认 false，需显式开启）。
+  responsesWebSocket?: boolean;
 }
 
 export interface ProviderConfigAntigravity {
@@ -81,6 +87,11 @@ export interface ProviderConfigCodex {
   baseURL?: string;
   reasoning?: string; // "low", "medium", "high"
   serviceTier?: string; // "auto", "default", "flex", "priority"
+  // 转发到自定义 baseURL 时是否透传客户端原始 Responses 路径(/v1/responses)。
+  // 不设置=默认透传;false=用旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
+  // 是否承接 Codex Responses WebSocket（官方路径默认 true；CLIProxy 默认 false）。
+  responsesWebSocket?: boolean;
 }
 
 export interface ProviderConfigClaude {
@@ -98,6 +109,32 @@ export interface ProviderConfigBedrock {
   secretAccessKey: string;
   region?: string;
   modelPrefix?: string;
+  modelMapping?: Record<string, string>;
+}
+
+// OpenRouter 一级供应商配置。baseURL 固定为 https://openrouter.ai/api（由后端合成）。
+// 模型映射走通用的 ModelMapping 实体（按 provider id 匹配），不放在 config 里。
+export interface ProviderConfigOpenRouter {
+  apiKey: string;
+}
+
+export interface ProviderConfigGrok {
+  type?: 'xai';
+  authKind?: 'oauth';
+  email?: string;
+  sub?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  idToken?: string;
+  tokenType?: string;
+  expiresIn?: number;
+  expired?: string;
+  lastRefresh?: string;
+  redirectURI?: string;
+  tokenEndpoint?: string;
+  baseURL?: string;
+  disabled?: boolean;
+  headers?: Record<string, string>;
   modelMapping?: Record<string, string>;
 }
 
@@ -125,14 +162,30 @@ export interface BedrockDiscoveredModelsResult {
   refreshError?: string;
 }
 
+export interface ProviderRuntimeModelsResult {
+  available: boolean;
+  models: string[];
+  source?: string;
+  error?: string;
+}
+
+export interface ProviderRuntimeModelsPreviewRequest {
+  type: string;
+  config: ProviderConfig;
+}
+
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
+  smartMappingRetryEnabled?: boolean;
+  smartMappingRetryLimit?: number;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
   bedrock?: ProviderConfigBedrock;
   kiro?: ProviderConfigKiro;
   codex?: ProviderConfigCodex;
   claude?: ProviderConfigClaude;
+  openrouter?: ProviderConfigOpenRouter;
+  grok?: ProviderConfigGrok;
 }
 
 export interface Provider {
@@ -145,7 +198,9 @@ export interface Provider {
   config: ProviderConfig | null;
   supportedClientTypes: ClientType[];
   supportModels?: string[]; // 支持的模型列表（通配符模式），空数组表示支持所有模型
+  maxConcurrency?: number; // 最大并发上游会话数，0 表示不限制
   excludeFromExport?: boolean; // 为 true 时不参与导出/备份
+  blackBox?: boolean; // 为 true 时不可编辑且不向 UI/API 暴露配置细节
 }
 
 // supportedClientTypes 可选，后端会根据 provider type 自动设置
@@ -166,11 +221,22 @@ export interface Project {
   name: string;
   slug: string;
   enabledCustomRoutes: ClientType[];
+  lastRequestAt?: string;
+  lastSuccessfulRequestAt?: string;
+  requestCount30d?: number;
+  successfulRequestCount30d?: number;
+  totalRequestCount?: number;
 }
 
 export type CreateProjectData = Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'slug'> & {
   slug?: string;
 };
+
+export interface ProjectArchiveInactiveResult {
+  archivedCount: number;
+  archivedIDs: number[];
+  thresholdDays: number;
+}
 
 // ===== Session =====
 
@@ -190,7 +256,8 @@ export interface Route {
   createdAt: string;
   updatedAt: string;
   isEnabled: boolean;
-  isNative: boolean; // 是否为原生支持（自动创建），false 表示转换支持（手动创建）
+  /** Server-derived: target provider natively supports clientType. Read-only. */
+  readonly isNative: boolean;
   projectID: number;
   clientType: ClientType;
   providerID: number;
@@ -200,11 +267,157 @@ export interface Route {
   modelMapping?: Record<string, string>;
 }
 
-export type CreateRouteData = Omit<Route, 'id' | 'createdAt' | 'updatedAt'>;
+export interface ProviderBulkDeleteRequest {
+  ids: number[];
+}
+
+export interface ProviderBulkDeleteResult {
+  deletedCount: number;
+  deletedIDs: number[];
+  notFoundIDs: number[];
+  routeDeletedCount: number;
+  modelMappingDeletedCount: number;
+}
+
+export type CreateRouteData = Omit<Route, 'id' | 'createdAt' | 'updatedAt' | 'isNative'>;
+
+export type UpdateRouteData = Partial<CreateRouteData>;
 
 export interface RoutePositionUpdate {
   id: number;
   position: number;
+}
+
+export interface RouteBulkDeleteRequest {
+  ids: number[];
+  clientType: ClientType;
+  projectID: number;
+}
+
+export interface RouteBulkDeleteResult {
+  deletedCount: number;
+  deletedIDs: number[];
+  skippedIDs: number[];
+  notFoundIDs: number[];
+}
+
+export type RouteSyncMode = 'overwrite' | 'add_missing';
+
+export interface RouteSyncRequest {
+  sourceProjectID: number;
+  targetProjectID: number;
+  clientType: ClientType;
+  mode: RouteSyncMode;
+}
+
+export interface RouteSyncResult {
+  sourceProjectID: number;
+  effectiveSourceProjectID: number;
+  targetProjectID: number;
+  clientType: ClientType;
+  mode: RouteSyncMode;
+  createdCount: number;
+  updatedCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  enabledCustomRoutes: boolean;
+  routes: Route[];
+}
+
+export type ClaudeProviderBatchPersistMode = 'none' | 'passed' | 'all_disabled';
+
+export interface ClaudeProviderBatchRequest {
+  existingProviderIDs?: number[];
+  candidates?: CreateProviderData[];
+  projectID: number;
+  testModel?: string;
+  maxTokens?: number;
+  concurrency?: number;
+  persistMode?: ClaudeProviderBatchPersistMode;
+  createRoutes?: boolean;
+  overwriteExisting?: boolean;
+  routeWeight?: number;
+}
+
+export interface ClaudeProviderBatchProviderResult {
+  index: number;
+  source: 'existing' | 'candidate' | string;
+  existingID?: number;
+  providerID?: number;
+  routeID?: number;
+  name: string;
+  type: string;
+  baseURL?: string;
+  modelMapping?: Record<string, string>;
+  requestedModel: string;
+  mappedModel: string;
+  action: string;
+  status: string;
+  httpStatus?: number;
+  ok: boolean;
+  persisted: boolean;
+  routeCreated: boolean;
+  routeUpdated: boolean;
+  routeEnabled: boolean;
+  message?: string;
+  error?: string;
+  durationMs: number;
+}
+
+export interface ClaudeProviderBatchResponse {
+  clientType: ClientType;
+  projectID: number;
+  testModel: string;
+  persistMode: ClaudeProviderBatchPersistMode;
+  createRoutes: boolean;
+  concurrency: number;
+  results: ClaudeProviderBatchProviderResult[];
+  testedCount: number;
+  usableCount: number;
+  persistedCount: number;
+  routesCreated: number;
+  routesUpdated: number;
+  routesDisabled: number;
+  routesSkipped: number;
+}
+
+export interface RouteTTFTProbeRequest {
+  routeIDs: number[];
+  clientType: ClientType;
+  projectID: number;
+  testModel?: string;
+  concurrency?: number;
+  timeoutMs?: number;
+}
+
+export interface RouteTTFTProbeResult {
+  routeID: number;
+  providerID: number;
+  providerName: string;
+  ok: boolean;
+  status:
+    | 'success'
+    | 'timeout'
+    | 'http_error'
+    | 'network_error'
+    | 'unsupported'
+    | 'cancelled'
+    | 'route_unavailable'
+    | 'protocol_error'
+    | 'validation_failed';
+  metric: 'ttft' | 'first_byte' | 'none';
+  ttftMs?: number;
+  durationMs: number;
+  httpStatus?: number;
+  error?: string;
+}
+
+export interface RouteTTFTProbeResponse {
+  clientType: ClientType;
+  projectID: number;
+  testModel: string;
+  concurrency: number;
+  results: RouteTTFTProbeResult[];
 }
 
 // ===== RetryConfig =====
@@ -219,6 +432,7 @@ export interface RetryConfig {
   initialInterval: number; // nanoseconds
   backoffRate: number;
   maxInterval: number; // nanoseconds
+  forceRetryUpstreamErrors: boolean;
 }
 
 export type CreateRetryConfigData = Omit<RetryConfig, 'id' | 'createdAt' | 'updatedAt'>;
@@ -263,12 +477,47 @@ export interface ResponseInfo {
 }
 
 export type ProxyRequestStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED'
-  | 'REJECTED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
+
+export type ProxyRequestErrorMode = 'all' | 'only' | 'exclude';
+
+export interface ProxyRequestCountBucket {
+  name: string;
+  count: number;
+}
+
+export interface ProxyRequestHTTPStatusBucket {
+  statusCode: number;
+  count: number;
+}
+
+export interface ProxyRequestProviderBucket {
+  providerId: number;
+  count: number;
+}
+
+export interface ProxyRequestTrendPoint {
+  startTime: number;
+  endTime: number;
+  totalRequests: number;
+  errorRequests: number;
+}
+
+export interface ProxyRequestErrorStats {
+  totalRequests: number;
+  errorRequests: number;
+  errorRate: number;
+  statusCounts: ProxyRequestCountBucket[];
+  httpStatusCounts: ProxyRequestHTTPStatusBucket[];
+  providerCounts: ProxyRequestProviderBucket[];
+  modelCounts: ProxyRequestCountBucket[];
+  trend: ProxyRequestTrendPoint[];
+}
+
+export interface ProxyRequestCleanupFailedResult {
+  deletedCount: number;
+  deletedAttemptCount: number;
+}
 
 export interface ProxyRequest {
   id: number;
@@ -279,12 +528,16 @@ export interface ProxyRequest {
   sessionID: string;
   clientType: ClientType;
   requestModel: string;
+  mappedModel: string;
   responseModel: string;
+  reasoningEffort: string;
   startTime: string;
   endTime: string;
   duration: number; // nanoseconds
   ttft: number; // nanoseconds - Time To First Token (首字时长)
   isStream: boolean; // 是否为 SSE 流式请求
+  /** Client→Maxx transport: "http" | "sse" | "websocket". Empty on historical rows. */
+  protocol?: string;
   status: ProxyRequestStatus;
   statusCode: number; // HTTP 状态码（冗余存储，用于列表查询优化）
   requestInfo: RequestInfo | null;
@@ -313,11 +566,7 @@ export interface ProxyRequest {
 // ===== ProxyUpstreamAttempt =====
 
 export type ProxyUpstreamAttemptStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface ProxyUpstreamAttempt {
   id: number;
@@ -328,6 +577,7 @@ export interface ProxyUpstreamAttempt {
   duration: number; // nanoseconds
   ttft: number; // nanoseconds - Time To First Token (首字时长)
   status: ProxyUpstreamAttemptStatus;
+  error: string;
   proxyRequestID: number;
   isStream: boolean; // 是否为 SSE 流式请求
   // 模型信息
@@ -372,6 +622,12 @@ export interface CursorPaginationParams {
   apiTokenId?: number;
   /** 按 Project ID 过滤 */
   projectId?: number;
+  /** 按创建时间起点过滤（ISO 字符串或毫秒时间戳字符串） */
+  startTime?: string;
+  /** 按创建时间终点过滤（ISO 字符串或毫秒时间戳字符串） */
+  endTime?: string;
+  /** 错误请求过滤模式 */
+  errorMode?: ProxyRequestErrorMode;
 }
 
 /** 游标分页响应 */
@@ -893,6 +1149,29 @@ export interface APITokenCreateResult {
   apiToken: APIToken;
 }
 
+export interface UserPanelAPITokenResponse {
+  apiToken: APIToken | null;
+}
+
+export interface UserPanelAPITokenRevealResult {
+  token: string;
+}
+
+export interface APITokenCleanupItem {
+  id: number;
+  name: string;
+  tokenPrefix: string;
+}
+
+export interface APITokenCleanupResult {
+  deletedCount: number;
+  tokens: APITokenCleanupItem[];
+}
+
+export interface APITokenUpdateData extends Partial<APIToken> {
+  resetValidity?: boolean;
+}
+
 export interface CreateAPITokenData {
   name: string;
   description?: string;
@@ -1046,6 +1325,7 @@ export interface BackupRetryConfig {
   initialIntervalMs: number;
   backoffRate: number;
   maxIntervalMs: number;
+  forceRetryUpstreamErrors?: boolean;
 }
 
 export interface BackupRoute {

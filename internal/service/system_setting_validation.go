@@ -2,32 +2,43 @@ package service
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
+	"github.com/awsl-project/maxx/internal/reqpolicy"
 )
 
 func validateSystemSettingValue(key, value string) error {
 	switch key {
-	case domain.SettingKeyPayloadOverrideRules:
-		return payloadoverride.ValidateRulesJSON(value)
-	case domain.SettingKeyProxyRequestsDisabled:
-		return validateBooleanSystemSetting(value)
+	case domain.SettingKeyReasoningPolicy:
+		return reqpolicy.ValidatePolicyJSON(value)
+	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyProxyRequestsDisabled:
+		return validateBooleanSystemSetting(key, value)
+	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
+		return validateRateLimitCooldownDefaultSeconds(value)
 	default:
 		return nil
 	}
 }
 
-func validateBooleanSystemSetting(value string) error {
-	if strings.TrimSpace(value) != value {
-		return fmt.Errorf("%w: boolean setting must not contain surrounding whitespace", domain.ErrInvalidInput)
-	}
-
-	switch value {
+func validateBooleanSystemSetting(key, value string) error {
+	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "true", "false":
 		return nil
 	default:
-		return fmt.Errorf("%w: boolean setting must be \"true\" or \"false\"", domain.ErrInvalidInput)
+		return fmt.Errorf("%w: %s must be true or false", domain.ErrInvalidInput, key)
 	}
+}
+
+func validateRateLimitCooldownDefaultSeconds(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("%w: %s cannot be empty", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
+	}
+	seconds, err := strconv.Atoi(trimmed)
+	if err != nil || seconds < 1 || seconds > 86400 {
+		return fmt.Errorf("%w: %s must be an integer between 1 and 86400", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
+	}
+	return nil
 }

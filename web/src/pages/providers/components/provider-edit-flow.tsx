@@ -29,17 +29,14 @@ import {
   useDeleteProvider,
   useModelMappings,
   useCreateModelMapping,
-  useUpdateModelMapping,
-  useDeleteModelMapping,
 } from '@/hooks/queries';
 import type {
   Provider,
   ClientType,
   CreateProviderData,
-  ModelMapping,
-  ModelMappingInput,
+  ProviderRuntimeModelsPreviewRequest,
 } from '@/lib/transport';
-import { defaultClients, type ClientConfig } from '../types';
+import { defaultClients, type ClientConfig, type CustomBackend } from '../types';
 import { buildDisguisePayload } from '../utils/disguise';
 import { ClientsConfigSection } from './clients-config-section';
 import { AntigravityProviderView } from './antigravity-provider-view';
@@ -47,147 +44,30 @@ import { BedrockProviderView } from './bedrock-provider-view';
 import { KiroProviderView } from './kiro-provider-view';
 import { CodexProviderView } from './codex-provider-view';
 import { ClaudeProviderView } from './claude-provider-view';
+import { OpenRouterProviderView } from './openrouter-provider-view';
+import { NewApiProviderView } from './newapi-provider-view';
+import { OllamaProviderView } from './ollama-provider-view';
+import { GrokProviderView } from './grok-provider-view';
+import { ProviderModelMappings } from './provider-model-mappings';
+import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
-
-// Provider Model Mappings Section for Custom Providers
-function ProviderModelMappings({ provider }: { provider: Provider }) {
-  const { t } = useTranslation();
-  const { data: allMappings } = useModelMappings();
-  const createMapping = useCreateModelMapping();
-  const updateMapping = useUpdateModelMapping();
-  const deleteMapping = useDeleteModelMapping();
-  const [newPattern, setNewPattern] = useState('');
-  const [newTarget, setNewTarget] = useState('');
-
-  // Filter mappings for this provider
-  const providerMappings = useMemo(() => {
-    return (allMappings || []).filter(
-      (m) => m.scope === 'provider' && m.providerID === provider.id,
-    );
-  }, [allMappings, provider.id]);
-
-  const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
-
-  const handleAddMapping = async () => {
-    if (!newPattern.trim() || !newTarget.trim()) return;
-
-    await createMapping.mutateAsync({
-      pattern: newPattern.trim(),
-      target: newTarget.trim(),
-      scope: 'provider',
-      providerID: provider.id,
-      providerType: 'custom',
-      priority: providerMappings.length * 10 + 1000,
-      isEnabled: true,
-    });
-    setNewPattern('');
-    setNewTarget('');
-  };
-
-  const handleUpdateMapping = async (mapping: ModelMapping, data: Partial<ModelMappingInput>) => {
-    await updateMapping.mutateAsync({
-      id: mapping.id,
-      data: {
-        pattern: data.pattern ?? mapping.pattern,
-        target: data.target ?? mapping.target,
-        scope: 'provider',
-        providerID: provider.id,
-        providerType: 'custom',
-        priority: mapping.priority,
-        isEnabled: mapping.isEnabled,
-      },
-    });
-  };
-
-  const handleDeleteMapping = async (id: number) => {
-    await deleteMapping.mutateAsync(id);
-  };
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-4 border-b border-border pb-2">
-        <Zap size={18} className="text-yellow-500" />
-        <h4 className="text-lg font-semibold text-foreground">{t('modelMappings.title')}</h4>
-        <span className="text-sm text-muted-foreground">({providerMappings.length})</span>
-      </div>
-
-      <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">{t('modelMappings.pageDesc')}</p>
-
-        {providerMappings.length > 0 && (
-          <div className="space-y-2 mb-4">
-            {providerMappings.map((mapping, index) => (
-              <div key={mapping.id} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
-                <ModelInput
-                  value={mapping.pattern}
-                  onChange={(pattern) => handleUpdateMapping(mapping, { pattern })}
-                  placeholder={t('modelMappings.matchPattern')}
-                  disabled={isPending}
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                <ModelInput
-                  value={mapping.target}
-                  onChange={(target) => handleUpdateMapping(mapping, { target })}
-                  placeholder={t('modelMappings.targetModel')}
-                  disabled={isPending}
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDeleteMapping(mapping.id)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {providerMappings.length === 0 && (
-          <div className="text-center py-6 mb-4">
-            <p className="text-muted-foreground text-sm">{t('modelMappings.noMappings')}</p>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 pt-4 border-t border-border">
-          <ModelInput
-            value={newPattern}
-            onChange={setNewPattern}
-            placeholder={t('modelMappings.matchPattern')}
-            disabled={isPending}
-            className="flex-1 min-w-0 h-8 text-sm"
-          />
-          <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-          <ModelInput
-            value={newTarget}
-            onChange={setNewTarget}
-            placeholder={t('modelMappings.targetModel')}
-            disabled={isPending}
-            className="flex-1 min-w-0 h-8 text-sm"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleAddMapping}
-            disabled={!newPattern.trim() || !newTarget.trim() || isPending}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            {t('common.add')}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { normalizeProviderArrayField } from '../utils/provider-normalize';
 
 function ResponseModelMappings({
   mappings,
@@ -250,9 +130,7 @@ function ResponseModelMappings({
       </div>
 
       <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">
-          {t('responseModelMappings.pageDesc')}
-        </p>
+        <p className="text-xs text-muted-foreground mb-4">{t('responseModelMappings.pageDesc')}</p>
 
         {entries.length > 0 && (
           <div className="space-y-2 mb-4">
@@ -289,9 +167,7 @@ function ResponseModelMappings({
 
         {entries.length === 0 && (
           <div className="text-center py-6 mb-4">
-            <p className="text-muted-foreground text-sm">
-              {t('responseModelMappings.noMappings')}
-            </p>
+            <p className="text-muted-foreground text-sm">{t('responseModelMappings.noMappings')}</p>
           </div>
         )}
 
@@ -416,6 +292,7 @@ interface ProviderEditFlowProps {
 type EditFormData = {
   name: string;
   baseURL: string;
+  backend: CustomBackend;
   apiKey: string;
   clients: ClientConfig[];
   supportModels: string[];
@@ -425,6 +302,13 @@ type EditFormData = {
   cloakSensitiveWords?: string;
   responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
+  smartMappingRetryEnabled?: boolean;
+  smartMappingRetryLimit?: number;
+  maxConcurrency: number;
+  // undefined = 默认透传;false = 旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
+  // false/undefined = 不启用 Codex Responses WebSocket；true = 允许 WS 上游。
+  responsesWebSocket?: boolean;
 };
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -434,6 +318,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const [cloning, setCloning] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [cloneError, setCloneError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const createProvider = useCreateProvider();
   const updateProvider = useUpdateProvider();
@@ -442,10 +327,12 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const { data: allMappings } = useModelMappings();
 
   const initClients = (): ClientConfig[] => {
-    const supportedTypes = provider.supportedClientTypes || [];
+    const supportedTypes = normalizeProviderArrayField(provider.supportedClientTypes);
     return defaultClients.map((client) => {
       const isEnabled = supportedTypes.includes(client.id);
-      const urlOverride = provider.config?.custom?.clientBaseURL?.[client.id] || '';
+      const urlOverride = provider.excludeFromExport
+        ? ''
+        : provider.config?.custom?.clientBaseURL?.[client.id] || '';
       const multiplier = provider.config?.custom?.clientMultiplier?.[client.id] || 10000;
       return { ...client, enabled: isEnabled, urlOverride, multiplier };
     });
@@ -453,36 +340,87 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [formData, setFormData] = useState<EditFormData>(() => {
+    const supportModels = normalizeProviderArrayField(provider.supportModels);
     // Read effective claude-code sub-options, preferring the new `disguise`
     // shape but falling back to the legacy `cloak` field so providers saved
     // before the migration continue to display their previous settings.
     const customCfg = provider.config?.custom as
       | (NonNullable<typeof provider.config>['custom'] & {
-          cloak?: { mode?: 'auto' | 'always' | 'never'; strictMode?: boolean; sensitiveWords?: string[] };
+          cloak?: {
+            mode?: 'auto' | 'always' | 'never';
+            strictMode?: boolean;
+            sensitiveWords?: string[];
+          };
         })
       | undefined;
     const disguise = customCfg?.disguise;
     const legacyCloak = customCfg?.cloak;
     // Default disguiseType: 'claude-code' (preserves legacy auto-cloak behavior).
-    const disguiseType = (disguise?.type ?? 'claude-code') as
-      | 'none'
-      | 'claude-code'
-      | 'bedrock';
+    const disguiseType = (disguise?.type ?? 'claude-code') as 'none' | 'claude-code' | 'bedrock';
     const cc = disguise?.claudeCode ?? legacyCloak;
     return {
       name: provider.name,
-      baseURL: provider.config?.custom?.baseURL || '',
-      apiKey: provider.config?.custom?.apiKey || '',
+      baseURL: provider.excludeFromExport ? '' : provider.config?.custom?.baseURL || '',
+      backend: provider.config?.custom?.backend === 'ollama' ? 'ollama' : 'http',
+      apiKey: provider.excludeFromExport ? '' : provider.config?.custom?.apiKey || '',
       clients: initClients(),
-      supportModels: provider.supportModels || [],
+      supportModels,
       disguiseType,
       cloakMode: cc?.mode || 'auto',
       cloakStrictMode: cc?.strictMode || false,
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
+      smartMappingRetryEnabled: provider.config?.smartMappingRetryEnabled ?? false,
+      smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
+      maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
+      responsesPassthrough: provider.config?.custom?.responsesPassthrough,
+      responsesWebSocket: provider.config?.custom?.responsesWebSocket === true,
     };
   });
+  const providerConfigIsWriteOnly = !!provider.excludeFromExport;
+  const runtimeModelsPreview = useMemo<ProviderRuntimeModelsPreviewRequest | undefined>(() => {
+    const clientBaseURL: Partial<Record<ClientType, string>> = {};
+    formData.clients.forEach((client) => {
+      const url = client.urlOverride.trim();
+      if (client.enabled && url) {
+        clientBaseURL[client.id] = url;
+      }
+    });
+
+    const baseURL = formData.baseURL.trim();
+    const apiKey = formData.apiKey.trim();
+    if (!baseURL && !clientBaseURL.openai) return undefined;
+
+    return {
+      type: provider.type || 'custom',
+      config: {
+        custom: {
+          baseURL,
+          backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+          apiKey,
+          clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
+        },
+      },
+    };
+  }, [formData.apiKey, formData.backend, formData.baseURL, formData.clients, provider.type]);
+
+  const providerMappingTargetCount = useMemo(
+    () =>
+      new Set(
+        (allMappings ?? [])
+          .filter(
+            (mapping) => mapping.providerID === Number(provider.id) && mapping.isEnabled !== false,
+          )
+          .map((mapping) => mapping.target.trim())
+          .filter(Boolean),
+      ).size,
+    [allMappings, provider.id],
+  );
+  const smartMappingRetryEnabled =
+    !!formData.disableErrorCooldown &&
+    providerMappingTargetCount > 1 &&
+    !!formData.smartMappingRetryEnabled;
 
   const updateClient = (clientId: ClientType, updates: Partial<ClientConfig>) => {
     setFormData((prev) => ({
@@ -491,12 +429,19 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     }));
   };
 
-  const isValid = () => {
+  const hasVisibleURL = () =>
+    formData.baseURL.trim() || formData.clients.some((c) => c.enabled && c.urlOverride.trim());
+
+  const isSaveValid = () => {
     if (!formData.name.trim()) return false;
     const hasEnabledClient = formData.clients.some((c) => c.enabled);
-    const hasUrl =
-      formData.baseURL.trim() || formData.clients.some((c) => c.enabled && c.urlOverride.trim());
-    return hasEnabledClient && hasUrl;
+    return hasEnabledClient && (providerConfigIsWriteOnly || !!hasVisibleURL());
+  };
+
+  const isCloneValid = () => {
+    if (!formData.name.trim()) return false;
+    const hasEnabledClient = formData.clients.some((c) => c.enabled);
+    return hasEnabledClient && !!hasVisibleURL();
   };
 
   // Build the disguise payload from current form state. Delegates to the
@@ -511,7 +456,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     );
 
   const handleSave = async () => {
-    if (!isValid()) return;
+    if (!isSaveValid()) return;
 
     setSaving(true);
     setSaveStatus('idle');
@@ -532,11 +477,17 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       const data: Partial<CreateProviderData> = {
         name: formData.name,
         type: provider.type || 'custom', // Preserve the provider type
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          smartMappingRetryEnabled,
+          smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           custom: {
             baseURL: formData.baseURL,
-            apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
+            backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+            apiKey: formData.apiKey.trim() || '',
+            responsesPassthrough: formData.responsesPassthrough,
+            responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -564,7 +515,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   };
 
   const handleClone = async () => {
-    if (!isValid() || cloning) return;
+    if (!isCloneValid() || cloning) return;
+
+    setCloneError(null);
+    if (providerConfigIsWriteOnly && !formData.apiKey.trim()) {
+      setCloneError(t('provider.cloneWriteOnlyRequiresKey'));
+      return;
+    }
 
     setCloning(true);
 
@@ -589,11 +546,20 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         type: provider.type || 'custom',
         name: cloneName,
         logo: provider.logo,
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          smartMappingRetryEnabled,
+          smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           custom: {
             baseURL: formData.baseURL,
-            apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
+            backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+            apiKey:
+              formData.apiKey.trim() ||
+              (providerConfigIsWriteOnly ? '' : provider.config?.custom?.apiKey) ||
+              '',
+            responsesPassthrough: formData.responsesPassthrough,
+            responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -606,7 +572,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
-        excludeFromExport: !!provider.excludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -754,6 +719,86 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     );
   }
 
+  // OpenRouter provider
+  if (provider.type === 'openrouter') {
+    return (
+      <>
+        <OpenRouterProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // New API provider
+  if (provider.type === 'newapi') {
+    return (
+      <>
+        <NewApiProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // Ollama provider
+  if (provider.type === 'ollama') {
+    return (
+      <>
+        <OllamaProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // Grok provider
+  if (provider.type === 'grok') {
+    return (
+      <>
+        <GrokProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
   // Custom provider edit form
   return (
     <div className="flex flex-col h-full">
@@ -761,188 +806,305 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         icon={<ChevronLeft className="cursor-pointer" onClick={onClose} />}
         title={t('provider.edit')}
         description={t('provider.editDescription')}
-      >
-        <Button onClick={() => setShowDeleteConfirm(true)} variant={'destructive'}>
-          <Trash2 size={14} />
-          {t('provider.delete')}
-        </Button>
-        <Button
-          onClick={handleClone}
-          disabled={cloning || saving || !isValid()}
-          variant={'outline'}
-        >
-          <Copy size={14} />
-          {cloning ? t('provider.cloning') : t('provider.clone')}
-        </Button>
-        <Button onClick={onClose} variant={'secondary'}>
-          {t('provider.cancel')}
-        </Button>
-        <Button onClick={handleSave} disabled={saving || !isValid()} variant={'default'}>
-          {saving ? (
-            t('common.saving')
-          ) : saveStatus === 'success' ? (
-            <>
-              <Check size={14} /> {t('common.saved')}
-            </>
-          ) : (
-            t('provider.saveChanges')
-          )}
-        </Button>
-      </PageHeader>
+      />
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-7xl space-y-8">
-          <ProviderProxyURLCard provider={provider} />
-
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.basicInfo')}
-            </h3>
-
-            <div className="grid gap-6">
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-2">
-                  {t('provider.displayName')}
-                </label>
-                <Input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder={t('provider.namePlaceholder')}
-                  className="w-full"
-                />
+      <div className="flex-1 overflow-y-auto">
+        <div className="sticky top-0 z-40 border-b border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 md:px-6">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-foreground">
+                {formData.name || provider.name}
               </div>
+              <div className="text-xs text-muted-foreground">{t('provider.editDescription')}</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => setShowDeleteConfirm(true)} variant={'destructive'}>
+                <Trash2 size={14} />
+                {t('provider.delete')}
+              </Button>
+              <Button
+                onClick={handleClone}
+                disabled={cloning || saving || !isCloneValid()}
+                variant={'outline'}
+              >
+                <Copy size={14} />
+                {cloning ? t('provider.cloning') : t('provider.clone')}
+              </Button>
+              <Button onClick={onClose} variant={'secondary'}>
+                {t('provider.cancel')}
+              </Button>
+              <Button onClick={handleSave} disabled={saving || !isSaveValid()} variant={'default'}>
+                {saving ? (
+                  t('common.saving')
+                ) : saveStatus === 'success' ? (
+                  <>
+                    <Check size={14} /> {t('common.saved')}
+                  </>
+                ) : (
+                  t('provider.saveChanges')
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="p-6">
+          <div className="mx-auto max-w-7xl space-y-8">
+            <ProviderProxyURLCard provider={provider} />
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.basicInfo')}
+              </h3>
+
+              <div className="grid gap-6">
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
-                    <div className="flex items-center gap-2">
-                      <Globe size={14} />
-                      <span>{t('provider.apiEndpoint')}</span>
-                    </div>
+                    {t('provider.displayName')}
                   </label>
                   <Input
                     type="text"
-                    value={formData.baseURL}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        baseURL: e.target.value,
-                      }))
-                    }
-                    placeholder={t('provider.endpointPlaceholder')}
+                    value={formData.name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder={t('provider.namePlaceholder')}
                     className="w-full"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('provider.optionalUrlNote')}
-                  </p>
                 </div>
+
+                <ProviderMaxConcurrencyField
+                  value={formData.maxConcurrency}
+                  onChange={(maxConcurrency) =>
+                    setFormData((prev) => ({ ...prev, maxConcurrency }))
+                  }
+                />
 
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
-                    <div className="flex items-center gap-2">
-                      <Key size={14} />
-                      <span>{t('provider.apiKeyEdit')}</span>
-                    </div>
+                    {t('provider.customBackend')}
                   </label>
-                  <div className="relative">
+                  <Select
+                    value={formData.backend}
+                    onValueChange={(backend) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        backend: backend === 'ollama' ? 'ollama' : 'http',
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
+                      <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formData.backend === 'ollama'
+                      ? t('provider.customBackendOllamaDesc')
+                      : t('provider.customBackendHttpDesc')}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">
+                      <div className="flex items-center gap-2">
+                        <Globe size={14} />
+                        <span>{t('provider.apiEndpoint')}</span>
+                      </div>
+                    </label>
                     <Input
-                      type={showApiKey ? 'text' : 'password'}
-                      value={formData.apiKey}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
-                      placeholder={t('provider.keyPlaceholder')}
-                      className="w-full pr-10"
+                      type="text"
+                      value={formData.baseURL}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          baseURL: e.target.value,
+                        }))
+                      }
+                      placeholder={
+                        providerConfigIsWriteOnly
+                          ? t('provider.endpointPlaceholderWriteOnly')
+                          : t('provider.endpointPlaceholder')
+                      }
+                      className="w-full"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label={showApiKey ? t('common.hide') : t('common.show')}
-                    >
-                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {providerConfigIsWriteOnly
+                        ? t('provider.urlExcludedHint')
+                        : t('provider.optionalUrlNote')}
+                    </p>
                   </div>
-                  {provider.excludeFromExport && (
-                    <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
-                      {t('provider.apiKeyExcludedHint')}
+
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">
+                      <div className="flex items-center gap-2">
+                        <Key size={14} />
+                        <span>
+                          {formData.backend === 'ollama'
+                            ? t('provider.apiKeyOptional')
+                            : t('provider.apiKeyEdit')}
+                        </span>
+                      </div>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type={showApiKey && !providerConfigIsWriteOnly ? 'text' : 'password'}
+                        value={formData.apiKey}
+                        onChange={(e) => {
+                          setCloneError(null);
+                          setFormData((prev) => ({ ...prev, apiKey: e.target.value }));
+                        }}
+                        placeholder={
+                          providerConfigIsWriteOnly
+                            ? t('provider.keyPlaceholderWriteOnly')
+                            : formData.backend === 'ollama'
+                              ? t('provider.keyPlaceholderOptional')
+                              : t('provider.keyPlaceholder')
+                        }
+                        className="w-full pr-10"
+                      />
+                      {!providerConfigIsWriteOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label={showApiKey ? t('common.hide') : t('common.show')}
+                        >
+                          {showApiKey ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
-                  )}
+                    {providerConfigIsWriteOnly && (
+                      <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
+                        {t('provider.apiKeyExcludedHint')}
+                      </div>
+                    )}
+                    {cloneError && (
+                      <div className="mt-2 p-3 bg-error/10 border border-error/30 rounded-lg text-xs text-error">
+                        {cloneError}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.clientConfig')}
-            </h3>
-            <ClientsConfigSection
-              clients={formData.clients}
-              onUpdateClient={updateClient}
-              disguise={{
-                type: formData.disguiseType ?? 'claude-code',
-                claudeCodeMode: formData.cloakMode ?? 'auto',
-                claudeCodeStrictMode: !!formData.cloakStrictMode,
-                claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
-              }}
-              onUpdateDisguise={(updates) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  disguiseType: updates?.type ?? prev.disguiseType,
-                  cloakMode: updates?.claudeCodeMode ?? prev.cloakMode,
-                  cloakStrictMode: updates?.claudeCodeStrictMode ?? prev.cloakStrictMode,
-                  cloakSensitiveWords:
-                    updates?.claudeCodeSensitiveWords ?? prev.cloakSensitiveWords,
-                }))
-              }
-            />
-          </div>
-
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.errorCooldownTitle')}
-            </h3>
-            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-              <div className="pr-4">
-                <div className="text-sm font-medium text-foreground">
-                  {t('provider.disableErrorCooldown')}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('provider.disableErrorCooldownDesc')}
-                </p>
-              </div>
-              <Switch
-                checked={!!formData.disableErrorCooldown}
-                onCheckedChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, disableErrorCooldown: checked }))
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.clientConfig')}
+              </h3>
+              <ClientsConfigSection
+                clients={formData.clients}
+                onUpdateClient={updateClient}
+                disguise={{
+                  type: formData.disguiseType ?? 'claude-code',
+                  claudeCodeMode: formData.cloakMode ?? 'auto',
+                  claudeCodeStrictMode: !!formData.cloakStrictMode,
+                  claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
+                }}
+                onUpdateDisguise={(updates) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    disguiseType: updates?.type ?? prev.disguiseType,
+                    cloakMode: updates?.claudeCodeMode ?? prev.cloakMode,
+                    cloakStrictMode: updates?.claudeCodeStrictMode ?? prev.cloakStrictMode,
+                    cloakSensitiveWords:
+                      updates?.claudeCodeSensitiveWords ?? prev.cloakSensitiveWords,
+                  }))
+                }
+                responsesWebSocket={formData.responsesWebSocket === true}
+                onUpdateResponsesWebSocket={(checked) =>
+                  setFormData((prev) => ({ ...prev, responsesWebSocket: checked }))
                 }
               />
             </div>
-          </div>
 
-          {/* Provider Supported Models Filter */}
-          <ProviderSupportModels
-            supportModels={formData.supportModels}
-            onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
-          />
-
-          {/* Provider Model Mappings */}
-          <ProviderModelMappings provider={provider} />
-
-          <ResponseModelMappings
-            mappings={formData.responseModelMapping}
-            onChange={(mappings) =>
-              setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
-            }
-            disabled={saving}
-          />
-
-          {saveStatus === 'error' && (
-            <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-error" />
-              {t('provider.updateError')}
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.errorCooldownTitle')}
+              </h3>
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.disableErrorCooldown')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.disableErrorCooldownDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={!!formData.disableErrorCooldown}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      disableErrorCooldown: checked,
+                      smartMappingRetryEnabled: checked ? prev.smartMappingRetryEnabled : false,
+                    }))
+                  }
+                />
+              </div>
+              <SmartMappingRetrySettings
+                disableErrorCooldown={!!formData.disableErrorCooldown}
+                enabled={formData.smartMappingRetryEnabled}
+                retryLimit={formData.smartMappingRetryLimit}
+                mappingTargetCount={providerMappingTargetCount}
+                onEnabledChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, smartMappingRetryEnabled: checked }))
+                }
+                onRetryLimitChange={(limit) =>
+                  setFormData((prev) => ({ ...prev, smartMappingRetryLimit: limit }))
+                }
+              />
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.responsesPassthrough')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.responsesPassthroughDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={formData.responsesPassthrough !== false}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
+                  }
+                />
+              </div>
             </div>
-          )}
+
+            {/* Provider Supported Models Filter */}
+            <ProviderSupportModels
+              supportModels={formData.supportModels}
+              onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
+            />
+
+            {/* Provider Model Mappings */}
+            <ProviderModelMappings
+              provider={provider}
+              runtimeModelsPreview={runtimeModelsPreview}
+            />
+
+            <ResponseModelMappings
+              mappings={formData.responseModelMapping}
+              onChange={(mappings) =>
+                setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
+              }
+              disabled={saving}
+            />
+
+            {saveStatus === 'error' && (
+              <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-error" />
+                {t('provider.updateError')}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

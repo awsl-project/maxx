@@ -9,8 +9,12 @@ import {
   Code2,
   Sparkles,
   ChevronLeft,
+  Bot,
+  Network,
+  Boxes,
 } from 'lucide-react';
-import { quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
+import { quickTemplates, PROVIDER_TYPE_CONFIGS, type ProviderFormData } from '../types';
+import openrouterLogo from '@/assets/icons/openrouter.svg';
 import { Button } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useTranslation } from 'react-i18next';
@@ -19,22 +23,41 @@ import { useProviderNavigation } from '../hooks/use-provider-navigation';
 
 export function SelectTypeStep() {
   const { formData, updateFormData } = useProviderForm();
-  const { goToCustomConfig, goToAntigravity, goToKiro, goToCodex, goToClaude, goToBedrock, goToProviders } =
-    useProviderNavigation();
+  const {
+    goToCustomConfig,
+    goToAntigravity,
+    goToKiro,
+    goToCodex,
+    goToClaude,
+    goToBedrock,
+    goToOpenRouter,
+    goToNewApi,
+    goToOllama,
+    goToGrok,
+    goToProviders,
+  } = useProviderNavigation();
   const { t } = useTranslation();
 
-  const handleSelectType = (type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude') => {
+  const handleSelectType = (type: ProviderFormData['type']) => {
     updateFormData({ type });
     if (type === 'antigravity') {
       goToAntigravity();
     } else if (type === 'bedrock') {
       goToBedrock();
+    } else if (type === 'openrouter') {
+      goToOpenRouter();
     } else if (type === 'kiro') {
       goToKiro();
+    } else if (type === 'grok') {
+      goToGrok();
     } else if (type === 'codex') {
       goToCodex();
     } else if (type === 'claude') {
       goToClaude();
+    } else if (type === 'newapi') {
+      goToNewApi();
+    } else if (type === 'ollama') {
+      goToOllama();
     }
   };
 
@@ -50,6 +73,7 @@ export function SelectTypeStep() {
       updateFormData({
         selectedTemplate: templateId,
         name: template.name,
+        backend: 'http',
         clients: updatedClients,
         modelMappings: template.modelMappings,
         logo: template.logoUrl,
@@ -237,6 +261,71 @@ export function SelectTypeStep() {
                 </Button>
               )}
 
+              {!PROVIDER_TYPE_CONFIGS.openrouter.hidden && (
+                <Button
+                  onClick={() => handleSelectType('openrouter')}
+                  variant="ghost"
+                  className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    formData.type === 'openrouter'
+                      ? 'border-provider-openrouter bg-provider-openrouter/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                    <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-openrouter/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                      <img
+                        src={openrouterLogo}
+                        alt="OpenRouter"
+                        className="size-5 md:size-6 object-contain"
+                      />
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
+                        {t('addProvider.openrouter.name')}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                        {t('addProvider.openrouter.description')}
+                      </p>
+                    </div>
+
+                    {formData.type === 'openrouter' && (
+                      <CheckCircle2 className="size-5 text-provider-openrouter shrink-0 self-center animate-in zoom-in-50 duration-200" />
+                    )}
+                  </div>
+                </Button>
+              )}
+
+              {!PROVIDER_TYPE_CONFIGS.grok.hidden && (
+                <Button
+                  onClick={() => handleSelectType('grok')}
+                  variant="ghost"
+                  className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    formData.type === 'grok'
+                      ? 'border-provider-grok bg-provider-grok/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                    <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-grok/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                      <Bot className="size-5 md:size-6 text-provider-grok" />
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">Grok</h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                        Import xAI OAuth JSON from CLIProxyAPI
+                      </p>
+                    </div>
+
+                    {formData.type === 'grok' && (
+                      <CheckCircle2 className="size-5 text-provider-grok shrink-0 self-center animate-in zoom-in-50 duration-200" />
+                    )}
+                  </div>
+                </Button>
+              )}
+
+
               <Button
                 onClick={() => handleSelectType('custom')}
                 variant="ghost"
@@ -262,6 +351,64 @@ export function SelectTypeStep() {
 
                   {formData.type === 'custom' && (
                     <CheckCircle2 className="size-5 text-provider-custom shrink-0 self-center animate-in zoom-in-50 duration-200" />
+                  )}
+                </div>
+              </Button>
+
+              <Button
+                onClick={() => handleSelectType('newapi')}
+                variant="ghost"
+                className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                  formData.type === 'newapi'
+                    ? 'border-provider-newapi bg-provider-newapi/10 shadow-sm'
+                    : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                }`}
+              >
+                <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                  <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-newapi/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                    <Network className="size-5 md:size-6 text-provider-newapi" />
+                  </div>
+
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
+                      {t('addProvider.newapi.name')}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                      {t('addProvider.newapi.description')}
+                    </p>
+                  </div>
+
+                  {formData.type === 'newapi' && (
+                    <CheckCircle2 className="size-5 text-provider-newapi shrink-0 self-center animate-in zoom-in-50 duration-200" />
+                  )}
+                </div>
+              </Button>
+
+              <Button
+                onClick={() => handleSelectType('ollama')}
+                variant="ghost"
+                className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                  formData.type === 'ollama'
+                    ? 'border-provider-ollama bg-provider-ollama/10 shadow-sm'
+                    : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                }`}
+              >
+                <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                  <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-ollama/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                    <Boxes className="size-5 md:size-6 text-provider-ollama" />
+                  </div>
+
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
+                      {t('addProvider.ollama.name')}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                      {t('addProvider.ollama.description')}
+                    </p>
+                  </div>
+
+                  {formData.type === 'ollama' && (
+                    <CheckCircle2 className="size-5 text-provider-ollama shrink-0 self-center animate-in zoom-in-50 duration-200" />
                   )}
                 </div>
               </Button>

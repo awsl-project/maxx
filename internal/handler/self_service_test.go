@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +23,15 @@ type selfServiceProviderRepo struct {
 }
 
 func (r *selfServiceProviderRepo) Create(provider *domain.Provider) error {
+	if provider.ID == 0 {
+		var maxID uint64
+		for _, existing := range r.providers {
+			if existing.ID > maxID {
+				maxID = existing.ID
+			}
+		}
+		provider.ID = maxID + 1
+	}
 	r.providers = append(r.providers, provider)
 	return nil
 }
@@ -183,6 +194,15 @@ type selfServiceRouteRepo struct {
 }
 
 func (r *selfServiceRouteRepo) Create(route *domain.Route) error {
+	if route.ID == 0 {
+		var maxID uint64
+		for _, existing := range r.routes {
+			if existing.ID > maxID {
+				maxID = existing.ID
+			}
+		}
+		route.ID = maxID + 1
+	}
 	r.routes = append(r.routes, route)
 	return nil
 }
@@ -205,6 +225,31 @@ func (r *selfServiceRouteRepo) Delete(tenantID uint64, id uint64) error {
 		}
 	}
 	return domain.ErrNotFound
+}
+
+func (r *selfServiceRouteRepo) BulkDelete(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error) {
+	result := &domain.RouteBulkDeleteResult{}
+	requested := make(map[uint64]struct{}, len(req.IDs))
+	for _, id := range req.IDs {
+		requested[id] = struct{}{}
+	}
+
+	kept := r.routes[:0]
+	for _, route := range r.routes {
+		if _, ok := requested[route.ID]; !ok || route.TenantID != tenantID {
+			kept = append(kept, route)
+			continue
+		}
+		if route.ClientType != req.ClientType || route.ProjectID != req.ProjectID {
+			result.SkippedIDs = append(result.SkippedIDs, route.ID)
+			kept = append(kept, route)
+			continue
+		}
+		result.DeletedIDs = append(result.DeletedIDs, route.ID)
+	}
+	r.routes = kept
+	result.DeletedCount = len(result.DeletedIDs)
+	return result, nil
 }
 
 func (r *selfServiceRouteRepo) GetByID(tenantID uint64, id uint64) (*domain.Route, error) {
@@ -382,9 +427,17 @@ func (r *selfServiceSettingsRepo) Delete(key string) error {
 
 type selfServiceAPITokenRepo struct {
 	tokens []*domain.APIToken
+	nextID uint64
 }
 
 func (r *selfServiceAPITokenRepo) Create(token *domain.APIToken) error {
+	if token.ID == 0 {
+		r.nextID++
+		if r.nextID < 1000 {
+			r.nextID = 1000
+		}
+		token.ID = r.nextID
+	}
 	r.tokens = append(r.tokens, token)
 	return nil
 }
@@ -407,6 +460,10 @@ func (r *selfServiceAPITokenRepo) Delete(tenantID uint64, id uint64) error {
 		}
 	}
 	return domain.ErrNotFound
+}
+
+func (r *selfServiceAPITokenRepo) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	return []*domain.APIToken{}, nil
 }
 
 func (r *selfServiceAPITokenRepo) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
@@ -443,6 +500,8 @@ func (r *selfServiceAPITokenRepo) UpdateLastSeen(_ uint64, _ uint64, _ string, _
 
 type selfServiceUsageStatsRepo struct {
 	providerStats  map[uint64]*domain.ProviderStats
+	stats          []*domain.UsageStats
+	filters        []repository.UsageStatsFilter
 	lastTenantID   uint64
 	lastClientType string
 	lastProjectID  uint64
@@ -450,9 +509,30 @@ type selfServiceUsageStatsRepo struct {
 
 func (r *selfServiceUsageStatsRepo) Upsert(_ *domain.UsageStats) error        { return nil }
 func (r *selfServiceUsageStatsRepo) BatchUpsert(_ []*domain.UsageStats) error { return nil }
-func (r *selfServiceUsageStatsRepo) Query(_ uint64, _ repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	return nil, nil
+func (r *selfServiceUsageStatsRepo) Query(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+	r.lastTenantID = tenantID
+	r.filters = append(r.filters, filter)
+	var result []*domain.UsageStats
+	for _, stat := range r.stats {
+		if stat == nil || stat.TenantID != tenantID {
+			continue
+		}
+		if filter.APITokenID != nil && stat.APITokenID != *filter.APITokenID {
+			continue
+		}
+		result = append(result, stat)
+	}
+	return result, nil
 }
+func (r *selfServiceUsageStatsRepo) ReassignAPITokenID(tenantID uint64, fromID uint64, toID uint64) error {
+	for _, stat := range r.stats {
+		if stat != nil && stat.TenantID == tenantID && stat.APITokenID == fromID {
+			stat.APITokenID = toID
+		}
+	}
+	return nil
+}
+
 func (r *selfServiceUsageStatsRepo) QueryDashboardData(_ uint64) (*domain.DashboardData, error) {
 	return nil, nil
 }
@@ -607,9 +687,15 @@ func (r *selfServiceProviderRepoWithListError) List(tenantID uint64) ([]*domain.
 }
 
 func newSelfServiceHandlerForTests(deps selfServiceTestDeps) *SelfServiceHandler {
+	// Avoid typed-nil RouteRepository: (*selfServiceRouteRepo)(nil) is non-nil as
+	// an interface and panics on method call during provider update reconcile.
+	routeRepo := deps.routeRepo
+	if routeRepo == nil {
+		routeRepo = &selfServiceRouteRepo{}
+	}
 	adminSvc := service.NewAdminService(
 		deps.providerRepo,
-		deps.routeRepo,
+		routeRepo,
 		deps.projectRepo,
 		nil,
 		deps.retryConfigRepo,
@@ -647,6 +733,11 @@ func newSelfServiceAdminRequest(method, path string) *http.Request {
 	return withSelfServiceContext(req, domain.UserRoleAdmin)
 }
 
+func newSelfServiceAdminRequestWithBody(method, path, body string) *http.Request {
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	return withSelfServiceContext(req, domain.UserRoleAdmin)
+}
+
 func withSelfServiceContext(req *http.Request, role domain.UserRole) *http.Request {
 	ctx := maxxctx.WithTenantID(req.Context(), 1)
 	ctx = maxxctx.WithUserID(ctx, 9)
@@ -667,6 +758,9 @@ func TestSelfServiceHandler_ListProviders_MemberAllowed(t *testing.T) {
 						Custom: &domain.ProviderConfigCustom{
 							BaseURL: "https://example.com",
 							APIKey:  "secret-api-key",
+							ClientBaseURL: map[domain.ClientType]string{
+								domain.ClientTypeOpenAI: "https://openai.example.com/v1",
+							},
 						},
 					},
 				},
@@ -695,6 +789,127 @@ func TestSelfServiceHandler_ListProviders_MemberAllowed(t *testing.T) {
 	}
 	if providers[0].Config.Custom.APIKey != "" {
 		t.Fatalf("provider API key leaked to member: %+v", providers[0].Config.Custom)
+	}
+}
+
+func TestSelfServiceHandler_CreateBlackBoxProvider_SanitizesAndLocksExport(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"black-box-provider","type":"custom","blackBox":true,"excludeFromExport":false,"config":{"custom":{"baseURL":"https://hidden.example.com/v1","apiKey":"secret-api-key","clientBaseURL":{"openai":"https://hidden-openai.example.com/v1"}}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers", body))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if !stored.BlackBox {
+		t.Fatalf("stored blackBox = false, want true")
+	}
+	if !stored.ExcludeFromExport {
+		t.Fatalf("stored excludeFromExport = false, want true for black-box provider")
+	}
+	if got := stored.Config.Custom.BaseURL; got != "https://hidden.example.com/v1" {
+		t.Fatalf("stored base URL = %q, want original hidden URL", got)
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !provider.BlackBox {
+		t.Fatalf("response blackBox = false, want true")
+	}
+	if provider.Config != nil {
+		t.Fatalf("black-box create response leaked config: %+v", provider.Config)
+	}
+}
+
+func TestSelfServiceHandler_GetBlackBoxProvider_AdminHidesConfig(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{
+					ID:                1,
+					TenantID:          1,
+					Name:              "black-box-provider",
+					Type:              "custom",
+					BlackBox:          true,
+					ExcludeFromExport: true,
+					Config: &domain.ProviderConfig{
+						Custom: &domain.ProviderConfigCustom{
+							BaseURL: "https://hidden.example.com/v1",
+							APIKey:  "secret-api-key",
+							ClientBaseURL: map[domain.ClientType]string{
+								domain.ClientTypeOpenAI: "https://hidden-openai.example.com/v1",
+							},
+						},
+					},
+				},
+			},
+		},
+		projectRepo: &selfServiceProjectRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequest(http.MethodGet, "/providers/1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !provider.BlackBox {
+		t.Fatalf("response blackBox = false, want true")
+	}
+	if provider.Config != nil {
+		t.Fatalf("black-box response leaked config: %+v", provider.Config)
+	}
+}
+
+func TestSelfServiceHandler_UpdateBlackBoxProvider_Forbidden(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:                1,
+				TenantID:          1,
+				Name:              "black-box-provider",
+				Type:              "custom",
+				BlackBox:          true,
+				ExcludeFromExport: true,
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://hidden.example.com/v1",
+						APIKey:  "secret-api-key",
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"renamed","type":"custom","blackBox":false,"config":{"custom":{"baseURL":"https://leak.example.com","apiKey":"new-secret"}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if stored.Name != "black-box-provider" {
+		t.Fatalf("stored name = %q, want unchanged", stored.Name)
+	}
+	if got := stored.Config.Custom.APIKey; got != "secret-api-key" {
+		t.Fatalf("stored API key = %q, want unchanged", got)
 	}
 }
 
@@ -732,6 +947,219 @@ func TestSelfServiceHandler_GetProvider_AdminKeepsSecrets(t *testing.T) {
 	}
 	if provider.Config == nil || provider.Config.Custom == nil || provider.Config.Custom.APIKey != "secret-api-key" {
 		t.Fatalf("admin provider config = %+v, want unredacted secret", provider.Config)
+	}
+}
+
+func TestSelfServiceHandler_GetProvider_AdminHidesExcludedProviderSecrets(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{
+					ID:                1,
+					TenantID:          1,
+					Name:              "private-provider",
+					Type:              "custom",
+					ExcludeFromExport: true,
+					Config: &domain.ProviderConfig{
+						Custom: &domain.ProviderConfigCustom{
+							BaseURL: "https://example.com",
+							APIKey:  "secret-api-key",
+						},
+					},
+				},
+			},
+		},
+		projectRepo: &selfServiceProjectRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequest(http.MethodGet, "/providers/1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if provider.Config.Custom.APIKey != "" {
+		t.Fatalf("excluded provider API key leaked to admin: %+v", provider.Config.Custom)
+	}
+	if provider.Config.Custom.BaseURL != "" {
+		t.Fatalf("excluded provider base URL leaked to admin: %+v", provider.Config.Custom)
+	}
+	if len(provider.Config.Custom.ClientBaseURL) != 0 {
+		t.Fatalf("excluded provider client base URLs leaked to admin: %+v", provider.Config.Custom)
+	}
+}
+
+func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:                1,
+				TenantID:          1,
+				Name:              "private-provider",
+				Type:              "custom",
+				ExcludeFromExport: true,
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://example.com",
+						APIKey:  "secret-api-key",
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"renamed-private-provider","type":"custom","excludeFromExport":false,"config":{"custom":{"baseURL":"https://new.example.com","apiKey":""}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := providerRepo.providers[0].Config.Custom.APIKey; got != "secret-api-key" {
+		t.Fatalf("stored API key = %q, want preserved secret", got)
+	}
+	if !providerRepo.providers[0].ExcludeFromExport {
+		t.Fatalf("stored excludeFromExport = false, want existing write-only mode to remain locked")
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if !provider.ExcludeFromExport {
+		t.Fatalf("response excludeFromExport = false, want existing write-only mode to remain locked")
+	}
+	if provider.Config.Custom.APIKey != "" {
+		t.Fatalf("update response leaked preserved API key: %+v", provider.Config.Custom)
+	}
+	if provider.Config.Custom.BaseURL != "" {
+		t.Fatalf("update response leaked hidden base URL: %+v", provider.Config.Custom)
+	}
+}
+
+func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenURLWhenBlank(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:                1,
+				TenantID:          1,
+				Name:              "private-provider",
+				Type:              "custom",
+				ExcludeFromExport: true,
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://hidden.example.com/v1",
+						APIKey:  "secret-api-key",
+						ClientBaseURL: map[domain.ClientType]string{
+							domain.ClientTypeOpenAI: "https://hidden-openai.example.com/v1",
+						},
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"renamed-private-provider","type":"custom","excludeFromExport":false,"config":{"custom":{"baseURL":"","apiKey":""}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if got := stored.Config.Custom.BaseURL; got != "https://hidden.example.com/v1" {
+		t.Fatalf("stored base URL = %q, want preserved hidden URL", got)
+	}
+	if got := stored.Config.Custom.ClientBaseURL[domain.ClientTypeOpenAI]; got != "https://hidden-openai.example.com/v1" {
+		t.Fatalf("stored client base URL = %q, want preserved hidden client URL", got)
+	}
+	if !stored.ExcludeFromExport {
+		t.Fatalf("stored excludeFromExport = false, want hidden mode preserved")
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if provider.Config.Custom.BaseURL != "" {
+		t.Fatalf("update response leaked hidden base URL: %+v", provider.Config.Custom)
+	}
+	if len(provider.Config.Custom.ClientBaseURL) != 0 {
+		t.Fatalf("update response leaked hidden client URLs: %+v", provider.Config.Custom)
+	}
+}
+
+func TestSelfServiceHandler_UpdateProviderType_DoesNotPreserveOldTypeSecrets(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:       1,
+				TenantID: 1,
+				Name:     "custom-provider",
+				Type:     "custom",
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://example.com",
+						APIKey:  "old-custom-secret",
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"bedrock-provider","type":"bedrock","config":{"bedrock":{"accessKeyId":"AKIATEST","secretAccessKey":"new-bedrock-secret","region":"us-east-1"}},"supportedClientTypes":["claude"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if stored.Type != "bedrock" {
+		t.Fatalf("stored type = %q, want bedrock", stored.Type)
+	}
+	if stored.Config == nil || stored.Config.Bedrock == nil {
+		t.Fatalf("stored bedrock config missing: %+v", stored.Config)
+	}
+	if got := stored.Config.Bedrock.SecretAccessKey; got != "new-bedrock-secret" {
+		t.Fatalf("stored bedrock secret = %q, want submitted secret", got)
+	}
+	if stored.Config.Custom != nil {
+		t.Fatalf("old custom config was preserved after type switch: %+v", stored.Config.Custom)
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config != nil && provider.Config.Custom != nil {
+		t.Fatalf("response preserved old custom config after type switch: %+v", provider.Config.Custom)
 	}
 }
 
@@ -952,13 +1380,14 @@ func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T)
 		projectRepo:  &selfServiceProjectRepo{},
 		settingsRepo: &selfServiceSettingsRepo{
 			values: map[string]string{
-				"api_token_auth_enabled": "true",
-				"force_project_binding":  "true",
-				"force_project_timeout":  "45",
-				"auto_sort_antigravity":  "true",
-				"auto_sort_codex":        "false",
-				"jwt_secret":             "hidden",
-				"pprof_password":         "secret",
+				"api_token_auth_enabled":                      "true",
+				"force_project_binding":                       "true",
+				"force_project_timeout":                       "45",
+				"auto_sort_antigravity":                       "true",
+				"auto_sort_codex":                             "false",
+				domain.SettingKeyRequestFailureDetailsEnabled: "true",
+				"jwt_secret":                                  "hidden",
+				"pprof_password":                              "secret",
 			},
 		},
 	})
@@ -974,14 +1403,15 @@ func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T)
 	if err := json.Unmarshal(rec.Body.Bytes(), &settings); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(settings) != 5 {
-		t.Fatalf("settings length = %d, want 5, settings = %+v", len(settings), settings)
+	if len(settings) != 6 {
+		t.Fatalf("settings length = %d, want 6, settings = %+v", len(settings), settings)
 	}
 	if settings["api_token_auth_enabled"] != "true" ||
 		settings["force_project_binding"] != "true" ||
 		settings["force_project_timeout"] != "45" ||
 		settings["auto_sort_antigravity"] != "true" ||
-		settings["auto_sort_codex"] != "false" {
+		settings["auto_sort_codex"] != "false" ||
+		settings[domain.SettingKeyRequestFailureDetailsEnabled] != "true" {
 		t.Fatalf("settings = %+v, want public setting values", settings)
 	}
 	if _, ok := settings["jwt_secret"]; ok {
@@ -1076,6 +1506,561 @@ func TestSelfServiceHandler_ListRoutes_MemberAllowed(t *testing.T) {
 	if len(routes) != 1 || routes[0].ProviderID != 10 {
 		t.Fatalf("routes = %+v, want only tenant route", routes)
 	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_PersistsOnlyUsableProviders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/ok/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+		case strings.HasPrefix(r.URL.Path, "/auth/"):
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"type":"authentication_error","message":"invalid api key"}}`))
+		case strings.HasPrefix(r.URL.Path, "/model/"):
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"type":"not_found_error","message":"model not found"}}`))
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{}
+	routeRepo := &selfServiceRouteRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		routeRepo:    routeRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := fmt.Sprintf(`{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":3,
+		"persistMode":"passed",
+		"createRoutes":true,
+		"candidates":[
+			{"type":"custom","name":"ok","config":{"custom":{"baseURL":"%s/ok","apiKey":"sk-ok","modelMapping":{"claude-sonnet-4":"mock-sonnet"}}},"supportedClientTypes":["claude"]},
+			{"type":"custom","name":"auth","config":{"custom":{"baseURL":"%s/auth","apiKey":"sk-auth"}},"supportedClientTypes":["claude"]},
+			{"type":"custom","name":"model","config":{"custom":{"baseURL":"%s/model","apiKey":"sk-model"}},"supportedClientTypes":["claude"]}
+		]
+	}`, upstream.URL, upstream.URL, upstream.URL)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.TestedCount != 3 || result.UsableCount != 1 || result.PersistedCount != 1 || result.RoutesCreated != 1 {
+		t.Fatalf("result = %+v, want one usable provider persisted with one route", result)
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].Name != "ok" {
+		t.Fatalf("providers = %+v, want only usable provider persisted", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 1 || routeRepo.routes[0].ClientType != domain.ClientTypeClaude || !routeRepo.routes[0].IsEnabled || routeRepo.routes[0].ProviderID != providerRepo.providers[0].ID {
+		t.Fatalf("routes = %+v, want enabled Claude route for persisted provider", routeRepo.routes)
+	}
+	statuses := map[string]bool{}
+	for _, item := range result.Results {
+		statuses[item.Status] = true
+		if strings.Contains(item.Error, "sk-") || strings.Contains(item.Message, "sk-") {
+			t.Fatalf("sensitive key leaked in result item: %+v", item)
+		}
+	}
+	for _, status := range []string{service.ClaudeProviderBatchStatusUsable, service.ClaudeProviderBatchStatusAuthFailed, service.ClaudeProviderBatchStatusModelUnsupported} {
+		if !statuses[status] {
+			t.Fatalf("statuses = %+v, missing %s", statuses, status)
+		}
+	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_ExistingProvidersAreTestOnly(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-ok",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL,
+			APIKey:  "sk-existing",
+			ModelMapping: map[string]string{
+				"claude-sonnet-4": "mock-sonnet",
+			},
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	routeRepo := &selfServiceRouteRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        routeRepo,
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":1,
+		"persistMode":"passed",
+		"createRoutes":true,
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.TestedCount != 1 || result.UsableCount != 1 || result.PersistedCount != 0 || result.RoutesCreated != 0 || result.RoutesUpdated != 0 {
+		t.Fatalf("result = %+v, want existing provider tested without persistence or route mutation", result)
+	}
+	if len(result.Results) != 1 || result.Results[0].ExistingID != 10 || result.Results[0].ProviderID != 10 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable {
+		t.Fatalf("results = %+v, want existing usable provider marked without mutation", result.Results)
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].ID != 10 {
+		t.Fatalf("providers = %+v, want existing provider kept", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 0 {
+		t.Fatalf("routes = %+v, want no route created for existing provider", routeRepo.routes)
+	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_UsesClaudeClientBaseURL(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/claude/") {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":{"message":"wrong base URL"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-client-base-url",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL + "/generic",
+			ClientBaseURL: map[domain.ClientType]string{
+				domain.ClientTypeClaude: upstream.URL + "/claude",
+			},
+			APIKey: "sk-existing",
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":1,
+		"persistMode":"passed",
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Results) != 1 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable {
+		t.Fatalf("results = %+v, want client-specific Claude base URL to be tested successfully", result.Results)
+	}
+	if !strings.Contains(result.Results[0].BaseURL, "/claude") || strings.Contains(result.Results[0].BaseURL, "/generic") {
+		t.Fatalf("BaseURL = %q, want masked Claude client-specific base URL", result.Results[0].BaseURL)
+	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_UsesWildcardProviderModelMapping(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if payload.Model != "mock-sonnet" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"type":"not_found_error","message":"model not found"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock-sonnet"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-wildcard-mapping",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL,
+			APIKey:  "sk-existing",
+			ModelMapping: map[string]string{
+				"claude-*": "mock-sonnet",
+			},
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":1,
+		"persistMode":"passed",
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Results) != 1 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable || result.Results[0].MappedModel != "mock-sonnet" {
+		t.Fatalf("results = %+v, want wildcard provider model mapping to be applied before testing", result.Results)
+	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_HonorsBedrockDisguiseHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, header := range []string{"Anthropic-Beta", "Anthropic-Version", "X-App", "X-Stainless-Runtime"} {
+			if value := strings.TrimSpace(r.Header.Get(header)); value != "" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"message":"unexpected Claude identity header"}}`))
+				return
+			}
+		}
+		if userAgent := r.Header.Get("User-Agent"); !strings.Contains(userAgent, "aws-sdk-go-v2") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"unexpected user agent"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-bedrock-disguise",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL,
+			APIKey:  "sk-existing",
+			Disguise: &domain.ProviderConfigCustomDisguise{
+				Type: domain.DisguiseTypeBedrock,
+			},
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":2048,
+		"concurrency":1,
+		"persistMode":"passed",
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Results) != 1 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable {
+		t.Fatalf("results = %+v, want bedrock disguise request headers to match custom adapter behavior", result.Results)
+	}
+}
+
+func TestSelfServiceHandler_DeleteProviderRemovesRouteReferences(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{
+		{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-me", Type: "custom"},
+		{ID: 11, TenantID: domain.DefaultTenantID, Name: "keep-me", Type: "custom"},
+	}}
+	routeRepo := &selfServiceRouteRepo{routes: []*domain.Route{
+		{ID: 1, TenantID: domain.DefaultTenantID, ProviderID: 10, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 2, TenantID: domain.DefaultTenantID, ProviderID: 10, ProjectID: 42, ClientType: domain.ClientTypeClaude, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 3, TenantID: domain.DefaultTenantID, ProviderID: 11, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 2, Weight: 1, IsEnabled: true},
+	}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        routeRepo,
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequest(http.MethodDelete, "/providers/10"))
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].ID != 11 {
+		t.Fatalf("providers = %+v, want only unrelated provider", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 1 || routeRepo.routes[0].ID != 3 {
+		t.Fatalf("routes = %+v, want only unrelated route", routeRepo.routes)
+	}
+}
+
+func TestSelfServiceHandler_BulkDeleteProvidersRequiresAdminAndCleansReferences(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{
+		{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-a", Type: "custom"},
+		{ID: 11, TenantID: domain.DefaultTenantID, Name: "delete-b", Type: "custom"},
+		{ID: 12, TenantID: domain.DefaultTenantID, Name: "keep", Type: "custom"},
+	}}
+	routeRepo := &selfServiceRouteRepo{routes: []*domain.Route{
+		{ID: 1, TenantID: domain.DefaultTenantID, ProviderID: 10, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 2, TenantID: domain.DefaultTenantID, ProviderID: 11, ProjectID: 42, ClientType: domain.ClientTypeOpenAI, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 3, TenantID: domain.DefaultTenantID, ProviderID: 12, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 2, Weight: 1, IsEnabled: true},
+	}}
+	modelMappingRepo := &selfServiceModelMappingRepo{mappings: []*domain.ModelMapping{
+		{ID: 1, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeProvider, ProviderID: 10, Pattern: "a-*", Target: "a"},
+		{ID: 2, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeProvider, ProviderID: 11, Pattern: "b-*", Target: "b"},
+		{ID: 3, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeProvider, ProviderID: 12, Pattern: "keep-*", Target: "keep"},
+		{ID: 4, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeGlobal, Pattern: "global-*", Target: "global"},
+	}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        routeRepo,
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: modelMappingRepo,
+	})
+
+	memberRec := httptest.NewRecorder()
+	handler.ServeHTTP(memberRec, newSelfServiceRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10]}`))
+	if memberRec.Code != http.StatusForbidden {
+		t.Fatalf("member status = %d, want %d, body = %s", memberRec.Code, http.StatusForbidden, memberRec.Body.String())
+	}
+
+	adminRec := httptest.NewRecorder()
+	handler.ServeHTTP(adminRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10,11,10,999999]}`))
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d, want %d, body = %s", adminRec.Code, http.StatusOK, adminRec.Body.String())
+	}
+
+	var result domain.ProviderBulkDeleteResult
+	if err := json.Unmarshal(adminRec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.DeletedCount != 2 || result.RouteDeletedCount != 2 || result.ModelMappingDeletedCount != 2 {
+		t.Fatalf("result = %+v, want counts for providers/routes/mappings", result)
+	}
+	if !containsUint64(result.DeletedIDs, 10) || !containsUint64(result.DeletedIDs, 11) || !containsUint64(result.NotFoundIDs, 999999) {
+		t.Fatalf("result IDs = %+v", result)
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].ID != 12 {
+		t.Fatalf("providers = %+v, want only unrelated provider", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 1 || routeRepo.routes[0].ID != 3 {
+		t.Fatalf("routes = %+v, want only unrelated route", routeRepo.routes)
+	}
+	if containsSelfServiceModelMappingID(modelMappingRepo.mappings, 1) || containsSelfServiceModelMappingID(modelMappingRepo.mappings, 2) {
+		t.Fatalf("deleted provider mappings still visible: %+v", modelMappingRepo.mappings)
+	}
+	if !containsSelfServiceModelMappingID(modelMappingRepo.mappings, 3) || !containsSelfServiceModelMappingID(modelMappingRepo.mappings, 4) {
+		t.Fatalf("unrelated mappings were deleted: %+v", modelMappingRepo.mappings)
+	}
+}
+
+func containsUint64(ids []uint64, want uint64) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSelfServiceModelMappingID(mappings []*domain.ModelMapping, want uint64) bool {
+	for _, mapping := range mappings {
+		if mapping.ID == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSelfServiceHandler_SyncRoutesFromProject_OverwriteDefaultToProject(t *testing.T) {
+	routeRepo := &selfServiceRouteRepo{
+		routes: []*domain.Route{
+			{ID: 1, TenantID: 1, ProjectID: 0, ClientType: domain.ClientTypeClaude, ProviderID: 10, Position: 1, Weight: 3, RetryConfigID: 7, IsEnabled: true, IsNative: true},
+			{ID: 2, TenantID: 1, ProjectID: 0, ClientType: domain.ClientTypeClaude, ProviderID: 11, Position: 2, Weight: 1, IsEnabled: false},
+			{ID: 3, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeClaude, ProviderID: 10, Position: 4, Weight: 9, RetryConfigID: 1, IsEnabled: false},
+			{ID: 4, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeClaude, ProviderID: 99, Position: 5, Weight: 1, IsEnabled: true},
+			{ID: 5, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeOpenAI, ProviderID: 99, Position: 1, Weight: 1, IsEnabled: true},
+		},
+	}
+	projectRepo := &selfServiceProjectRepo{
+		projects: []*domain.Project{{ID: 42, TenantID: 1, Name: "demo", Slug: "demo"}},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{ID: 10, TenantID: 1, Type: "claude", Name: "p10", SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude}},
+				{ID: 11, TenantID: 1, Type: "claude", Name: "p11", SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude}},
+				{ID: 99, TenantID: 1, Type: "custom", Name: "p99", SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI}},
+			},
+		},
+		routeRepo:   routeRepo,
+		projectRepo: projectRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/sync-from-project", `{"sourceProjectID":0,"targetProjectID":42,"clientType":"claude","mode":"overwrite"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result domain.RouteSyncResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.CreatedCount != 1 || result.UpdatedCount != 1 || result.DeletedCount != 1 || !result.EnabledCustomRoutes {
+		t.Fatalf("result = %+v, want 1 created, 1 updated, 1 deleted, custom routes enabled", result)
+	}
+
+	project, err := projectRepo.GetByID(1, 42)
+	if err != nil {
+		t.Fatalf("get project: %v", err)
+	}
+	if !containsClientType(project.EnabledCustomRoutes, domain.ClientTypeClaude) {
+		t.Fatalf("enabledCustomRoutes = %+v, want claude", project.EnabledCustomRoutes)
+	}
+
+	targetRoutes := syncTestRoutesFor(routeRepo.routes, 42, domain.ClientTypeClaude)
+	if len(targetRoutes) != 2 {
+		t.Fatalf("target routes = %+v, want 2", targetRoutes)
+	}
+	if targetRoutes[0].ProviderID != 10 || !targetRoutes[0].IsEnabled || !targetRoutes[0].IsNative || targetRoutes[0].Weight != 3 || targetRoutes[0].RetryConfigID != 7 || targetRoutes[0].Position != 1 {
+		t.Fatalf("updated route = %+v, want copied provider 10 config", targetRoutes[0])
+	}
+	if targetRoutes[1].ProviderID != 11 || targetRoutes[1].IsEnabled || targetRoutes[1].Position != 2 {
+		t.Fatalf("created route = %+v, want copied provider 11 config", targetRoutes[1])
+	}
+	if len(syncTestRoutesFor(routeRepo.routes, 42, domain.ClientTypeOpenAI)) != 1 {
+		t.Fatalf("openai routes changed unexpectedly: %+v", routeRepo.routes)
+	}
+}
+
+func TestSelfServiceHandler_SyncRoutesFromProject_AddMissingUsesEffectiveSource(t *testing.T) {
+	routeRepo := &selfServiceRouteRepo{
+		routes: []*domain.Route{
+			{ID: 1, TenantID: 1, ProjectID: 0, ClientType: domain.ClientTypeCodex, ProviderID: 10, Position: 1, Weight: 2, IsEnabled: true},
+			{ID: 2, TenantID: 1, ProjectID: 7, ClientType: domain.ClientTypeCodex, ProviderID: 77, Position: 1, Weight: 1, IsEnabled: true},
+			{ID: 3, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeCodex, ProviderID: 20, Position: 1, Weight: 1, IsEnabled: true},
+		},
+	}
+	projectRepo := &selfServiceProjectRepo{
+		projects: []*domain.Project{
+			{ID: 7, TenantID: 1, Name: "inherits-global", Slug: "inherits-global"},
+			{ID: 42, TenantID: 1, Name: "target", Slug: "target", EnabledCustomRoutes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{ID: 10, TenantID: 1, Type: "codex", Name: "p10", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+				{ID: 20, TenantID: 1, Type: "codex", Name: "p20", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+				{ID: 77, TenantID: 1, Type: "codex", Name: "p77", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			},
+		},
+		routeRepo:   routeRepo,
+		projectRepo: projectRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/sync-from-project", `{"sourceProjectID":7,"targetProjectID":42,"clientType":"codex","mode":"add_missing"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result domain.RouteSyncResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.EffectiveSourceProjectID != 0 || result.CreatedCount != 1 || result.UpdatedCount != 0 || result.DeletedCount != 0 {
+		t.Fatalf("result = %+v, want inherited global source and one add-missing create", result)
+	}
+	targetRoutes := syncTestRoutesFor(routeRepo.routes, 42, domain.ClientTypeCodex)
+	if len(targetRoutes) != 2 {
+		t.Fatalf("target routes = %+v, want existing + one missing", targetRoutes)
+	}
+	if targetRoutes[1].ProviderID != 10 || targetRoutes[1].Position != 2 || targetRoutes[1].Weight != 2 {
+		t.Fatalf("created missing route = %+v, want appended copied global provider", targetRoutes[1])
+	}
+}
+
+func containsClientType(values []domain.ClientType, want domain.ClientType) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func syncTestRoutesFor(routes []*domain.Route, projectID uint64, clientType domain.ClientType) []*domain.Route {
+	var result []*domain.Route
+	for _, route := range routes {
+		if route.ProjectID == projectID && route.ClientType == clientType {
+			result = append(result, route)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Position < result[j].Position })
+	return result
 }
 
 func TestSelfServiceHandler_InvalidResourceIDs_ReturnBadRequest(t *testing.T) {
@@ -1206,6 +2191,7 @@ func TestSelfServiceHandler_MemberForbiddenOnConfigurationWrites(t *testing.T) {
 		{name: "create route", method: http.MethodPost, path: "/routes", body: `{"providerID":1,"clientType":"claude"}`},
 		{name: "update route", method: http.MethodPut, path: "/routes/1", body: `{"isEnabled":true}`},
 		{name: "delete route", method: http.MethodDelete, path: "/routes/1"},
+		{name: "sync routes", method: http.MethodPost, path: "/routes/sync-from-project", body: `{"sourceProjectID":0,"targetProjectID":1,"clientType":"claude"}`},
 		{name: "batch route positions", method: http.MethodPut, path: "/routes/batch-positions", body: `[]`},
 		{name: "create retry config", method: http.MethodPost, path: "/retry-configs", body: `{"name":"cfg"}`},
 		{name: "update retry config", method: http.MethodPut, path: "/retry-configs/1", body: `{"name":"cfg"}`},
@@ -1292,6 +2278,348 @@ func TestSelfServiceHandler_GetAPIToken_MemberRedactsPlaintextToken(t *testing.T
 	}
 }
 
+func TestSelfServiceHandler_UserPanelTokenCreatedForGlobalRoutes(t *testing.T) {
+	tokenRepo := &selfServiceAPITokenRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 1 {
+		t.Fatalf("tokens = %d, want 1", len(tokenRepo.tokens))
+	}
+	created := tokenRepo.tokens[0]
+	if created.ProjectID != 0 {
+		t.Fatalf("user panel token projectID = %d, want global route scope 0", created.ProjectID)
+	}
+	if created.Name != "user 9" {
+		t.Fatalf("name = %q, want user 9", created.Name)
+	}
+	if created.Description != userPanelAPITokenDescription(9) {
+		t.Fatalf("description = %q, want user panel marker", created.Description)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelExistingTokenProjectBindingIsCleared(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "User Console Key (user 9)", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 42},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/user-panel-token"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if tokenRepo.tokens[0].ProjectID != 0 {
+		t.Fatalf("existing user panel token projectID = %d, want normalized global route scope 0", tokenRepo.tokens[0].ProjectID)
+	}
+	if tokenRepo.tokens[0].Name != "user 9" {
+		t.Fatalf("existing user panel token name = %q, want user 9", tokenRepo.tokens[0].Name)
+	}
+
+	var result map[string]*domain.APIToken
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["apiToken"] == nil || result["apiToken"].ProjectID != 0 {
+		t.Fatalf("response apiToken = %+v, want projectID 0", result["apiToken"])
+	}
+	if result["apiToken"].Token != "" {
+		t.Fatalf("response token = %q, want sanitized key", result["apiToken"].Token)
+	}
+	if result["apiToken"].TokenPrefix != "maxx_full..." {
+		t.Fatalf("response tokenPrefix = %q, want masked key prefix", result["apiToken"].TokenPrefix)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelTokenRevealReturnsCurrentUsersSecret(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "user 9", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 42},
+			{ID: 11, TenantID: 1, Name: "other", Description: userPanelAPITokenDescription(10), Token: "maxx_other_user_key", TokenPrefix: "maxx_other...", IsEnabled: true},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token/reveal"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["token"] != "maxx_full_user_key" {
+		t.Fatalf("token = %q, want current user's full token", result["token"])
+	}
+	if tokenRepo.tokens[0].ProjectID != 0 {
+		t.Fatalf("reveal should normalize user panel token projectID = %d, want 0", tokenRepo.tokens[0].ProjectID)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelTokenRevealRequiresPost(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/user-panel-token/reveal"))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusMethodNotAllowed, rec.Body.String())
+	}
+}
+
+func TestSelfServiceHandler_UserPanelTokenRevealMissingToken(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token/reveal"))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestSelfServiceHandler_UserPanelRegenerateRotatesExistingTokenInPlace(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "User Console Key (user 9)", Description: marker, Token: "old-token", TokenPrefix: "old", IsEnabled: true, ProjectID: 42},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token/regenerate"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 1 {
+		t.Fatalf("tokens = %d, want one rotated token", len(tokenRepo.tokens))
+	}
+	token := tokenRepo.tokens[0]
+	if token.ID != 10 || !token.IsEnabled || token.Description != marker || token.Name != "user 9" || token.ProjectID != 0 {
+		t.Fatalf("token = %+v, want same active normalized user panel token", token)
+	}
+	if token.Token == "" || token.Token == "old-token" {
+		t.Fatalf("token secret = %q, want rotated non-empty secret", token.Token)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelCreateReusesDisabledToken(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "old", Description: marker, Token: "old-token", TokenPrefix: "old", IsEnabled: false, ProjectID: 42},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 1 {
+		t.Fatalf("tokens = %d, want disabled token reused", len(tokenRepo.tokens))
+	}
+	token := tokenRepo.tokens[0]
+	if token.ID != 10 || !token.IsEnabled || token.Name != "user 9" || token.ProjectID != 0 {
+		t.Fatalf("token = %+v, want reused active normalized token", token)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelDuplicateTokensAreCollapsed(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	older := time.Now().Add(-time.Hour)
+	newer := time.Now()
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "duplicate old", Description: marker, IsEnabled: true, ProjectID: 42, CreatedAt: older},
+			{ID: 11, TenantID: 1, Name: "duplicate new", Description: marker, IsEnabled: true, ProjectID: 7, CreatedAt: newer},
+			{ID: 12, TenantID: 1, Name: "disabled duplicate", Description: marker, IsEnabled: false, ProjectID: 99, CreatedAt: newer.Add(time.Minute)},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/user-panel-token"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 1 {
+		t.Fatalf("tokens = %d, want duplicates collapsed", len(tokenRepo.tokens))
+	}
+	token := tokenRepo.tokens[0]
+	if token.ID != 11 || token.Name != "user 9" || token.ProjectID != 0 || !token.IsEnabled {
+		t.Fatalf("token = %+v, want newest active canonical normalized", token)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelDedupPreservesUsageStats(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	older := time.Now().Add(-time.Hour)
+	newer := time.Now()
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "duplicate old", Description: marker, IsEnabled: true, ProjectID: 42, CreatedAt: older},
+			{ID: 11, TenantID: 1, Name: "duplicate new", Description: marker, IsEnabled: true, ProjectID: 7, CreatedAt: newer},
+		},
+	}
+	usageRepo := &selfServiceUsageStatsRepo{
+		stats: []*domain.UsageStats{
+			{ID: 1, TenantID: 1, APITokenID: 10, TotalRequests: 96, SuccessfulRequests: 80, FailedRequests: 16, Model: "old-key-model"},
+			{ID: 2, TenantID: 1, APITokenID: 11, TotalRequests: 55, SuccessfulRequests: 40, FailedRequests: 15, Model: "new-key-model"},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo:   tokenRepo,
+		usageStatsRepo: usageRepo,
+	})
+
+	tokenRec := httptest.NewRecorder()
+	handler.ServeHTTP(tokenRec, newSelfServiceRequest(http.MethodGet, "/user-panel-token"))
+	if tokenRec.Code != http.StatusOK {
+		t.Fatalf("token status = %d, want %d, body = %s", tokenRec.Code, http.StatusOK, tokenRec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 1 || tokenRepo.tokens[0].ID != 11 {
+		t.Fatalf("tokens = %+v, want only canonical token 11 after dedupe", tokenRepo.tokens)
+	}
+
+	statsRec := httptest.NewRecorder()
+	handler.ServeHTTP(statsRec, newSelfServiceRequest(http.MethodGet, "/usage-stats?granularity=hour"))
+	if statsRec.Code != http.StatusOK {
+		t.Fatalf("stats status = %d, want %d, body = %s", statsRec.Code, http.StatusOK, statsRec.Body.String())
+	}
+	var stats []domain.UsageStats
+	if err := json.Unmarshal(statsRec.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats = %+v, want old and canonical stats preserved", stats)
+	}
+	var total uint64
+	for _, stat := range stats {
+		if stat.APITokenID != 11 {
+			t.Fatalf("stat APITokenID = %d, want reassigned canonical token 11", stat.APITokenID)
+		}
+		total += stat.TotalRequests
+	}
+	if total != 151 {
+		t.Fatalf("total requests = %d, want 151", total)
+	}
+	if len(usageRepo.filters) != 1 {
+		t.Fatalf("filters = %+v, want one query for canonical token after dedupe", usageRepo.filters)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelUsageStatsFollowRegeneratedKeyHistory(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	usageRepo := &selfServiceUsageStatsRepo{
+		stats: []*domain.UsageStats{
+			{ID: 1, TenantID: 1, APITokenID: 10, TotalRequests: 96, SuccessfulRequests: 80, FailedRequests: 16, Model: "old-key-model"},
+			{ID: 2, TenantID: 1, APITokenID: 11, TotalRequests: 55, SuccessfulRequests: 40, FailedRequests: 15, Model: "new-key-model"},
+			{ID: 3, TenantID: 1, APITokenID: 99, TotalRequests: 999, SuccessfulRequests: 999, Model: "other-key-model"},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Description: marker, IsEnabled: false},
+			{ID: 11, TenantID: 1, Description: marker, IsEnabled: true},
+			{ID: 99, TenantID: 1, Description: "regular", IsEnabled: true},
+		}},
+		usageStatsRepo: usageRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/usage-stats?granularity=hour"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var stats []domain.UsageStats
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats = %+v, want old and new user panel token stats only", stats)
+	}
+	var total uint64
+	for _, stat := range stats {
+		total += stat.TotalRequests
+		if stat.APITokenID == 99 {
+			t.Fatalf("regular token stat leaked into user panel stats: %+v", stat)
+		}
+	}
+	if total != 151 {
+		t.Fatalf("total requests = %d, want 151", total)
+	}
+	if len(usageRepo.filters) != 2 {
+		t.Fatalf("filters = %+v, want one query per historical user panel token", usageRepo.filters)
+	}
+}
+
 func TestSelfServiceHandler_ListResponseModels_MemberAllowed(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		providerRepo:      &selfServiceProviderRepo{},
@@ -1349,5 +2677,115 @@ func TestSelfServiceHandler_ListEndpoints_EmptySlicesSerializeAsJSONArray(t *tes
 				t.Fatalf("body = %q, want []", body)
 			}
 		})
+	}
+}
+
+func TestSelfServiceHandler_BulkDeleteProvidersErrorStatusCodes(t *testing.T) {
+	baseRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-me", Type: "custom"}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     baseRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	badRequestRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRequestRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[]}`))
+	if badRequestRec.Code != http.StatusBadRequest {
+		t.Fatalf("empty ids status = %d, want %d, body = %s", badRequestRec.Code, http.StatusBadRequest, badRequestRec.Body.String())
+	}
+
+	internalErrorHandler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepoWithListError{
+			selfServiceProviderRepo: baseRepo,
+			listErr:                 errors.New("repository unavailable"),
+		},
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+	internalErrorRec := httptest.NewRecorder()
+	internalErrorHandler.ServeHTTP(internalErrorRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10]}`))
+	if internalErrorRec.Code != http.StatusInternalServerError {
+		t.Fatalf("repository error status = %d, want %d, body = %s", internalErrorRec.Code, http.StatusInternalServerError, internalErrorRec.Body.String())
+	}
+}
+
+func newAdminHandlerForSelfServiceTestDeps(deps selfServiceTestDeps) *AdminHandler {
+	routeRepo := deps.routeRepo
+	if routeRepo == nil {
+		routeRepo = &selfServiceRouteRepo{}
+	}
+	adminSvc := service.NewAdminService(
+		deps.providerRepo,
+		routeRepo,
+		deps.projectRepo,
+		nil,
+		deps.retryConfigRepo,
+		nil,
+		nil,
+		nil,
+		deps.settingsRepo,
+		deps.apiTokenRepo,
+		nil,
+		nil,
+		deps.modelMappingRepo,
+		deps.usageStatsRepo,
+		deps.responseModelRepo,
+		deps.modelPriceRepo,
+		"",
+		nil,
+		nil,
+		nil,
+	)
+	return NewAdminHandler(adminSvc, nil, "")
+}
+
+func TestAdminHandler_UserPanelMemberUsageStatsFollowRegeneratedKeyHistory(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	usageRepo := &selfServiceUsageStatsRepo{
+		stats: []*domain.UsageStats{
+			{ID: 1, TenantID: 1, APITokenID: 10, TotalRequests: 96, SuccessfulRequests: 80, FailedRequests: 16, Model: "old-key-model"},
+			{ID: 2, TenantID: 1, APITokenID: 11, TotalRequests: 55715, SuccessfulRequests: 12120, FailedRequests: 43595, Model: "new-key-model"},
+			{ID: 3, TenantID: 1, APITokenID: 99, TotalRequests: 999, SuccessfulRequests: 999, Model: "other-key-model"},
+		},
+	}
+	handler := newAdminHandlerForSelfServiceTestDeps(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Description: marker, IsEnabled: false},
+			{ID: 11, TenantID: 1, Description: marker, IsEnabled: true},
+			{ID: 99, TenantID: 1, Description: "regular", IsEnabled: true},
+		}},
+		usageStatsRepo: usageRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, withSelfServiceContext(httptest.NewRequest(http.MethodGet, "/admin/usage-stats?granularity=hour", nil), domain.UserRoleMember))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var stats []domain.UsageStats
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats = %+v, want old and new user panel token stats only", stats)
+	}
+	var total uint64
+	for _, stat := range stats {
+		total += stat.TotalRequests
+		if stat.APITokenID == 99 {
+			t.Fatalf("regular token stat leaked into member user panel stats: %+v", stat)
+		}
+	}
+	if total != 55811 {
+		t.Fatalf("total requests = %d, want 55811", total)
+	}
+	if len(usageRepo.filters) != 2 {
+		t.Fatalf("filters = %+v, want one query per historical user panel token", usageRepo.filters)
 	}
 }

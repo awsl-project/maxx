@@ -55,10 +55,18 @@ type ProviderRepository interface {
 	List(tenantID uint64) ([]*domain.Provider, error)
 }
 
+// ProviderBulkDeleteRepository is implemented by repositories that can delete
+// providers and their provider-scoped references atomically. Services should
+// prefer this optional capability over composing Delete calls themselves.
+type ProviderBulkDeleteRepository interface {
+	BulkDeleteWithReferences(tenantID uint64, ids []uint64) (*domain.ProviderBulkDeleteResult, error)
+}
+
 type RouteRepository interface {
 	Create(route *domain.Route) error
 	Update(route *domain.Route) error
 	Delete(tenantID uint64, id uint64) error
+	BulkDelete(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error)
 	GetByID(tenantID uint64, id uint64) (*domain.Route, error)
 	// FindByKey finds a route by the unique key (projectID, providerID, clientType)
 	FindByKey(tenantID uint64, projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error)
@@ -122,6 +130,64 @@ type ProxyRequestFilter struct {
 	Status     *string // 状态，nil 表示不过滤
 	APITokenID *uint64 // API Token ID，nil 表示不过滤
 	ProjectID  *uint64 // Project ID，nil 表示不过滤
+	StartTime  *time.Time
+	EndTime    *time.Time
+	ErrorMode  ProxyRequestErrorMode // 错误请求过滤模式
+}
+
+type ProxyRequestErrorMode string
+
+const (
+	ProxyRequestErrorModeAll     ProxyRequestErrorMode = "all"
+	ProxyRequestErrorModeOnly    ProxyRequestErrorMode = "only"
+	ProxyRequestErrorModeExclude ProxyRequestErrorMode = "exclude"
+)
+
+type ProxyRequestCountBucket struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+type ProxyRequestHTTPStatusBucket struct {
+	StatusCode int   `json:"statusCode"`
+	Count      int64 `json:"count"`
+}
+
+type ProxyRequestProviderBucket struct {
+	ProviderID uint64 `json:"providerId"`
+	Count      int64  `json:"count"`
+}
+
+type ProxyRequestTrendPoint struct {
+	StartTime     int64 `json:"startTime"`
+	EndTime       int64 `json:"endTime"`
+	TotalRequests int64 `json:"totalRequests"`
+	ErrorRequests int64 `json:"errorRequests"`
+}
+
+type ProxyRequestErrorStats struct {
+	TotalRequests    int64                          `json:"totalRequests"`
+	ErrorRequests    int64                          `json:"errorRequests"`
+	ErrorRate        float64                        `json:"errorRate"`
+	StatusCounts     []ProxyRequestCountBucket      `json:"statusCounts"`
+	HTTPStatusCounts []ProxyRequestHTTPStatusBucket `json:"httpStatusCounts"`
+	ProviderCounts   []ProxyRequestProviderBucket   `json:"providerCounts"`
+	ModelCounts      []ProxyRequestCountBucket      `json:"modelCounts"`
+	Trend            []ProxyRequestTrendPoint       `json:"trend"`
+}
+
+func (f *ProxyRequestFilter) IsEmpty() bool {
+	if f == nil {
+		return true
+	}
+	return f.TenantID == nil &&
+		f.ProviderID == nil &&
+		f.Status == nil &&
+		f.APITokenID == nil &&
+		f.ProjectID == nil &&
+		f.StartTime == nil &&
+		f.EndTime == nil &&
+		(f.ErrorMode == "" || f.ErrorMode == ProxyRequestErrorModeAll)
 }
 
 type ProxyRequestRepository interface {
@@ -139,6 +205,13 @@ type ProxyRequestRepository interface {
 	Count(tenantID uint64) (int64, error)
 	// CountWithFilter 带过滤条件的计数
 	CountWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
+	// GetErrorStats 获取错误请求统计
+	GetErrorStats(tenantID uint64, filter *ProxyRequestFilter) (*ProxyRequestErrorStats, error)
+	// CountFailedWithFilter counts terminal failed/error request records matching the filter.
+	CountFailedWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
+	// DeleteFailedWithFilter deletes terminal failed/error request records matching the filter.
+	// Implementations must also delete upstream attempts for those requests.
+	DeleteFailedWithFilter(tenantID uint64, filter *ProxyRequestFilter) (deletedRequests int64, deletedAttempts int64, err error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error)
 	// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their
@@ -155,6 +228,8 @@ type ProxyRequestRepository interface {
 	DeleteOlderThan(before time.Time) (int64, error)
 	// HasRecentRequests 检查指定时间之后是否有请求记录
 	HasRecentRequests(since time.Time) (bool, error)
+	// GetProjectUsageSummaries aggregates per-project request activity for cleanup detection.
+	GetProjectUsageSummaries(tenantID uint64, since time.Time, projectIDs ...uint64) (map[uint64]domain.ProjectUsageSummary, error)
 	// UpdateCost updates only the cost field of a request
 	UpdateCost(id uint64, cost uint64) error
 	// UpdateCostAtomically updates the request cost AND a batch of attempt cost updates
@@ -267,6 +342,7 @@ type APITokenRepository interface {
 	Create(token *domain.APIToken) error
 	Update(token *domain.APIToken) error
 	Delete(tenantID uint64, id uint64) error
+	DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error)
 	GetByID(tenantID uint64, id uint64) (*domain.APIToken, error)
 	GetByToken(tenantID uint64, token string) (*domain.APIToken, error)
 	List(tenantID uint64) ([]*domain.APIToken, error)

@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -38,8 +37,13 @@ func (r *settingsTestRepo) Delete(key string) error {
 	return nil
 }
 
-func TestHandleSettingsReturnsBadRequestForInvalidPayloadOverrideRules(t *testing.T) {
-	repo := &settingsTestRepo{}
+func TestHandleSettingsDeleteReturnsBadRequestWhenDeletingLastPublicProxyRoute(t *testing.T) {
+	repo := &settingsTestRepo{values: map[string]string{
+		domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
+		domain.SettingKeyProxyRouteOpenAIChatEnabled:     "false",
+		domain.SettingKeyProxyRouteResponsesEnabled:      "false",
+		domain.SettingKeyProxyRouteGeminiEnabled:         "true",
+	}}
 	svc := service.NewAdminService(
 		nil,
 		nil,
@@ -65,15 +69,18 @@ func TestHandleSettingsReturnsBadRequestForInvalidPayloadOverrideRules(t *testin
 	handler := NewAdminHandler(svc, nil, "")
 
 	req := httptest.NewRequest(
-		http.MethodPut,
-		"/admin/settings/"+domain.SettingKeyPayloadOverrideRules,
-		strings.NewReader(`{"value":"[{\"models\":[{\"name\":\"gpt-5.4\",\"protocol\":\"codex\"}],\"params\":{}}]"}`),
+		http.MethodDelete,
+		"/admin/settings/"+domain.SettingKeyProxyRouteGeminiEnabled,
+		nil,
 	)
 	rec := httptest.NewRecorder()
 
-	handler.handleSettings(rec, req, []string{"admin", "settings", domain.SettingKeyPayloadOverrideRules})
+	handler.handleSettings(rec, req, []string{"admin", "settings", domain.SettingKeyProxyRouteGeminiEnabled})
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if got := repo.values[domain.SettingKeyProxyRouteGeminiEnabled]; got != "true" {
+		t.Fatalf("gemini setting = %q, want unchanged true", got)
 	}
 }

@@ -192,9 +192,10 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, inviteCodeRepo, inviteCodeUsageRepo, true)
 
 	// Create models handler
-	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
-	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
-	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
+	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo, r)
+	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
+	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, protectedModelsHandler, cachedProjectRepo, settingRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, protectedModelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo, settingRepo)
 
 	// Setup routes (mirroring main.go)
 	mux := http.NewServeMux()
@@ -207,8 +208,9 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 
 	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
 		ProxyHandler:         proxyHandler,
-		ModelsHandler:        modelsHandler,
+		ModelsHandler:        protectedModelsHandler,
 		ProviderProxyHandler: providerProxyHandler,
+		SettingRepo:          settingRepo,
 	})
 	mux.Handle("/project/", projectProxyHandler)
 

@@ -4,10 +4,13 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +19,6 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
@@ -32,6 +34,15 @@ type ProviderAdapterRefresher interface {
 	// by admin endpoints that reach into adapter-specific runtime state.
 	GetAdapter(providerID uint64) (provider.ProviderAdapter, bool)
 }
+
+// ErrIDsRequired marks bulk-delete requests missing a non-empty ID list.
+var ErrIDsRequired = errors.New("ids required")
+
+// ErrInvalidRouteClientType marks bulk route-delete requests with an unsupported client type.
+var ErrInvalidRouteClientType = errors.New("invalid clientType")
+
+// ErrProviderBlackBoxLocked marks providers whose configuration is intentionally not editable.
+var ErrProviderBlackBoxLocked = errors.New("provider is black-box locked")
 
 // GetProviderAdapter exposes the cached adapter for a provider so HTTP
 // handlers can call adapter-specific methods (e.g. Bedrock discovery).
@@ -133,6 +144,10 @@ func (s *AdminService) GetProvider(tenantID uint64, id uint64) (*domain.Provider
 
 func (s *AdminService) CreateProvider(tenantID uint64, provider *domain.Provider) error {
 	provider.TenantID = tenantID
+	provider.MaxConcurrency = max(provider.MaxConcurrency, 0)
+	if provider.BlackBox {
+		provider.ExcludeFromExport = true
+	}
 
 	// Auto-set SupportedClientTypes based on provider type
 	s.autoSetSupportedClientTypes(provider)
@@ -148,6 +163,20 @@ func (s *AdminService) CreateProvider(tenantID uint64, provider *domain.Provider
 }
 
 func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider) error {
+	existing, err := s.providerRepo.GetByID(tenantID, provider.ID)
+	if err != nil {
+		return err
+	}
+	if existing.BlackBox {
+		return ErrProviderBlackBoxLocked
+	}
+	provider.MaxConcurrency = max(provider.MaxConcurrency, 0)
+	if provider.BlackBox {
+		provider.ExcludeFromExport = true
+	}
+	preserveExcludedProviderWriteOnlyMode(existing, provider)
+	preserveEmptyProviderSecrets(existing, provider)
+
 	// Auto-set SupportedClientTypes based on provider type
 	s.autoSetSupportedClientTypes(provider)
 
@@ -157,6 +186,12 @@ func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider
 	// Refresh adapter cache for the updated provider
 	if s.adapterRefresher != nil {
 		s.adapterRefresher.RefreshAdapter(provider)
+	}
+	// Best-effort: keep route is_native snapshots in sync with provider capability.
+	// Runtime match/API reads use canonical helpers, so a failed reconcile does
+	// not break request correctness.
+	if err := s.reconcileProviderRouteNative(tenantID, provider); err != nil {
+		log.Printf("[Admin] reconcile provider %d route native flags: %v", provider.ID, err)
 	}
 	return nil
 }
@@ -169,11 +204,355 @@ func (s *AdminService) DeleteProvider(tenantID uint64, id uint64) error {
 			s.routeRepo.Delete(tenantID, route.ID)
 		}
 	}
+
+	// Delete provider-scoped model mappings so provider deletion does not leave
+	// orphaned mapping rules behind.
+	mappings, _ := s.modelMappingRepo.List(tenantID)
+	for _, mapping := range mappings {
+		if mapping.Scope == domain.ModelMappingScopeProvider && mapping.ProviderID == id {
+			s.modelMappingRepo.Delete(tenantID, mapping.ID)
+		}
+	}
+
 	// Remove adapter from cache
 	if s.adapterRefresher != nil {
 		s.adapterRefresher.RemoveAdapter(id)
 	}
 	return s.providerRepo.Delete(tenantID, id)
+}
+
+type providerBulkDeleteRouteScope struct {
+	projectID  uint64
+	clientType domain.ClientType
+}
+
+func (s *AdminService) BulkDeleteProviders(tenantID uint64, req domain.ProviderBulkDeleteRequest) (*domain.ProviderBulkDeleteResult, error) {
+	ids := uniqueNonZeroIDs(req.IDs)
+	if len(ids) == 0 {
+		return nil, ErrIDsRequired
+	}
+
+	if deleter, ok := s.providerRepo.(repository.ProviderBulkDeleteRepository); ok {
+		result, err := deleter.BulkDeleteWithReferences(tenantID, ids)
+		if err != nil {
+			return nil, err
+		}
+		reloadRepositoryCacheBestEffort("provider", s.providerRepo)
+		reloadRepositoryCacheBestEffort("route", s.routeRepo)
+		reloadRepositoryCacheBestEffort("model mapping", s.modelMappingRepo)
+		if s.adapterRefresher != nil && result != nil {
+			for _, id := range result.DeletedIDs {
+				s.adapterRefresher.RemoveAdapter(id)
+			}
+		}
+		return result, nil
+	}
+
+	return s.bulkDeleteProvidersWithoutTransaction(tenantID, ids)
+}
+
+func (s *AdminService) bulkDeleteProvidersWithoutTransaction(tenantID uint64, ids []uint64) (*domain.ProviderBulkDeleteResult, error) {
+	result := &domain.ProviderBulkDeleteResult{}
+
+	providers, err := s.providerRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	providerByID := make(map[uint64]*domain.Provider, len(providers))
+	for _, provider := range providers {
+		providerByID[provider.ID] = provider
+	}
+
+	deleteSet := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := providerByID[id]; ok {
+			deleteSet[id] = struct{}{}
+			result.DeletedIDs = append(result.DeletedIDs, id)
+		} else {
+			result.NotFoundIDs = append(result.NotFoundIDs, id)
+		}
+	}
+	if len(deleteSet) == 0 {
+		return result, nil
+	}
+
+	if err := s.bulkDeleteProviderRoutes(tenantID, deleteSet, result); err != nil {
+		return nil, err
+	}
+	if err := s.bulkDeleteProviderModelMappings(tenantID, deleteSet, result); err != nil {
+		return nil, err
+	}
+
+	for _, id := range result.DeletedIDs {
+		if err := s.providerRepo.Delete(tenantID, id); err != nil {
+			return nil, err
+		}
+		if s.adapterRefresher != nil {
+			s.adapterRefresher.RemoveAdapter(id)
+		}
+		result.DeletedCount++
+	}
+
+	return result, nil
+}
+
+type repositoryCacheReloader interface {
+	Reload() error
+}
+
+func reloadRepositoryCache(repo any) error {
+	if reloader, ok := repo.(repositoryCacheReloader); ok {
+		return reloader.Reload()
+	}
+	return nil
+}
+
+func reloadRepositoryCacheBestEffort(name string, repo any) {
+	if err := reloadRepositoryCache(repo); err != nil {
+		log.Printf("[Admin] provider bulk delete succeeded but %s cache reload failed: %v", name, err)
+	}
+}
+
+func (s *AdminService) bulkDeleteProviderRoutes(tenantID uint64, providerIDs map[uint64]struct{}, result *domain.ProviderBulkDeleteResult) error {
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return err
+	}
+
+	routeIDsByScope := make(map[providerBulkDeleteRouteScope][]uint64)
+	for _, route := range routes {
+		if _, ok := providerIDs[route.ProviderID]; !ok {
+			continue
+		}
+		scope := providerBulkDeleteRouteScope{projectID: route.ProjectID, clientType: route.ClientType}
+		routeIDsByScope[scope] = append(routeIDsByScope[scope], route.ID)
+	}
+
+	for scope, routeIDs := range routeIDsByScope {
+		deleteResult, err := s.routeRepo.BulkDelete(tenantID, domain.RouteBulkDeleteRequest{
+			IDs:        routeIDs,
+			ClientType: scope.clientType,
+			ProjectID:  scope.projectID,
+		})
+		if err != nil {
+			return err
+		}
+		if deleteResult != nil {
+			result.RouteDeletedCount += deleteResult.DeletedCount
+		}
+	}
+	return nil
+}
+
+func (s *AdminService) bulkDeleteProviderModelMappings(tenantID uint64, providerIDs map[uint64]struct{}, result *domain.ProviderBulkDeleteResult) error {
+	mappings, err := s.modelMappingRepo.List(tenantID)
+	if err != nil {
+		return err
+	}
+	for _, mapping := range mappings {
+		if mapping.Scope != domain.ModelMappingScopeProvider {
+			continue
+		}
+		if _, ok := providerIDs[mapping.ProviderID]; !ok {
+			continue
+		}
+		if err := s.modelMappingRepo.Delete(tenantID, mapping.ID); err != nil {
+			return err
+		}
+		result.ModelMappingDeletedCount++
+	}
+	return nil
+}
+
+func uniqueNonZeroIDs(rawIDs []uint64) []uint64 {
+	seen := make(map[uint64]struct{}, len(rawIDs))
+	ids := make([]uint64, 0, len(rawIDs))
+	for _, id := range rawIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func preserveExcludedProviderWriteOnlyMode(existing, incoming *domain.Provider) {
+	if existing == nil || incoming == nil || !existing.ExcludeFromExport {
+		return
+	}
+	incoming.ExcludeFromExport = true
+	preserveEmptyExcludedProviderURLs(existing, incoming)
+}
+
+// providerUsesCustomConfig reports whether a provider type stores its
+// configuration under Config.Custom. The generic "custom" relay and the
+// first-class relay types built on the custom core (newapi, ollama) all share
+// that config shape, so config-preservation logic treats them alike.
+func providerUsesCustomConfig(providerType string) bool {
+	switch providerType {
+	case "custom", "newapi", "ollama":
+		return true
+	default:
+		return false
+	}
+}
+
+func preserveEmptyExcludedProviderURLs(existing, incoming *domain.Provider) {
+	if existing == nil || incoming == nil || existing.Config == nil || existing.Config.Custom == nil {
+		return
+	}
+	effectiveType := incoming.Type
+	if effectiveType == "" {
+		effectiveType = existing.Type
+	}
+	if !providerUsesCustomConfig(effectiveType) || !providerUsesCustomConfig(existing.Type) {
+		return
+	}
+	if incoming.Config == nil {
+		incoming.Config = &domain.ProviderConfig{}
+	}
+	if incoming.Config.Custom == nil {
+		custom := *existing.Config.Custom
+		incoming.Config.Custom = &custom
+		return
+	}
+
+	if incoming.Config.Custom.BaseURL == "" {
+		incoming.Config.Custom.BaseURL = existing.Config.Custom.BaseURL
+	}
+	if len(incoming.Config.Custom.ClientBaseURL) == 0 {
+		incoming.Config.Custom.ClientBaseURL = existing.Config.Custom.ClientBaseURL
+		return
+	}
+	merged := make(map[domain.ClientType]string, len(existing.Config.Custom.ClientBaseURL)+len(incoming.Config.Custom.ClientBaseURL))
+	for clientType, url := range existing.Config.Custom.ClientBaseURL {
+		merged[clientType] = url
+	}
+	for clientType, url := range incoming.Config.Custom.ClientBaseURL {
+		if url != "" {
+			merged[clientType] = url
+		}
+	}
+	incoming.Config.Custom.ClientBaseURL = merged
+}
+
+func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
+	if existing == nil || incoming == nil || existing.Config == nil {
+		return
+	}
+	effectiveType := incoming.Type
+	if effectiveType == "" {
+		effectiveType = existing.Type
+	}
+	if effectiveType != existing.Type {
+		return
+	}
+	if incoming.Config == nil {
+		incoming.Config = &domain.ProviderConfig{}
+	}
+
+	switch effectiveType {
+	case "custom", "newapi", "ollama":
+		// newapi/ollama are first-class relay types that reuse the custom config.
+		if existing.Config.Custom != nil {
+			if incoming.Config.Custom == nil {
+				custom := *existing.Config.Custom
+				incoming.Config.Custom = &custom
+			} else if incoming.Config.Custom.APIKey == "" {
+				incoming.Config.Custom.APIKey = existing.Config.Custom.APIKey
+			}
+		}
+	case "antigravity":
+		if existing.Config.Antigravity != nil {
+			if incoming.Config.Antigravity == nil {
+				antigravity := *existing.Config.Antigravity
+				incoming.Config.Antigravity = &antigravity
+			} else if incoming.Config.Antigravity.RefreshToken == "" {
+				incoming.Config.Antigravity.RefreshToken = existing.Config.Antigravity.RefreshToken
+			}
+		}
+	case "bedrock":
+		if existing.Config.Bedrock != nil {
+			if incoming.Config.Bedrock == nil {
+				bedrock := *existing.Config.Bedrock
+				incoming.Config.Bedrock = &bedrock
+			} else if incoming.Config.Bedrock.SecretAccessKey == "" {
+				incoming.Config.Bedrock.SecretAccessKey = existing.Config.Bedrock.SecretAccessKey
+			}
+		}
+	case "kiro":
+		if existing.Config.Kiro != nil {
+			if incoming.Config.Kiro == nil {
+				kiro := *existing.Config.Kiro
+				incoming.Config.Kiro = &kiro
+			} else {
+				if incoming.Config.Kiro.RefreshToken == "" {
+					incoming.Config.Kiro.RefreshToken = existing.Config.Kiro.RefreshToken
+				}
+				if incoming.Config.Kiro.ClientSecret == "" {
+					incoming.Config.Kiro.ClientSecret = existing.Config.Kiro.ClientSecret
+				}
+			}
+		}
+	case "codex":
+		if existing.Config.Codex != nil {
+			if incoming.Config.Codex == nil {
+				codex := *existing.Config.Codex
+				incoming.Config.Codex = &codex
+			} else {
+				if incoming.Config.Codex.RefreshToken == "" {
+					incoming.Config.Codex.RefreshToken = existing.Config.Codex.RefreshToken
+				}
+				if incoming.Config.Codex.AccessToken == "" {
+					incoming.Config.Codex.AccessToken = existing.Config.Codex.AccessToken
+				}
+			}
+		}
+	case "claude":
+		if existing.Config.Claude != nil {
+			if incoming.Config.Claude == nil {
+				claude := *existing.Config.Claude
+				incoming.Config.Claude = &claude
+			} else {
+				if incoming.Config.Claude.RefreshToken == "" {
+					incoming.Config.Claude.RefreshToken = existing.Config.Claude.RefreshToken
+				}
+				if incoming.Config.Claude.AccessToken == "" {
+					incoming.Config.Claude.AccessToken = existing.Config.Claude.AccessToken
+				}
+			}
+		}
+	case "openrouter":
+		if existing.Config.OpenRouter != nil {
+			if incoming.Config.OpenRouter == nil {
+				openrouter := *existing.Config.OpenRouter
+				incoming.Config.OpenRouter = &openrouter
+			} else if incoming.Config.OpenRouter.APIKey == "" {
+				incoming.Config.OpenRouter.APIKey = existing.Config.OpenRouter.APIKey
+			}
+		}
+	case "grok":
+		if existing.Config.Grok != nil {
+			if incoming.Config.Grok == nil {
+				grok := *existing.Config.Grok
+				incoming.Config.Grok = &grok
+			} else {
+				if incoming.Config.Grok.AccessToken == "" {
+					incoming.Config.Grok.AccessToken = existing.Config.Grok.AccessToken
+				}
+				if incoming.Config.Grok.RefreshToken == "" {
+					incoming.Config.Grok.RefreshToken = existing.Config.Grok.RefreshToken
+				}
+				if incoming.Config.Grok.IDToken == "" {
+					incoming.Config.Grok.IDToken = existing.Config.Grok.IDToken
+				}
+			}
+		}
+	}
 }
 
 // ExportProviders exports all providers for backup/transfer
@@ -185,7 +564,7 @@ func (s *AdminService) ExportProviders(tenantID uint64) ([]*domain.Provider, err
 	}
 	filtered := make([]*domain.Provider, 0, len(providers))
 	for _, provider := range providers {
-		if provider.ExcludeFromExport {
+		if provider.ExcludeFromExport || provider.BlackBox {
 			continue
 		}
 		filtered = append(filtered, provider)
@@ -246,21 +625,131 @@ type ImportResult struct {
 
 // ===== Route API =====
 
+func cloneRoute(route *domain.Route) *domain.Route {
+	if route == nil {
+		return nil
+	}
+	cloned := *route
+	return &cloned
+}
+
+func (s *AdminService) canonicalRouteCopy(tenantID uint64, route *domain.Route) (*domain.Route, error) {
+	cloned := cloneRoute(route)
+	if cloned == nil || cloned.ProviderID == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	provider, err := s.providerRepo.GetByID(tenantID, cloned.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve route provider %d: %w", cloned.ProviderID, err)
+	}
+
+	cloned.TenantID = tenantID
+	cloned.IsNative = domain.RouteIsNative(provider, cloned)
+	return cloned, nil
+}
+
+func (s *AdminService) canonicalRouteCopies(tenantID uint64, routes []*domain.Route) ([]*domain.Route, error) {
+	providers, err := s.providerRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	providerByID := make(map[uint64]*domain.Provider, len(providers))
+	for _, provider := range providers {
+		providerByID[provider.ID] = provider
+	}
+
+	result := make([]*domain.Route, 0, len(routes))
+	for _, route := range routes {
+		cloned := cloneRoute(route)
+		if cloned == nil {
+			continue
+		}
+		cloned.IsNative = domain.RouteIsNative(providerByID[cloned.ProviderID], cloned)
+		result = append(result, cloned)
+	}
+	return result, nil
+}
+
+func (s *AdminService) reconcileProviderRouteNative(tenantID uint64, provider *domain.Provider) error {
+	if provider == nil {
+		return domain.ErrInvalidInput
+	}
+	if s.routeRepo == nil {
+		return nil
+	}
+
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return err
+	}
+
+	for _, cachedRoute := range routes {
+		if cachedRoute == nil || cachedRoute.ProviderID != provider.ID {
+			continue
+		}
+
+		native := domain.RouteIsNative(provider, cachedRoute)
+		if cachedRoute.IsNative == native {
+			continue
+		}
+
+		updated := cloneRoute(cachedRoute)
+		updated.IsNative = native
+		if err := s.routeRepo.Update(updated); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *AdminService) GetRoutes(tenantID uint64) ([]*domain.Route, error) {
-	return s.routeRepo.List(tenantID)
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.canonicalRouteCopies(tenantID, routes)
 }
 
 func (s *AdminService) GetRoute(tenantID uint64, id uint64) (*domain.Route, error) {
-	return s.routeRepo.GetByID(tenantID, id)
+	route, err := s.routeRepo.GetByID(tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.canonicalRouteCopy(tenantID, route)
 }
 
 func (s *AdminService) CreateRoute(tenantID uint64, route *domain.Route) error {
-	route.TenantID = tenantID
-	return s.routeRepo.Create(route)
+	canonical, err := s.canonicalRouteCopy(tenantID, route)
+	if err != nil {
+		return err
+	}
+
+	canonical.ID = 0
+	canonical.CreatedAt = time.Time{}
+	canonical.UpdatedAt = time.Time{}
+
+	if err := s.routeRepo.Create(canonical); err != nil {
+		return err
+	}
+
+	*route = *canonical
+	return nil
 }
 
 func (s *AdminService) UpdateRoute(tenantID uint64, route *domain.Route) error {
-	return s.routeRepo.Update(route)
+	canonical, err := s.canonicalRouteCopy(tenantID, route)
+	if err != nil {
+		return err
+	}
+
+	if err := s.routeRepo.Update(canonical); err != nil {
+		return err
+	}
+
+	*route = *canonical
+	return nil
 }
 
 func (s *AdminService) BatchUpdateRoutePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error {
@@ -271,18 +760,309 @@ func (s *AdminService) DeleteRoute(tenantID uint64, id uint64) error {
 	return s.routeRepo.Delete(tenantID, id)
 }
 
+func (s *AdminService) BulkDeleteRoutes(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error) {
+	if len(req.IDs) == 0 {
+		return nil, ErrIDsRequired
+	}
+	if !isValidRouteClientType(req.ClientType) {
+		return nil, ErrInvalidRouteClientType
+	}
+	return s.routeRepo.BulkDelete(tenantID, req)
+}
+
+func (s *AdminService) SyncRoutesFromProject(tenantID uint64, req domain.RouteSyncRequest) (*domain.RouteSyncResult, error) {
+	if !isValidRouteClientType(req.ClientType) {
+		return nil, ErrInvalidRouteClientType
+	}
+	if req.Mode == "" {
+		req.Mode = domain.RouteSyncModeOverwrite
+	}
+	if req.Mode != domain.RouteSyncModeOverwrite && req.Mode != domain.RouteSyncModeAddMissing {
+		return nil, fmt.Errorf("invalid mode")
+	}
+
+	if req.SourceProjectID > 0 {
+		if _, err := s.projectRepo.GetByID(tenantID, req.SourceProjectID); err != nil {
+			return nil, fmt.Errorf("source project not found")
+		}
+	}
+
+	var targetProject *domain.Project
+	if req.TargetProjectID > 0 {
+		project, err := s.projectRepo.GetByID(tenantID, req.TargetProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("target project not found")
+		}
+		targetProject = project
+	}
+
+	effectiveSourceProjectID := req.SourceProjectID
+	if req.SourceProjectID > 0 {
+		sourceProject, err := s.projectRepo.GetByID(tenantID, req.SourceProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("source project not found")
+		}
+		if !projectHasCustomRoutes(sourceProject, req.ClientType) {
+			effectiveSourceProjectID = 0
+		}
+	}
+
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceRoutes := filterRoutesByScope(routes, effectiveSourceProjectID, req.ClientType)
+	targetRoutes := filterRoutesByScope(routes, req.TargetProjectID, req.ClientType)
+	targetByProvider := make(map[uint64]*domain.Route, len(targetRoutes))
+	for _, route := range targetRoutes {
+		targetByProvider[route.ProviderID] = route
+	}
+
+	result := &domain.RouteSyncResult{
+		SourceProjectID:          req.SourceProjectID,
+		EffectiveSourceProjectID: effectiveSourceProjectID,
+		TargetProjectID:          req.TargetProjectID,
+		ClientType:               req.ClientType,
+		Mode:                     req.Mode,
+		Routes:                   []*domain.Route{},
+	}
+
+	if req.Mode == domain.RouteSyncModeAddMissing {
+		maxPosition := 0
+		for _, route := range targetRoutes {
+			if route.Position > maxPosition {
+				maxPosition = route.Position
+			}
+		}
+		for _, source := range sourceRoutes {
+			if _, exists := targetByProvider[source.ProviderID]; exists {
+				result.SkippedCount++
+				continue
+			}
+			maxPosition++
+			created := cloneRouteForTarget(source, tenantID, req.TargetProjectID, maxPosition)
+			canonical, err := s.canonicalRouteCopy(tenantID, created)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.routeRepo.Create(canonical); err != nil {
+				return nil, err
+			}
+			result.CreatedCount++
+			result.Routes = append(result.Routes, canonical)
+		}
+	} else {
+		sourceProviderIDs := make(map[uint64]struct{}, len(sourceRoutes))
+		for index, source := range sourceRoutes {
+			sourceProviderIDs[source.ProviderID] = struct{}{}
+			position := index + 1
+			if target, exists := targetByProvider[source.ProviderID]; exists {
+				updated := cloneRoute(target)
+				changed := copyRouteFields(updated, source, position)
+				canonical, err := s.canonicalRouteCopy(tenantID, updated)
+				if err != nil {
+					return nil, err
+				}
+				if canonical.IsNative != target.IsNative {
+					changed = true
+				}
+				if changed {
+					if err := s.routeRepo.Update(canonical); err != nil {
+						return nil, err
+					}
+					result.UpdatedCount++
+				}
+				result.Routes = append(result.Routes, canonical)
+				continue
+			}
+
+			created := cloneRouteForTarget(source, tenantID, req.TargetProjectID, position)
+			canonical, err := s.canonicalRouteCopy(tenantID, created)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.routeRepo.Create(canonical); err != nil {
+				return nil, err
+			}
+			result.CreatedCount++
+			result.Routes = append(result.Routes, canonical)
+		}
+
+		for _, target := range targetRoutes {
+			if _, keep := sourceProviderIDs[target.ProviderID]; keep {
+				continue
+			}
+			if err := s.routeRepo.Delete(tenantID, target.ID); err != nil {
+				return nil, err
+			}
+			result.DeletedCount++
+		}
+	}
+
+	if targetProject != nil && !projectHasCustomRoutes(targetProject, req.ClientType) {
+		targetProject.EnabledCustomRoutes = append(targetProject.EnabledCustomRoutes, req.ClientType)
+		if err := s.projectRepo.Update(targetProject); err != nil {
+			return nil, err
+		}
+		result.EnabledCustomRoutes = true
+	}
+
+	return result, nil
+}
+
+func filterRoutesByScope(routes []*domain.Route, projectID uint64, clientType domain.ClientType) []*domain.Route {
+	filtered := make([]*domain.Route, 0)
+	for _, route := range routes {
+		if route.ProjectID == projectID && route.ClientType == clientType {
+			filtered = append(filtered, route)
+		}
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		if filtered[i].Position == filtered[j].Position {
+			return filtered[i].ID < filtered[j].ID
+		}
+		return filtered[i].Position < filtered[j].Position
+	})
+	return filtered
+}
+
+func cloneRouteForTarget(source *domain.Route, tenantID, targetProjectID uint64, position int) *domain.Route {
+	return &domain.Route{
+		TenantID:  tenantID,
+		IsEnabled: source.IsEnabled,
+		// IsNative is always recomputed from provider capability before save.
+		IsNative:      false,
+		ProjectID:     targetProjectID,
+		ClientType:    source.ClientType,
+		ProviderID:    source.ProviderID,
+		Position:      position,
+		Weight:        normalizedRouteWeight(source.Weight),
+		RetryConfigID: source.RetryConfigID,
+	}
+}
+
+func copyRouteFields(target, source *domain.Route, position int) bool {
+	changed := false
+	if target.IsEnabled != source.IsEnabled {
+		target.IsEnabled = source.IsEnabled
+		changed = true
+	}
+	// IsNative is not a syncable config field; it is recomputed by canonicalRouteCopy.
+	if target.Position != position {
+		target.Position = position
+		changed = true
+	}
+	weight := normalizedRouteWeight(source.Weight)
+	if target.Weight != weight {
+		target.Weight = weight
+		changed = true
+	}
+	if target.RetryConfigID != source.RetryConfigID {
+		target.RetryConfigID = source.RetryConfigID
+		changed = true
+	}
+	return changed
+}
+
+func normalizedRouteWeight(weight int) int {
+	if weight <= 0 {
+		return 1
+	}
+	return weight
+}
+
+func projectHasCustomRoutes(project *domain.Project, clientType domain.ClientType) bool {
+	if project == nil {
+		return false
+	}
+	for _, enabled := range project.EnabledCustomRoutes {
+		if enabled == clientType {
+			return true
+		}
+	}
+	return false
+}
+
+func isValidRouteClientType(clientType domain.ClientType) bool {
+	switch clientType {
+	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeGemini:
+		return true
+	default:
+		return false
+	}
+}
+
 // ===== Project API =====
 
+const projectUsageRecentWindow = 30 * 24 * time.Hour
+
 func (s *AdminService) GetProjects(tenantID uint64) ([]*domain.Project, error) {
-	return s.projectRepo.List(tenantID)
+	projects, err := s.projectRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, projects); err != nil {
+		log.Printf("warn: attach project usage summaries failed: %v", err)
+	}
+	return projects, nil
 }
 
 func (s *AdminService) GetProject(tenantID uint64, id uint64) (*domain.Project, error) {
-	return s.projectRepo.GetByID(tenantID, id)
+	project, err := s.projectRepo.GetByID(tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
+		log.Printf("warn: attach project usage summary failed for project %d: %v", id, err)
+	}
+	return project, nil
 }
 
 func (s *AdminService) GetProjectBySlug(tenantID uint64, slug string) (*domain.Project, error) {
-	return s.projectRepo.GetBySlug(tenantID, slug)
+	project, err := s.projectRepo.GetBySlug(tenantID, slug)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
+		log.Printf("warn: attach project usage summary failed for project slug %q: %v", slug, err)
+	}
+	return project, nil
+}
+
+func (s *AdminService) attachProjectUsage(tenantID uint64, projects []*domain.Project) error {
+	if s.proxyRequestRepo == nil || len(projects) == 0 {
+		return nil
+	}
+	projectIDs := make([]uint64, 0, len(projects))
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		projectIDs = append(projectIDs, project.ID)
+	}
+	if len(projectIDs) == 0 {
+		return nil
+	}
+	summaries, err := s.proxyRequestRepo.GetProjectUsageSummaries(tenantID, time.Now().Add(-projectUsageRecentWindow), projectIDs...)
+	if err != nil {
+		return err
+	}
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		summary, ok := summaries[project.ID]
+		if !ok {
+			continue
+		}
+		project.LastRequestAt = summary.LastRequestAt
+		project.LastSuccessfulRequestAt = summary.LastSuccessfulRequestAt
+		project.RequestCount30d = summary.RequestCount30d
+		project.SuccessfulRequestCount30d = summary.SuccessfulRequestCount30d
+		project.TotalRequestCount = summary.TotalRequestCount
+	}
+	return nil
 }
 
 func (s *AdminService) CreateProject(tenantID uint64, project *domain.Project) error {
@@ -296,6 +1076,51 @@ func (s *AdminService) UpdateProject(tenantID uint64, project *domain.Project) e
 
 func (s *AdminService) DeleteProject(tenantID uint64, id uint64) error {
 	return s.projectRepo.Delete(tenantID, id)
+}
+
+func (s *AdminService) ArchiveInactiveProjects(tenantID uint64, thresholdDays int) (*domain.ProjectArchiveInactiveResult, error) {
+	if thresholdDays <= 0 {
+		return nil, errors.New("thresholdDays must be positive")
+	}
+
+	if s.proxyRequestRepo == nil {
+		return nil, errors.New("proxy request repository is required for inactive project archive")
+	}
+
+	projects, err := s.projectRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, projects); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	archivedIDs := make([]uint64, 0)
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		inactive := false
+		if project.LastRequestAt == nil {
+			inactive = true
+		} else if int(now.Sub(*project.LastRequestAt)/(24*time.Hour)) >= thresholdDays {
+			inactive = true
+		}
+		if !inactive {
+			continue
+		}
+		if err := s.projectRepo.Delete(tenantID, project.ID); err != nil {
+			return nil, err
+		}
+		archivedIDs = append(archivedIDs, project.ID)
+	}
+
+	return &domain.ProjectArchiveInactiveResult{
+		ArchivedCount: len(archivedIDs),
+		ArchivedIDs:   archivedIDs,
+		ThresholdDays: thresholdDays,
+	}, nil
 }
 
 // ===== Session API =====
@@ -446,6 +1271,30 @@ func (s *AdminService) GetProxyRequestsCountWithFilter(tenantID uint64, filter *
 	return s.proxyRequestRepo.CountWithFilter(tenantID, filter)
 }
 
+func (s *AdminService) GetProxyRequestErrorStats(tenantID uint64, filter *repository.ProxyRequestFilter) (*repository.ProxyRequestErrorStats, error) {
+	return s.proxyRequestRepo.GetErrorStats(tenantID, filter)
+}
+
+func (s *AdminService) CountFailedProxyRequests(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
+	return s.proxyRequestRepo.CountFailedWithFilter(tenantID, filter)
+}
+
+func (s *AdminService) CleanupFailedProxyRequests(tenantID uint64, filter *repository.ProxyRequestFilter) (*domain.ProxyRequestCleanupFailedResult, error) {
+	cleanupFilter := repository.ProxyRequestFilter{}
+	if filter != nil {
+		cleanupFilter = *filter
+	}
+	cleanupFilter.ErrorMode = repository.ProxyRequestErrorModeOnly
+	deletedRequests, deletedAttempts, err := s.proxyRequestRepo.DeleteFailedWithFilter(tenantID, &cleanupFilter)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.ProxyRequestCleanupFailedResult{
+		DeletedCount:        deletedRequests,
+		DeletedAttemptCount: deletedAttempts,
+	}, nil
+}
+
 func (s *AdminService) GetProxyRequest(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
 	return s.proxyRequestRepo.GetByID(tenantID, id)
 }
@@ -484,13 +1333,13 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	if err := validateSystemSettingValue(key, value); err != nil {
 		return err
 	}
+	if err := s.validatePublicProxyRouteExposureUpdate(key, value); err != nil {
+		return err
+	}
 	if err := s.settingRepo.Set(key, value); err != nil {
 		return err
 	}
 	systemsettingcache.Invalidate(key)
-	if key == domain.SettingKeyPayloadOverrideRules {
-		payloadoverride.InvalidateGlobalSettingsCache()
-	}
 
 	// 如果更新的是 pprof 相关设置，触发重载
 	switch key {
@@ -505,14 +1354,59 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	return nil
 }
 
+var publicProxyRouteExposureSettingKeys = []string{
+	domain.SettingKeyProxyRouteClaudeMessagesEnabled,
+	domain.SettingKeyProxyRouteOpenAIChatEnabled,
+	domain.SettingKeyProxyRouteResponsesEnabled,
+	domain.SettingKeyProxyRouteGeminiEnabled,
+}
+
+func isPublicProxyRouteExposureSetting(key string) bool {
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		if key == routeKey {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *AdminService) validatePublicProxyRouteExposureUpdate(key, value string) error {
+	if !isPublicProxyRouteExposureSetting(key) || value != "false" {
+		return nil
+	}
+
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		routeValue := value
+		if routeKey != key {
+			storedValue, err := s.settingRepo.Get(routeKey)
+			if err != nil {
+				return err
+			}
+			routeValue = storedValue
+		}
+		if publicProxyRouteSettingEnabled(routeKey, routeValue) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: at least one public proxy route must be enabled", domain.ErrInvalidInput)
+}
+
+func publicProxyRouteSettingEnabled(key, value string) bool {
+	if value == "" {
+		return key != domain.SettingKeyProxyRouteGeminiEnabled
+	}
+	return value != "false"
+}
+
 func (s *AdminService) DeleteSetting(key string) error {
+	if err := s.validatePublicProxyRouteExposureDelete(key); err != nil {
+		return err
+	}
 	if err := s.settingRepo.Delete(key); err != nil {
 		return err
 	}
 	systemsettingcache.Invalidate(key)
-	if key == domain.SettingKeyPayloadOverrideRules {
-		payloadoverride.InvalidateGlobalSettingsCache()
-	}
 
 	// 如果删除的是 pprof 相关设置，触发重载
 	switch key {
@@ -525,6 +1419,28 @@ func (s *AdminService) DeleteSetting(key string) error {
 	}
 
 	return nil
+}
+
+func (s *AdminService) validatePublicProxyRouteExposureDelete(key string) error {
+	if !isPublicProxyRouteExposureSetting(key) {
+		return nil
+	}
+
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		routeValue := ""
+		if routeKey != key {
+			storedValue, err := s.settingRepo.Get(routeKey)
+			if err != nil {
+				return err
+			}
+			routeValue = storedValue
+		}
+		if publicProxyRouteSettingEnabled(routeKey, routeValue) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: at least one public proxy route must be enabled", domain.ErrInvalidInput)
 }
 
 // ===== Proxy Status API =====
@@ -596,38 +1512,11 @@ func (s *AdminService) GetLogs(limit int) (*LogsResult, error) {
 
 // ===== Private helpers =====
 
-// autoSetSupportedClientTypes sets SupportedClientTypes based on provider type
+// autoSetSupportedClientTypes sets SupportedClientTypes based on provider type.
+// Delegates to domain.NormalizeProviderSupportedClientTypes so Admin, Backup,
+// Migration, and Router share one capability rule.
 func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
-	switch provider.Type {
-	case "antigravity":
-		// Antigravity natively supports Claude and Gemini.
-		// Conversion preference is Gemini-first.
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeGemini,
-			domain.ClientTypeClaude,
-		}
-	case "kiro":
-		// Kiro natively supports Claude protocol only
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeClaude,
-		}
-	case "codex":
-		// Codex natively supports Codex protocol only
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeCodex,
-		}
-	case "claude":
-		// Claude natively supports Claude protocol only
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeClaude,
-		}
-	case "custom":
-		// Custom providers use their configured SupportedClientTypes
-		// If not set, default to OpenAI
-		if len(provider.SupportedClientTypes) == 0 {
-			provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
-		}
-	}
+	domain.NormalizeProviderSupportedClientTypes(provider)
 }
 
 // ===== API Token API =====
@@ -669,12 +1558,98 @@ func (s *AdminService) CreateAPIToken(tenantID uint64, name, description string,
 	}, nil
 }
 
+// RotateAPIToken replaces an existing token's secret in place and returns the
+// new plaintext token once. Metadata, usage counters, and request history stay
+// attached to the same APIToken ID.
+func (s *AdminService) RotateAPIToken(tenantID uint64, token *domain.APIToken) (*domain.APITokenCreateResult, error) {
+	if token == nil {
+		return nil, domain.ErrInvalidInput
+	}
+
+	plain, prefix, err := generateAPIToken()
+	if err != nil {
+		return nil, err
+	}
+
+	token.TenantID = tenantID
+	token.Token = plain
+	token.TokenPrefix = prefix
+	token.IsEnabled = true
+	if err := s.apiTokenRepo.Update(token); err != nil {
+		return nil, err
+	}
+
+	return &domain.APITokenCreateResult{
+		Token:    plain,
+		APIToken: token,
+	}, nil
+}
+
 func (s *AdminService) UpdateAPIToken(tenantID uint64, token *domain.APIToken) error {
 	return s.apiTokenRepo.Update(token)
 }
 
 func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
 	return s.apiTokenRepo.Delete(tenantID, id)
+}
+
+type apiTokenHistoryReassigner interface {
+	ReassignAPITokenID(tenantID uint64, fromID uint64, toID uint64) error
+}
+
+// ReassignAPITokenHistory moves historical request/stat rows from one token ID
+// to another before retiring duplicate managed tokens. Repositories opt in so
+// older test doubles and unrelated repository implementations do not need new
+// interface surface.
+func (s *AdminService) ReassignAPITokenHistory(tenantID uint64, fromID uint64, toID uint64) error {
+	if fromID == 0 || toID == 0 || fromID == toID {
+		return nil
+	}
+	if repo, ok := s.proxyRequestRepo.(apiTokenHistoryReassigner); ok && !isNilAPITokenHistoryReassigner(repo) {
+		if err := repo.ReassignAPITokenID(tenantID, fromID, toID); err != nil {
+			return err
+		}
+	}
+	if repo, ok := s.usageStatsRepo.(apiTokenHistoryReassigner); ok && !isNilAPITokenHistoryReassigner(repo) {
+		if err := repo.ReassignAPITokenID(tenantID, fromID, toID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isNilAPITokenHistoryReassigner(repo apiTokenHistoryReassigner) bool {
+	if repo == nil {
+		return true
+	}
+	v := reflect.ValueOf(repo)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+func (s *AdminService) CleanupExpiredAPITokens(tenantID uint64, now time.Time) (*domain.APITokenCleanupResult, error) {
+	deletedTokens, err := s.apiTokenRepo.DeleteExpired(tenantID, now, domain.APITokenInactiveExpiry)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.APITokenCleanupItem, 0, len(deletedTokens))
+	for _, token := range deletedTokens {
+		items = append(items, domain.APITokenCleanupItem{
+			ID:          token.ID,
+			Name:        token.Name,
+			TokenPrefix: token.TokenPrefix,
+		})
+	}
+
+	return &domain.APITokenCleanupResult{
+		DeletedCount: len(items),
+		Tokens:       items,
+	}, nil
 }
 
 // ===== Invite Code API =====

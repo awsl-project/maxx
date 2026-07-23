@@ -25,6 +25,7 @@ import {
   useCreateAPIToken,
   useUpdateAPIToken,
   useDeleteAPIToken,
+  useCleanupExpiredAPITokens,
   useProjects,
   useProxyStatus,
   useSettings,
@@ -46,16 +47,20 @@ import {
   Terminal,
   CircleCheck,
   CircleAlert,
+  RotateCcw,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
+import { isAPITokenExpired } from '@/lib/api-token-expiry';
 import type { APIToken } from '@/lib/transport';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
+import { buildAPITokenReactivatePayload, buildAPITokenUpdatePayload } from './form-utils';
 
 type CodexConfigDialogState = {
   tokenName: string;
   tokenValue: string;
   isEnabled: boolean;
   expiresAt?: string;
+  lastUsedAt?: string;
 };
 
 export function APITokensPage() {
@@ -68,6 +73,7 @@ export function APITokensPage() {
   const createToken = useCreateAPIToken();
   const updateToken = useUpdateAPIToken();
   const deleteToken = useDeleteAPIToken();
+  const cleanupExpiredTokens = useCleanupExpiredAPITokens();
 
   const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
 
@@ -81,6 +87,8 @@ export function APITokensPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingToken, setEditingToken] = useState<APIToken | null>(null);
   const [deletingToken, setDeletingToken] = useState<APIToken | null>(null);
+  const [cleanupExpiredDialogOpen, setCleanupExpiredDialogOpen] = useState(false);
+  const [lastCleanupCount, setLastCleanupCount] = useState<number | null>(null);
   const [newTokenDialog, setNewTokenDialog] = useState<{
     token: string;
     name: string;
@@ -100,14 +108,20 @@ export function APITokensPage() {
   const [description, setDescription] = useState('');
   const [projectID, setProjectID] = useState<string>('0');
   const [expiresAt, setExpiresAt] = useState('');
+  const [expiresAtTouched, setExpiresAtTouched] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
+
+  const isExpired = (token: APIToken) => isAPITokenExpired(token);
+  const expiredTokens = useMemo(() => (tokens ?? []).filter(isExpired), [tokens]);
+  const expiredTokenCount = expiredTokens.length;
 
   const resetForm = () => {
     setName('');
     setDescription('');
     setProjectID('0');
     setExpiresAt('');
+    setExpiresAtTouched(false);
     setDevMode(false);
     setShowProjectPicker(false);
   };
@@ -149,13 +163,27 @@ export function APITokensPage() {
     updateToken.mutate(
       {
         id: editingToken.id,
-        data: {
-          name,
-          description,
-          projectID: parseInt(projectID) || 0,
-          expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
-          devMode,
-        },
+        data:
+          editingToken && isExpired(editingToken) && expiresAtTouched && !expiresAt
+            ? {
+                ...buildAPITokenUpdatePayload({
+                  name,
+                  description,
+                  projectID,
+                  expiresAt,
+                  expiresAtTouched,
+                  devMode,
+                }),
+                ...buildAPITokenReactivatePayload(),
+              }
+            : buildAPITokenUpdatePayload({
+                name,
+                description,
+                projectID,
+                expiresAt,
+                expiresAtTouched,
+                devMode,
+              }),
       },
       {
         onSuccess: () => closeEditDialog(),
@@ -170,10 +198,26 @@ export function APITokensPage() {
     });
   };
 
+  const handleReactivateToken = (token: APIToken) => {
+    updateToken.mutate({
+      id: token.id,
+      data: buildAPITokenReactivatePayload(),
+    });
+  };
+
   const handleDelete = () => {
     if (!deletingToken) return;
     deleteToken.mutate(deletingToken.id, {
       onSuccess: () => setDeletingToken(null),
+    });
+  };
+
+  const handleCleanupExpiredTokens = () => {
+    cleanupExpiredTokens.mutate(undefined, {
+      onSuccess: (result) => {
+        setCleanupExpiredDialogOpen(false);
+        setLastCleanupCount(result.deletedCount);
+      },
     });
   };
 
@@ -183,6 +227,7 @@ export function APITokensPage() {
     setDescription(token.description);
     setProjectID(token.projectID.toString());
     setExpiresAt(token.expiresAt ? token.expiresAt.split('T')[0] : '');
+    setExpiresAtTouched(false);
     setDevMode(!!token.devMode);
   };
 
@@ -202,8 +247,7 @@ export function APITokensPage() {
     });
   }, [codexConfigDialog, codexBaseUrl]);
 
-  const isCodexTokenExpired =
-    !!codexConfigDialog?.expiresAt && new Date(codexConfigDialog.expiresAt) < new Date();
+  const isCodexTokenExpired = codexConfigDialog ? isAPITokenExpired(codexConfigDialog) : false;
 
   const codexPreflightChecks = useMemo(
     () => [
@@ -231,6 +275,7 @@ export function APITokensPage() {
     token: string;
     isEnabled: boolean;
     expiresAt?: string;
+    lastUsedAt?: string;
   }) => {
     setCopiedCodexSection(null);
     setCodexConfigDialog({
@@ -238,6 +283,7 @@ export function APITokensPage() {
       tokenValue: token.token,
       isEnabled: token.isEnabled,
       expiresAt: token.expiresAt,
+      lastUsedAt: token.lastUsedAt,
     });
   };
 
@@ -260,7 +306,8 @@ export function APITokensPage() {
 
   const getCodexCheckHint = (checkKey: string) => {
     if (checkKey === 'proxy') return t('apiTokens.codexConfigDialog.checksHint.proxy');
-    if (checkKey === 'tokenEnabled') return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
+    if (checkKey === 'tokenEnabled')
+      return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
     return t('apiTokens.codexConfigDialog.checksHint.tokenExpiry');
   };
 
@@ -268,11 +315,6 @@ export function APITokensPage() {
     if (projectId === 0) return t('apiTokens.global');
     const project = projects?.find((p) => p.id === projectId);
     return project?.name || t('apiTokens.unknownProject', { id: projectId });
-  };
-
-  const isExpired = (token: APIToken) => {
-    if (!token.expiresAt) return false;
-    return new Date(token.expiresAt) < new Date();
   };
 
   const formatDateTime = (value?: string) => {
@@ -368,6 +410,35 @@ export function APITokensPage() {
               </div>
             ) : tokens && tokens.length > 0 ? (
               <Card className="border-border bg-surface-primary">
+                <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-medium">{t('apiTokens.listTitle')}</p>
+                    <p className="text-sm text-text-muted">
+                      {expiredTokenCount > 0
+                        ? t('apiTokens.expiredSummary', { count: expiredTokenCount })
+                        : t('apiTokens.noExpiredTokens')}
+                    </p>
+                    {lastCleanupCount !== null && (
+                      <p className="text-xs text-text-muted">
+                        {t('apiTokens.cleanupExpired.lastResult', { count: lastCleanupCount })}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCleanupExpiredDialogOpen(true)}
+                    disabled={expiredTokenCount === 0 || cleanupExpiredTokens.isPending}
+                    className="self-start text-destructive hover:text-destructive sm:self-auto"
+                  >
+                    {cleanupExpiredTokens.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {t('apiTokens.cleanupExpired.button', { count: expiredTokenCount })}
+                  </Button>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -486,6 +557,18 @@ export function APITokensPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
+                            {isExpired(token) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={t('apiTokens.reactivateToken')}
+                                title={t('apiTokens.reactivateToken')}
+                                disabled={updateToken.isPending}
+                                onClick={() => handleReactivateToken(token)}
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -496,6 +579,7 @@ export function APITokensPage() {
                                   token: token.token,
                                   isEnabled: token.isEnabled,
                                   expiresAt: token.expiresAt,
+                                  lastUsedAt: token.lastUsedAt,
                                 })
                               }
                               title={t('apiTokens.generateCodexConfig')}
@@ -688,12 +772,41 @@ export function APITokensPage() {
               <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
                 {t('apiTokens.createDialog.expiresAt')}
               </label>
-              <Input
-                type="date"
-                value={expiresAt}
-                onChange={(e) => setExpiresAt(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-              />
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={expiresAt}
+                  onChange={(e) => {
+                    setExpiresAt(e.target.value);
+                    setExpiresAtTouched(true);
+                  }}
+                  min={new Date().toISOString().split('T')[0]}
+                />
+                <Button
+                  type="button"
+                  variant={editingToken && isExpired(editingToken) ? 'outline' : 'ghost'}
+                  onClick={() => {
+                    setExpiresAt('');
+                    setExpiresAtTouched(true);
+                  }}
+                  disabled={
+                    updateToken.isPending ||
+                    (!expiresAt && !(editingToken && isExpired(editingToken)))
+                  }
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  {editingToken && isExpired(editingToken)
+                    ? t('apiTokens.reactivateToken')
+                    : t('apiTokens.editDialog.resetExpiresAt')}
+                </Button>
+              </div>
+              <p className="text-xs text-text-muted">
+                {expiresAtTouched && !expiresAt
+                  ? editingToken && isExpired(editingToken)
+                    ? t('apiTokens.reactivateHint')
+                    : t('apiTokens.editDialog.resetExpiresAtHint')
+                  : t('apiTokens.createDialog.expiresAtHint')}
+              </p>
             </div>
             <div className="flex items-center justify-between">
               <label
@@ -715,11 +828,7 @@ export function APITokensPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={closeEditDialog}
-              >
+              <Button type="button" variant="outline" onClick={closeEditDialog}>
                 {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={updateToken.isPending || !name}>
@@ -728,6 +837,51 @@ export function APITokensPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cleanup Expired Confirmation */}
+      <Dialog
+        open={cleanupExpiredDialogOpen}
+        onOpenChange={(open: boolean) => !open && setCleanupExpiredDialogOpen(false)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('apiTokens.cleanupExpired.title')}</DialogTitle>
+            <DialogDescription>
+              {t('apiTokens.cleanupExpired.description', {
+                count: expiredTokenCount,
+              })}
+            </DialogDescription>
+            {expiredTokenCount > 0 && (
+              <ul className="space-y-1 rounded-lg border border-border bg-surface-secondary p-3 text-xs text-text-secondary">
+                {expiredTokens.slice(0, 5).map((token) => (
+                  <li key={token.id} className="flex items-center justify-between gap-3">
+                    <span className="truncate">{token.name}</span>
+                    <code className="shrink-0 font-mono text-text-muted">{token.tokenPrefix}</code>
+                  </li>
+                ))}
+                {expiredTokenCount > 5 && (
+                  <li className="text-text-muted">
+                    {t('apiTokens.cleanupExpired.more', { count: expiredTokenCount - 5 })}
+                  </li>
+                )}
+              </ul>
+            )}
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCleanupExpiredDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCleanupExpiredTokens}
+              disabled={cleanupExpiredTokens.isPending || expiredTokenCount === 0}
+            >
+              {cleanupExpiredTokens.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {t('apiTokens.cleanupExpired.confirm', { count: expiredTokenCount })}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -892,7 +1046,9 @@ export function APITokensPage() {
                       : t('apiTokens.codexConfigDialog.copyToClipboard')}
                   </Button>
                   <pre className="max-h-64 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-muted/40 p-3 pr-24 text-xs font-mono">
-                    <code className="block min-w-full whitespace-pre">{codexBundle.configToml}</code>
+                    <code className="block min-w-full whitespace-pre">
+                      {codexBundle.configToml}
+                    </code>
                   </pre>
                 </div>
               </div>

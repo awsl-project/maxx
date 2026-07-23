@@ -1,5 +1,5 @@
 /**
- * Playwright E2E Test: Codex Provider - reasoning & service_tier overrides
+ * Playwright E2E Test: Codex Provider - reasoning defaults & service_tier overrides
  *
  * 使用方式：
  *   npx playwright test -c playwright.config.ts codex-reasoning-servicetier.spec.ts --project=e2e-chromium
@@ -92,7 +92,7 @@ async function sendCodexRequest(apiToken: string, body: unknown) {
   return JSON.parse(text);
 }
 
-test('codex provider overrides reasoning and service tier as configured', async () => {
+test('codex provider applies reasoning defaults and service tier overrides as configured', async () => {
   const mock = await startMockCodexServer();
   let jwt: string | null = null;
   let apiTokenId: number | null = null;
@@ -127,7 +127,7 @@ test('codex provider overrides reasoning and service tier as configured', async 
     apiTokenId = tokenResult.apiToken.id as number;
     console.log('✅ API token created');
 
-    console.log('\n========== Test 1: reasoning=high, serviceTier=priority ==========');
+    console.log('\n========== Test 1: explicit client reasoning stays, serviceTier=priority ==========');
     const provider1 = await adminAPI(
       'POST',
       '/providers',
@@ -168,13 +168,13 @@ test('codex provider overrides reasoning and service tier as configured', async 
         max_output_tokens: 100,
       })).id,
     ).toBeTruthy();
-    expect(mock.captured.at(-1)?.body.reasoning?.effort).toBe('high');
+    expect(mock.captured.at(-1)?.body.reasoning?.effort).toBe('low');
     expect(mock.captured.at(-1)?.body.service_tier).toBe('priority');
-    console.log('✅ Test 1 PASSED: reasoning=high, serviceTier=priority correctly overridden');
+    console.log('✅ Test 1 PASSED: explicit reasoning kept, serviceTier=priority correctly overridden');
 
     await adminAPI('PUT', `/routes/${route1.id}`, { ...route1, isEnabled: false }, jwt);
 
-    console.log('\n========== Test 2: reasoning=low, serviceTier=flex ==========');
+    console.log('\n========== Test 2: explicit client reasoning stays, serviceTier=flex ==========');
     const provider2 = await adminAPI(
       'POST',
       '/providers',
@@ -215,9 +215,9 @@ test('codex provider overrides reasoning and service tier as configured', async 
         max_output_tokens: 200,
       })).id,
     ).toBeTruthy();
-    expect(mock.captured.at(-1)?.body.reasoning?.effort).toBe('low');
+    expect(mock.captured.at(-1)?.body.reasoning?.effort).toBe('high');
     expect(mock.captured.at(-1)?.body.service_tier).toBe('flex');
-    console.log('✅ Test 2 PASSED: reasoning=low, serviceTier=flex correctly overridden');
+    console.log('✅ Test 2 PASSED: explicit reasoning kept, serviceTier=flex correctly overridden');
 
     await adminAPI('PUT', `/routes/${route2.id}`, { ...route2, isEnabled: false }, jwt);
 
@@ -266,7 +266,7 @@ test('codex provider overrides reasoning and service tier as configured', async 
 
     await adminAPI('PUT', `/routes/${route3.id}`, { ...route3, isEnabled: false }, jwt);
 
-    console.log('\n========== Test 4: Dynamic update — add overrides ==========');
+    console.log('\n========== Test 4: Dynamic update — add reasoning default and service tier override ==========');
     await adminAPI('PUT', `/routes/${route3.id}`, { ...route3, isEnabled: true }, jwt);
     await adminAPI(
       'PUT',
@@ -295,13 +295,13 @@ test('codex provider overrides reasoning and service tier as configured', async 
         max_output_tokens: 50,
       })).id,
     ).toBeTruthy();
-    expect(mock.captured.at(-1)?.body.reasoning?.effort).toBe('high');
+    expect(mock.captured.at(-1)?.body.reasoning?.effort).toBe('low');
     expect(mock.captured.at(-1)?.body.service_tier).toBe('priority');
-    console.log('✅ Test 4 PASSED: Dynamic update applied correctly');
+    console.log('✅ Test 4 PASSED: Dynamic update kept explicit reasoning and applied service tier');
 
     await adminAPI('PUT', `/routes/${route3.id}`, { ...route3, isEnabled: false }, jwt);
 
-    console.log('\n========== Test 5: Client omits fields, provider overrides ==========');
+    console.log('\n========== Test 5: Client omits fields, provider fills default reasoning and service tier ==========');
     const provider5 = await adminAPI(
       'POST',
       '/providers',
@@ -342,7 +342,7 @@ test('codex provider overrides reasoning and service tier as configured', async 
     ).toBeTruthy();
     expect(mock.captured.at(-1)?.body.reasoning?.effort).toBe('high');
     expect(mock.captured.at(-1)?.body.service_tier).toBe('flex');
-    console.log('✅ Test 5 PASSED: Provider overrides injected when client omits fields');
+    console.log('✅ Test 5 PASSED: Provider default reasoning and service tier injected when client omits fields');
 
     console.log('✅ Cleanup completed');
   } finally {

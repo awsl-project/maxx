@@ -142,9 +142,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Execute request
 	resp, err := a.httpClient.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-		proxyErr.Message = "failed to connect to upstream"
-		return proxyErr
+		return domain.NewUpstreamConnectionError("failed to connect to upstream")
 	}
 	defer resp.Body.Close()
 
@@ -179,9 +177,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
-			proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-			proxyErr.Message = "failed to connect to upstream after token refresh"
-			return proxyErr
+			return domain.NewUpstreamConnectionError("failed to connect to upstream after token refresh")
 		}
 		defer resp.Body.Close()
 	}
@@ -737,6 +733,11 @@ func classifyKiroHTTPError(statusCode int, body []byte, headers http.Header, mod
 	case statusCode == 401:
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == http.StatusPaymentRequired:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
 		proxyErr.Retryable = false
 
 	case statusCode == 403:

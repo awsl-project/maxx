@@ -17,16 +17,19 @@ import (
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
 	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"  // Register custom adapter
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"    // Register kiro adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"     // Register claude adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"     // Register custom adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/grok"       // Register grok adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"       // Register kiro adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/newapi"     // Register newapi adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/ollama"     // Register ollama adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/openrouter" // Register openrouter adapter
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
@@ -51,12 +54,42 @@ func generateInstanceID() string {
 	return fmt.Sprintf("%s-%d", hostname, time.Now().UnixNano())
 }
 
+// flagPassed reports whether the named flag was explicitly set on the command
+// line, so an explicit flag can take precedence over an environment variable.
+func flagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+// isTruthyEnv interprets common truthy spellings of a boolean env var.
+func isTruthyEnv(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func main() {
 	// Parse flags
 	addr := flag.String("addr", ":9880", "Server address")
 	dataDir := flag.String("data", "", "Data directory for database and logs (default: ~/.config/maxx)")
 	showVersion := flag.Bool("version", false, "Show version information and exit")
+	noUI := flag.Bool("no-ui", false, "Headless mode: do not serve the web UI, expose API/proxy only (env: MAXX_DISABLE_UI)")
 	flag.Parse()
+
+	// Headless mode: an explicit -no-ui flag wins; otherwise fall back to the
+	// MAXX_DISABLE_UI env var (truthy = 1/true/yes/on) for container deployments.
+	disableUI := *noUI
+	if !flagPassed("no-ui") {
+		disableUI = isTruthyEnv(os.Getenv("MAXX_DISABLE_UI"))
+	}
 
 	// Show version and exit if requested
 	if *showVersion {
@@ -362,29 +395,6 @@ func main() {
 		return &converter.GlobalSettings{CodexInstructionsEnabled: enabled}, nil
 	})
 
-	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
-		val, err := settingRepo.Get(domain.SettingKeyPayloadOverrideRules)
-		if err != nil {
-			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyPayloadOverrideRules, err)
-		}
-		if strings.TrimSpace(val) == "" {
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		if err := payloadoverride.ValidateRulesJSON(val); err != nil {
-			log.Printf("Warning: Ignoring invalid payload override rules: %v", err)
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		rules, err := payloadoverride.ParseRules(val)
-		if err != nil {
-			log.Printf("Warning: Failed to parse payload override rules: %v", err)
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		return &payloadoverride.GlobalSettings{Rules: rules}, nil
-	})
-	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
-		log.Printf("Warning: Failed to warm payload override cache: %v", err)
-	}
-
 	// Create project waiter for force project binding
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
@@ -485,9 +495,10 @@ func main() {
 	claudeHandler := handler.NewClaudeHandler(adminService, wsHub)
 
 	// Use already-created cached project repository for project proxy handler
-	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
-	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
-	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
+	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo, r)
+	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
+	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, protectedModelsHandler, cachedProjectRepo, settingRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, protectedModelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo, settingRepo)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -511,8 +522,9 @@ func main() {
 	// Proxy routes - catch all AI API endpoints
 	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
 		ProxyHandler:         proxyHandler,
-		ModelsHandler:        modelsHandler,
+		ModelsHandler:        protectedModelsHandler,
 		ProviderProxyHandler: providerProxyHandler,
+		SettingRepo:          settingRepo,
 	})
 
 	// Health check
@@ -525,13 +537,32 @@ func main() {
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", wsHub.HandleWebSocket)
 
-	// Serve static files (Web UI) with project proxy support - must be last (default route)
-	staticHandler := handler.NewStaticHandler()
-	combinedHandler := handler.NewCombinedHandler(projectProxyHandler, staticHandler)
-	mux.Handle("/", combinedHandler)
+	// Default route ("/"). In headless mode we skip the web UI entirely and
+	// only keep the project-prefixed proxy (/project/{slug}/...); everything
+	// else 404s. Otherwise serve the web UI with project proxy support.
+	if disableUI {
+		mux.Handle("/", projectProxyHandler)
+		log.Printf("Web UI: disabled (headless mode)")
+	} else {
+		staticHandler := handler.NewStaticHandler()
+		combinedHandler := handler.NewCombinedHandler(projectProxyHandler, staticHandler)
+		mux.Handle("/", combinedHandler)
+	}
 
-	// Wrap with logging middleware
-	loggedMux := handler.LoggingMiddleware(mux)
+	// Wrap with logging middleware, then CORS (outermost so preflight responses
+	// also carry the headers). CORS is a no-op unless MAXX_CORS_ALLOW_ORIGINS
+	// is set — this lets a separately-hosted frontend point at this backend.
+	corsConfig := handler.ParseCORSOrigins(os.Getenv("MAXX_CORS_ALLOW_ORIGINS"))
+	if corsConfig.Enabled() {
+		log.Printf("CORS: allowing origins %v", corsConfig.AllowOrigins)
+		// A wildcard origin makes every route — including the admin API —
+		// readable from any website. CORS is not a substitute for auth, so warn
+		// loudly when "*" is combined with an unauthenticated admin API.
+		if corsConfig.HasWildcard() && os.Getenv("MAXX_ADMIN_PASSWORD") == "" {
+			log.Printf("WARNING: MAXX_CORS_ALLOW_ORIGINS=* with no MAXX_ADMIN_PASSWORD — any website can read/modify the admin API from a browser. Set MAXX_ADMIN_PASSWORD or list explicit trusted origins instead of '*'.")
+		}
+	}
+	loggedMux := handler.CORSMiddleware(corsConfig, handler.LoggingMiddleware(mux))
 
 	// Create HTTP server
 	server := &http.Server{

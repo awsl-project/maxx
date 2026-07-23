@@ -51,13 +51,15 @@ type StickyWrite struct {
 // nil we fall back to context.Background; nil is allowed so existing
 // non-proxy call sites don't have to plumb a context in.
 type MatchContext struct {
-	Ctx          context.Context
-	TenantID     uint64
-	ClientType   domain.ClientType
-	ProjectID    uint64
-	RequestModel string
-	APITokenID   uint64
-	SessionID    string
+	Ctx                       context.Context
+	TenantID                  uint64
+	ClientType                domain.ClientType
+	ProjectID                 uint64
+	RequestModel              string
+	APITokenID                uint64
+	SessionID                 string
+	RequireResponsesWebSocket bool
+	RequiredProviderID        uint64
 }
 
 // Router handles route matching and selection
@@ -71,6 +73,7 @@ type Router struct {
 	// Adapter cache
 	adapters map[uint64]provider.ProviderAdapter
 	mu       sync.RWMutex
+	limiter  *ProviderLimiter
 
 	// Cooldown manager
 	cooldownManager *cooldown.Manager
@@ -91,8 +94,21 @@ func NewRouter(
 		retryConfigRepo:     retryConfigRepo,
 		projectRepo:         projectRepo,
 		adapters:            make(map[uint64]provider.ProviderAdapter),
+		limiter:             NewProviderLimiter(),
 		cooldownManager:     cooldown.Default(),
 	}
+}
+
+// TryAcquireProvider reserves an upstream session slot for a provider.
+func (r *Router) TryAcquireProvider(p *domain.Provider) (func(), bool) {
+	if r == nil || p == nil {
+		return nil, false
+	}
+	return r.limiter.TryAcquire(p.ID, p.MaxConcurrency)
+}
+
+func (r *Router) isProviderAtConcurrencyLimit(p *domain.Provider) bool {
+	return r != nil && p != nil && r.limiter.IsAtLimit(p.ID, p.MaxConcurrency)
 }
 
 // InitAdapters initializes adapters for all providers
@@ -110,7 +126,7 @@ func (r *Router) InitAdapters() error {
 		if err != nil {
 			return err
 		}
-		r.injectProviderUpdate(a)
+		r.injectProviderUpdate(a, p)
 		r.adapters[p.ID] = a
 	}
 	return nil
@@ -126,7 +142,7 @@ func (r *Router) RefreshAdapter(p *domain.Provider) error {
 	if err != nil {
 		return err
 	}
-	r.injectProviderUpdate(a)
+	r.injectProviderUpdate(a, p)
 	r.mu.Lock()
 	r.adapters[p.ID] = a
 	r.mu.Unlock()
@@ -220,6 +236,9 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	}
 
 	if len(filtered) == 0 {
+		if ctx.RequireResponsesWebSocket {
+			return nil, domain.ErrNoResponsesWebSocketProviders
+		}
 		return nil, domain.ErrNoRoutes
 	}
 
@@ -247,14 +266,28 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	var matched []*MatchedRoute
 	providers := r.providerRepo.GetAll()
 
+	// Track why candidates were dropped so an empty result can be reported
+	// precisely: sawModelReject means a route was skipped purely because the model
+	// is not in the provider's SupportModels allowlist (a client request error);
+	// sawTransientSkip means a route was skipped for a transient reason (cooldown)
+	// that might otherwise have served the model — in which case we stay with the
+	// generic ErrNoAvailableProviders rather than blaming the model.
+	sawModelReject := false
+	sawTransientSkip := false
+
 	for _, route := range filtered {
 		prov, ok := providers[route.ProviderID]
 		if !ok {
 			continue
 		}
+		if r.isProviderAtConcurrencyLimit(prov) {
+			sawTransientSkip = true
+			continue
+		}
 
 		// Skip providers in cooldown (checks provider, key, and model-level cooldowns)
 		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType), requestModel) {
+			sawTransientSkip = true
 			continue
 		}
 
@@ -262,12 +295,32 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		if !ok {
 			continue
 		}
+		if ctx.RequiredProviderID != 0 && prov.ID != ctx.RequiredProviderID {
+			continue
+		}
+		// Derive native capability from provider + client type; never trust
+		// the historical routes.is_native snapshot for WebSocket eligibility.
+		native := domain.RouteIsNative(prov, route)
+		if ctx.RequireResponsesWebSocket {
+			wsAdapter := adapterSupportsResponsesWebSocket(adp)
+			wsEnabled := domain.ProviderResponsesWebSocketEnabled(prov)
+			if !native || !wsAdapter || !wsEnabled {
+				log.Printf(
+					"[Router] skip codex websocket candidate provider=%d type=%s native=%v wsAdapter=%v wsEnabled=%v adapter=%T",
+					prov.ID, prov.Type, native, wsAdapter, wsEnabled, adp,
+				)
+				continue
+			}
+		}
 
-		// Check if provider supports the request model
-		// SupportModels check is done BEFORE mapping
-		// If SupportModels is configured, check if the request model is supported
-		if len(prov.SupportModels) > 0 && requestModel != "" {
+		// Check if provider supports the request model only when the adapter
+		// natively speaks the request protocol. Converted routes (for example an
+		// OpenAI chat route targeting a Claude provider) map the model later in
+		// dispatch, so applying provider-native SupportModels to the pre-mapped
+		// request model here would incorrectly drop valid cross-protocol routes.
+		if adapterSupportsClientType(adp, clientType) && len(prov.SupportModels) > 0 && requestModel != "" {
 			if !r.isModelSupported(requestModel, prov.SupportModels) {
+				sawModelReject = true
 				continue
 			}
 		}
@@ -290,7 +343,19 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	r.mu.RUnlock()
 
 	if len(matched) == 0 {
-		return nil, domain.ErrNoRoutes
+		if ctx.RequireResponsesWebSocket {
+			if ctx.RequiredProviderID != 0 {
+				return nil, domain.ErrResponsesWebSocketSessionUnavailable
+			}
+			return nil, domain.ErrNoResponsesWebSocketProviders
+		}
+		// Only blame the model when the emptiness is entirely due to SupportModels
+		// rejections; a transient skip (cooldown) may hide a provider that does
+		// support it, so fall back to the generic error to avoid mislabeling.
+		if sawModelReject && !sawTransientSkip {
+			return nil, domain.ErrModelNotSupported
+		}
+		return nil, domain.ErrNoAvailableProviders
 	}
 
 	// Sticky / session-affinity layer. Only meaningful when:
@@ -334,6 +399,132 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	}
 
 	return &MatchResult{Routes: matched, Sticky: stickyWrite}, nil
+}
+
+func adapterSupportsClientType(adapter provider.ProviderAdapter, clientType domain.ClientType) bool {
+	for _, supported := range adapter.SupportedClientTypes() {
+		if supported == clientType {
+			return true
+		}
+	}
+	return false
+}
+
+func adapterSupportsResponsesWebSocket(adapter provider.ProviderAdapter) bool {
+	if adapter == nil || !adapterSupportsClientType(adapter, domain.ClientTypeCodex) {
+		return false
+	}
+	_, ok := adapter.(provider.ResponsesWebSocketAdapter)
+	return ok
+}
+
+// HasResponsesWebSocketProvider reports whether Match would find any Codex route
+// that can serve Responses over WebSocket (native + adapter + opt-in flag).
+//
+// Route scope MUST match Match exactly: when the project enables custom Codex
+// routes and has project-scoped Codex routes, only those are considered;
+// otherwise only global (ProjectID == 0) routes. A false positive here lets the
+// upgrade succeed (101) and Codex will not auto-fallback to HTTP/SSE — only an
+// immediate 426 Upgrade Required triggers FallbackToHttp in official Codex.
+func (r *Router) HasResponsesWebSocketProvider(tenantID, projectID uint64) bool {
+	if r == nil {
+		return false
+	}
+	routes, err := r.routeRepo.List(tenantID)
+	if err != nil {
+		return false
+	}
+
+	// Mirror Match's project custom-route gate for ClientTypeCodex.
+	useProjectRoutes := false
+	if projectID != 0 && r.projectRepo != nil {
+		project, err := r.projectRepo.GetByID(tenantID, projectID)
+		if err == nil && project != nil && len(project.EnabledCustomRoutes) > 0 {
+			for _, ct := range project.EnabledCustomRoutes {
+				if ct == domain.ClientTypeCodex {
+					useProjectRoutes = true
+					break
+				}
+			}
+		}
+	}
+
+	// Select the same candidate set Match would use before capability filters.
+	var candidates []*domain.Route
+	if useProjectRoutes {
+		for _, route := range routes {
+			if route == nil || !route.IsEnabled {
+				continue
+			}
+			if tenantID > 0 && route.TenantID != tenantID {
+				continue
+			}
+			if route.ClientType != domain.ClientTypeCodex {
+				continue
+			}
+			if route.ProjectID == projectID && projectID != 0 {
+				candidates = append(candidates, route)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		for _, route := range routes {
+			if route == nil || !route.IsEnabled {
+				continue
+			}
+			if tenantID > 0 && route.TenantID != tenantID {
+				continue
+			}
+			if route.ClientType != domain.ClientTypeCodex {
+				continue
+			}
+			if route.ProjectID == 0 {
+				candidates = append(candidates, route)
+			}
+		}
+	}
+
+	providers := r.providerRepo.GetAll()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, route := range candidates {
+		prov, ok := providers[route.ProviderID]
+		if !ok || prov == nil || r.isProviderAtConcurrencyLimit(prov) {
+			continue
+		}
+		adp, ok := r.adapters[route.ProviderID]
+		if !ok {
+			continue
+		}
+		if !domain.RouteIsNative(prov, route) {
+			continue
+		}
+		if !adapterSupportsResponsesWebSocket(adp) {
+			continue
+		}
+		if !domain.ProviderResponsesWebSocketEnabled(prov) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (r *Router) CloseResponsesWebSocketConnection(connectionID string) {
+	if r == nil || connectionID == "" {
+		return
+	}
+	r.mu.RLock()
+	cleaners := make([]provider.ResponsesWebSocketSessionCleaner, 0, len(r.adapters))
+	for _, adapter := range r.adapters {
+		if cleaner, ok := adapter.(provider.ResponsesWebSocketSessionCleaner); ok {
+			cleaners = append(cleaners, cleaner)
+		}
+	}
+	r.mu.RUnlock()
+	for _, cleaner := range cleaners {
+		cleaner.CloseResponsesWebSocketConnection(connectionID)
+	}
 }
 
 // isModelSupported checks if a model matches any pattern in the support list
@@ -562,7 +753,7 @@ func (r *Router) ClearCooldown(providerID uint64) error {
 
 // injectProviderUpdate injects a provider-update callback into adapters that support it.
 // Uses duck-typing: if the adapter has SetProviderUpdateFunc, inject repo.Update.
-func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
+func (r *Router) injectProviderUpdate(a provider.ProviderAdapter, p *domain.Provider) {
 	type providerUpdater interface {
 		SetProviderUpdateFunc(fn func(*domain.Provider) error)
 	}
@@ -572,5 +763,18 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
 			return repo.Update(p)
 		})
 	}
-}
 
+	// providerReload lets the adapter re-read the freshest provider record (to
+	// pick up a token another path rotated and persisted) while holding its
+	// refresh lock.
+	type providerReloader interface {
+		SetProviderReloadFunc(fn func() (*domain.Provider, error))
+	}
+	if u, ok := a.(providerReloader); ok && p != nil {
+		repo := r.providerRepo
+		tenantID, id := p.TenantID, p.ID
+		u.SetProviderReloadFunc(func() (*domain.Provider, error) {
+			return repo.GetByID(tenantID, id)
+		})
+	}
+}

@@ -22,6 +22,10 @@ import { Button, Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { BEDROCK_COLOR } from '../types';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
+import {
+  ProviderMaxConcurrencyField,
+  useProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 interface BedrockProviderViewProps {
   provider: Provider;
@@ -99,6 +103,9 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
     setCopied(key);
     setTimeout(() => setCopied(null), 2000);
   };
+
+  const { maxConcurrency, setMaxConcurrency, handleCommitMaxConcurrency } =
+    useProviderMaxConcurrencyField(provider, updateProvider);
 
   const handleToggleCooldown = async (checked: boolean) => {
     await updateProvider.mutateAsync({
@@ -330,6 +337,13 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
               </p>
             )}
           </div>
+
+          <ProviderMaxConcurrencyField
+            value={maxConcurrency}
+            onChange={setMaxConcurrency}
+            onCommit={handleCommitMaxConcurrency}
+            disabled={updateProvider.isPending}
+          />
 
           {/* Error Cooldown */}
           <div className="space-y-4">

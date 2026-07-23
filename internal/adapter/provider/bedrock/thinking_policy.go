@@ -1,6 +1,8 @@
 package bedrock
 
 import (
+	"regexp"
+
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -67,25 +69,25 @@ func AdaptThinkingForModel(body []byte, shortName string) []byte {
 	// always-on adaptive — so we re-strip here, with model context.
 	body = StripSamplingParams(body)
 
+	return RewriteClassicThinkingToAdaptive(body)
+}
+
+// RewriteClassicThinkingToAdaptive converts Claude's classic extended-thinking
+// shape into the adaptive shape used by newer Bedrock Claude SKUs. It does not
+// require model context, so the error-driven retry path can use it when AWS
+// tells us at runtime that a model is adaptive-only.
+func RewriteClassicThinkingToAdaptive(body []byte) []byte {
 	thinkingType := gjson.GetBytes(body, "thinking.type").String()
 	if thinkingType == "" || thinkingType == "adaptive" || thinkingType == "disabled" {
 		return body
 	}
 
-	budget := gjson.GetBytes(body, "thinking.budget_tokens").Int()
-	effort := "low"
-	switch {
-	case budget >= 32000:
-		effort = "high"
-	case budget >= 8000:
-		effort = "medium"
-	}
+	effort := effortForThinkingBudget(gjson.GetBytes(body, "thinking.budget_tokens").Int())
 
-	// Replace the thinking block with just {type: adaptive}. budget_tokens
-	// is not valid under adaptive and would be rejected; the effort
-	// signal moves to output_config.effort.
-	body, _ = sjson.SetBytes(body, "thinking.type", "adaptive")
-	body, _ = sjson.DeleteBytes(body, "thinking.budget_tokens")
+	// Replace the thinking block with exactly {type: adaptive}. budget_tokens
+	// and any other classic-only thinking fields are not valid under adaptive
+	// and would be rejected; the effort signal moves to output_config.effort.
+	body, _ = sjson.SetRawBytes(body, "thinking", []byte(`{"type":"adaptive"}`))
 
 	// Preserve any effort the client already set on output_config; only
 	// fill it in when absent, so a caller who knows what they want wins.
@@ -93,4 +95,28 @@ func AdaptThinkingForModel(body []byte, shortName string) []byte {
 		body, _ = sjson.SetBytes(body, "output_config.effort", effort)
 	}
 	return body
+}
+
+func effortForThinkingBudget(budget int64) string {
+	switch {
+	case budget >= 32000:
+		return "high"
+	case budget >= 8000:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+var classicThinkingRejectedPattern = regexp.MustCompile(
+	`(?i)(?:"?thinking\.type\.enabled"?|thinking\.type\s*=\s*"?enabled"?)` +
+		`[^\n]{0,200}\b(?:not\s+supported|unsupported|is\s+not\s+allowed|requires?\s+adaptive)\b` +
+		`|` +
+		`\buse\b[^\n]{0,120}"?thinking\.type\.adaptive"?[^\n]{0,120}\boutput_config\.effort\b`,
+)
+
+// IsClassicThinkingRejectedError reports whether Bedrock rejected the classic
+// thinking.type="enabled" shape and asked for adaptive thinking instead.
+func IsClassicThinkingRejectedError(body []byte) bool {
+	return classicThinkingRejectedPattern.Match(body)
 }

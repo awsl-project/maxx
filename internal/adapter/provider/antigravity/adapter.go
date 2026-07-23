@@ -242,9 +242,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					if hasNextEndpoint(idx, len(baseURLs)) {
 						continue
 					}
-					proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-					proxyErr.Message = "failed to connect to upstream"
-					return proxyErr
+					return domain.NewUpstreamConnectionError("failed to connect to upstream")
 				}
 
 				// Check for 401 (token expired) and retry once
@@ -282,9 +280,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						if hasNextEndpoint(idx, len(baseURLs)) {
 							continue
 						}
-						proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-						proxyErr.Message = "failed to connect to upstream after token refresh"
-						return proxyErr
+						return domain.NewUpstreamConnectionError("failed to connect to upstream after token refresh")
 					}
 				}
 
@@ -345,17 +341,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 
 					// Set status code and classify error scope/reason
 					proxyErr.HTTPStatusCode = resp.StatusCode
-					if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-						proxyErr.Scope = domain.ScopeKey
-						proxyErr.Reason = domain.CooldownReasonAuthFailure
-						proxyErr.Retryable = false
-					} else if resp.StatusCode >= 500 && resp.StatusCode < 600 {
-						proxyErr.Scope = domain.ScopeProvider
-						proxyErr.Reason = domain.CooldownReasonServerError
-					} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-						proxyErr.Scope = domain.ScopeRequest
-						proxyErr.Retryable = false
-					}
+					classifyAntigravityHTTPError(proxyErr, resp.StatusCode)
 
 					// Set retry info on error for upstream handling
 					if retryAfter > 0 {
@@ -973,6 +959,29 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 	}
 }
 
+// classifyAntigravityHTTPError maps upstream HTTP status into failover/cooldown scope.
+func classifyAntigravityHTTPError(proxyErr *domain.ProxyError, statusCode int) {
+	if proxyErr == nil {
+		return
+	}
+
+	if statusCode == http.StatusPaymentRequired {
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		proxyErr.Retryable = false
+	} else if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+	} else if statusCode >= 500 && statusCode < 600 {
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+	} else if statusCode >= 400 && statusCode < 500 {
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+	}
+}
+
 // handleCollectedStreamResponse forwards upstream SSE but collects into a single response body (like Manager non-stream auto-convert)
 func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *http.Response, clientType domain.ClientType, requestModel string) error {
 	w := c.Writer
@@ -1129,8 +1138,8 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 				domain.ClientTypeGemini, domain.ClientTypeOpenAI, geminiResponse)
 			if convErr != nil {
 				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
-			proxyErr.Scope = domain.ScopeRequest
-			return proxyErr
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 		default:
 			responseBody = geminiResponse
@@ -1174,6 +1183,15 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 		return "", "", nil, nil
 	}
 
+	// Request-rate throttles are short-lived. They may still use the Google
+	// RESOURCE_EXHAUSTED status, but their body/retry info describes a rate limit
+	// rather than exhausted account quota. Do not route those through the 1-minute
+	// quota fallback; Executor will use Retry-After/RetryInfo when present, or the
+	// rate-limit policy fallback (5s) otherwise.
+	if parseRateLimitReason(string(body)) == RateLimitReasonRateLimitExceeded {
+		return domain.ScopeKey, domain.CooldownReasonRateLimitExceeded, nil, nil
+	}
+
 	// Look for QUOTA_EXHAUSTED with quotaResetTimeStamp in details
 	var resetTime time.Time
 	for _, detail := range errResp.Error.Details {
@@ -1211,8 +1229,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 
 		quota, err := FetchQuotaForProvider(quotaCtx, config.RefreshToken, config.ProjectID)
 		if err != nil {
-			// Failed to fetch quota, send 1-minute cooldown
-			updateChan <- time.Now().Add(time.Minute)
+			// Failed to fetch quota; keep the initial 1-minute quota fallback cooldown.
 			return
 		}
 
@@ -1237,8 +1254,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 			// Quota is 0, send cooldown until reset time
 			updateChan <- earliestReset
 		} else {
-			// Quota is not 0, send 1-minute cooldown
-			updateChan <- time.Now().Add(time.Minute)
+			// Quota is not 0; keep the initial 1-minute quota fallback cooldown.
 		}
 	}()
 

@@ -3,8 +3,10 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,6 +44,25 @@ type ProxyHandler struct {
 	trackerMu     sync.RWMutex
 	engine        *flow.Engine
 	extra         []flow.HandlerFunc
+	uploadLimiter *uploadLimiter
+}
+
+func isUserPanelAPIToken(apiToken *domain.APIToken) bool {
+	return apiToken != nil && strings.HasPrefix(apiToken.Description, userPanelAPITokenDescriptionPrefix)
+}
+
+func canAPITokenUseProjectBinding(apiToken *domain.APIToken) bool {
+	return !isUserPanelAPIToken(apiToken)
+}
+
+func apiTokenProjectBinding(apiToken *domain.APIToken, currentProjectID uint64) (uint64, bool) {
+	if apiToken == nil || currentProjectID != 0 || apiToken.ProjectID == 0 {
+		return currentProjectID, false
+	}
+	if !canAPITokenUseProjectBinding(apiToken) {
+		return currentProjectID, false
+	}
+	return apiToken.ProjectID, true
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -59,6 +80,7 @@ func NewProxyHandler(
 		settingRepo:   settingRepo,
 		tokenAuth:     tokenAuth,
 		engine:        flow.NewEngine(),
+		uploadLimiter: newUploadLimiterFromEnv(),
 	}
 	h.engine.Use(h.ingress)
 	return h
@@ -77,11 +99,48 @@ func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
 
 // ServeHTTP handles proxy requests
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if isResponsesWebSocketUpgrade(r) {
+		tenantID := domain.DefaultTenantID
+		var projectID uint64
+		if h.tokenAuth != nil {
+			apiToken, err := h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex)
+			if err != nil {
+				writeError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+			if apiToken != nil {
+				if apiToken.TenantID > 0 {
+					tenantID = apiToken.TenantID
+				}
+				// Token-bound project is known before upgrade; session binding is not.
+				projectID = apiToken.ProjectID
+			}
+		}
+
+		// Codex only immediately falls back to HTTP/SSE when the WebSocket
+		// handshake fails with 426 Upgrade Required (not after 101 + JSON error).
+		if h.executor == nil || !h.executor.HasResponsesWebSocketProvider(tenantID, projectID) {
+			writeResponsesWebSocketUpgradeRequired(w)
+			return
+		}
+
+		var readLimit int64
+		if h.uploadLimiter != nil {
+			readLimit = h.uploadLimiter.maxBytes
+		}
+		h.serveResponsesWebSocket(w, r, readLimit)
+		return
+	}
+
 	ctx := flow.NewCtx(w, r)
+	h.engine.HandleWith(ctx, h.proxyHandlers()...)
+}
+
+func (h *ProxyHandler) proxyHandlers() []flow.HandlerFunc {
 	handlers := make([]flow.HandlerFunc, len(h.extra)+1)
 	copy(handlers, h.extra)
 	handlers[len(h.extra)] = h.dispatch
-	h.engine.HandleWith(ctx, handlers...)
+	return handlers
 }
 
 func (h *ProxyHandler) ingress(c *flow.Ctx) {
@@ -117,20 +176,70 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		return
 	}
 
+	// Capture the client's original Responses request URI (path + query) before
+	// normalizing /v1 away, so a custom Codex downstream can be forwarded the exact
+	// path the client used (passthrough) rather than a hardcoded one.
+	if strings.HasPrefix(r.URL.Path, "/responses") || strings.HasPrefix(r.URL.Path, "/v1/responses") {
+		c.Set(flow.KeyResponsesClientPath, r.URL.RequestURI())
+	}
+
 	if strings.HasPrefix(r.URL.Path, "/v1/responses") {
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/v1")
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read request body")
+	// 大上传准入控制:在把 body 读进内存之前先门控,避免大量并发大上传同时挤爆堆。
+	// 名额持有到本函数返回(c.Next 同步跑完整个请求链路后),覆盖 body 在内存的整个生命周期。
+	//
+	// 刻意放在 stream 检测/鉴权之前:目的就是在做任何工作、读任何 body 之前廉价地泄洪。
+	// 代价是被泄洪的请求即使本是 SSE,拿到的也是 HTTP 层 413/429 而非 SSE 错误事件——
+	// 此时 body 还没读、client type 还不知道,无法构造对应协议的错误,可接受。
+	if h.uploadLimiter != nil {
+		if h.uploadLimiter.tooLarge(r.ContentLength) {
+			log.Printf("[Proxy] rejecting over-limit upload: %s %s (len=%d > %d)", r.Method, r.URL.Path, r.ContentLength, h.uploadLimiter.maxBytes)
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			c.Abort()
+			return
+		}
+		release, ok := h.uploadLimiter.acquire(r.Context(), r.ContentLength)
+		if !ok {
+			log.Printf("[Proxy] large-upload slot unavailable, shedding request: %s %s (len=%d)", r.Method, r.URL.Path, r.ContentLength)
+			writeRateLimitError(w, "server busy: too many concurrent large uploads, please retry", 5)
+			c.Abort()
+			return
+		}
+		defer release()
+	}
+
+	// 硬上限兜底:Content-Length 未知(chunked)时 tooLarge 预判不到,读取时用 LimitReader 封顶。
+	// +1 用于区分"恰好等于上限"与"超过上限";maxBytes 接近 MaxInt64 时跳过 +1 防溢出成负数。
+	var bodyReader io.Reader = r.Body
+	if h.uploadLimiter != nil && h.uploadLimiter.maxBytes > 0 {
+		limit := h.uploadLimiter.maxBytes
+		if limit < math.MaxInt64 {
+			limit++
+		}
+		bodyReader = io.LimitReader(r.Body, limit)
+	}
+	body := maxxctx.GetRequestBody(r.Context())
+	if body == nil {
+		var readErr error
+		body, readErr = io.ReadAll(bodyReader)
+		if readErr != nil {
+			_ = r.Body.Close()
+			writeError(w, http.StatusBadRequest, "failed to read request body")
+			c.Abort()
+			return
+		}
+	}
+	_ = r.Body.Close()
+	if h.uploadLimiter != nil && h.uploadLimiter.maxBytes > 0 && int64(len(body)) > h.uploadLimiter.maxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 		c.Abort()
 		return
 	}
-	_ = r.Body.Close()
 
 	// Normalize OpenAI Responses payloads sent to chat/completions
-	if strings.HasPrefix(r.URL.Path, "/v1/chat/completions") {
+	if isOpenAIChatCompletionsPath(r.URL.Path) {
 		if normalized, ok := normalizeOpenAIChatCompletionsPayload(body); ok {
 			body = normalized
 		}
@@ -148,6 +257,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		return
 	}
 
+	var err error
 	var apiToken *domain.APIToken
 	var apiTokenID uint64
 	if h.tokenAuth != nil {
@@ -168,7 +278,12 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
-	originalBody := bytes.Clone(body)
+	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
+	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非
+	// state.requestBody。因此别名共享即可,无需再 bytes.Clone 出一整份副本(每个请求
+	// 体可达数十 MB,这份拷贝纯属浪费)。真正需要独立副本的下游(converting_writer)
+	// 已自行 Clone。
+	originalBody := body
 
 	c.Set(flow.KeyClientType, clientType)
 	c.Set(flow.KeySessionID, sessionID)
@@ -182,6 +297,11 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	var projectID uint64
 	if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
+		if isUserPanelAPIToken(apiToken) {
+			writeError(w, http.StatusForbidden, "user panel token cannot select project")
+			c.Abort()
+			return
+		}
 		if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
 			projectID = pid
 			log.Printf("[Proxy] Using project ID from header: %d", projectID)
@@ -190,8 +310,8 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	c.Set(flow.KeyProjectID, projectID)
 
 	if apiToken != nil {
-		if apiToken.ProjectID > 0 && projectID == 0 {
-			c.Set(flow.KeyProjectID, apiToken.ProjectID)
+		if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
+			c.Set(flow.KeyProjectID, tokenProjectID)
 		}
 		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
 			log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
@@ -223,19 +343,19 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		log.Printf("[Proxy] Failed to load session %s: %v", sessionID, sessionErr)
 	}
 	if session != nil {
-		if session.ProjectID > 0 {
+		if !isUserPanelAPIToken(apiToken) && session.ProjectID > 0 {
 			projectID = session.ProjectID
 			log.Printf("[Proxy] Using project ID from session binding: %d", projectID)
-		} else if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
-			projectID = apiToken.ProjectID
+		} else if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
+			projectID = tokenProjectID
 			log.Printf("[Proxy] Using project ID from token: %d", projectID)
 		}
 		if touchErr := h.sessionRepo.Touch(tenantID, sessionID, now); touchErr != nil {
 			log.Printf("[Proxy] Failed to touch session %s: %v", sessionID, touchErr)
 		}
 	} else {
-		if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
-			projectID = apiToken.ProjectID
+		if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
+			projectID = tokenProjectID
 			log.Printf("[Proxy] Using project ID from token for new session: %d", projectID)
 		}
 		session = &domain.Session{
@@ -272,7 +392,12 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 	if err == nil {
 		return
 	}
-	proxyErr, ok := err.(*domain.ProxyError)
+	if flow.GetResponsesWebSocketExchange(c) != nil {
+		c.Err = err
+		c.Abort()
+		return
+	}
+	proxyErr, ok := asHandlerProxyError(err)
 	if ok {
 		if stream {
 			writeStreamError(c.Writer, proxyErr)
@@ -318,11 +443,7 @@ func normalizeOpenAIChatCompletionsPayload(body []byte) ([]byte, bool) {
 }
 
 func (h *ProxyHandler) isProxyRequestsDisabled() bool {
-	return isBooleanSystemSettingEnabled(h.settingRepo, domain.SettingKeyProxyRequestsDisabled)
-}
-
-func isBooleanSystemSettingEnabled(repo repository.SystemSettingRepository, key string) bool {
-	return systemsettingcache.GetBoolean(repo, key)
+	return systemsettingcache.GetBoolean(h.settingRepo, domain.SettingKeyProxyRequestsDisabled)
 }
 
 // Helper functions
@@ -334,6 +455,25 @@ func writeError(w http.ResponseWriter, status int, message string) {
 		"error": map[string]interface{}{
 			"message": message,
 			"type":    "proxy_error",
+		},
+	})
+}
+
+// writeResponsesWebSocketUpgradeRequired rejects the WebSocket upgrade with
+// HTTP 426 so official Codex clients immediately switch to HTTP/SSE.
+// See openai/codex codex-rs/core/src/client.rs (UPGRADE_REQUIRED → FallbackToHttp)
+// and core/tests/suite/websocket_fallback.rs.
+func writeResponsesWebSocketUpgradeRequired(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Connection", "close")
+	w.WriteHeader(http.StatusUpgradeRequired)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message":   "no provider supports Codex Responses WebSocket; use HTTP/SSE",
+			"type":      "proxy_error",
+			"code":      "websocket_not_supported",
+			"fallback":  "http_sse",
+			"retryable": true,
 		},
 	})
 }
@@ -371,12 +511,16 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 		statusCode = err.HTTPStatusCode
 	}
 	w.WriteHeader(statusCode)
+	payload := map[string]interface{}{
+		"message":   err.Error(),
+		"type":      "upstream_error",
+		"retryable": err.Retryable,
+	}
+	if err.Code != "" {
+		payload["code"] = err.Code
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]interface{}{
-			"message":   err.Error(),
-			"type":      "upstream_error",
-			"retryable": err.Retryable,
-		},
+		"error": payload,
 	})
 }
 
@@ -426,13 +570,17 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	}
 	w.WriteHeader(statusCode)
 
+	payload := map[string]interface{}{
+		"message":   err.Error(),
+		"type":      "upstream_error",
+		"retryable": err.Retryable,
+	}
+	if err.Code != "" {
+		payload["code"] = err.Code
+	}
 	errorEvent := map[string]interface{}{
-		"type": "error",
-		"error": map[string]interface{}{
-			"message":   err.Error(),
-			"type":      "upstream_error",
-			"retryable": err.Retryable,
-		},
+		"type":  "error",
+		"error": payload,
 	}
 	data, _ := json.Marshal(errorEvent)
 	w.Write([]byte("data: "))
@@ -442,4 +590,19 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func isOpenAIChatCompletionsPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/chat/completions") || strings.HasPrefix(path, "/chat/completions")
+}
+
+func asHandlerProxyError(err error) (*domain.ProxyError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var proxyErr *domain.ProxyError
+	if errors.As(err, &proxyErr) {
+		return proxyErr, true
+	}
+	return nil, false
 }

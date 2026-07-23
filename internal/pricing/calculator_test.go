@@ -81,6 +81,14 @@ func TestCalculateLinearCost(t *testing.T) {
 	}
 }
 
+func TestCalculatePremiumCost(t *testing.T) {
+	got := CalculatePremiumCost(300_000, 5_000_000, 2, 1)
+	const want = uint64(3_000_000_000)
+	if got != want {
+		t.Fatalf("CalculatePremiumCost() = %d, want %d", got, want)
+	}
+}
+
 func TestCalculator_Calculate(t *testing.T) {
 	calc := NewCalculator()
 
@@ -182,15 +190,15 @@ func TestCalculator_Calculate_WithCache(t *testing.T) {
 func TestCalculator_Calculate_1MContext(t *testing.T) {
 	calc := NewCalculator()
 
-	// Claude Sonnet 4.5 1M context: 超 200K 时 input×2, output×1.5
-	// input: $3/M, output: $15/M
+	// Claude Sonnet 4.5 1M context: 提示词超 200K 时整次请求
+	// input×2, output×1.5。input: $3/M, output: $15/M。
 	metrics := &usage.Metrics{
-		InputTokens:  300_000, // 200K×$3 + 100K×$3×2 = $0.6 + $0.6 = $1.2
-		OutputTokens: 50_000,  // <200K: 50K×$15/M = $0.75
+		InputTokens:  300_000, // 300K×$3×2 = $1.8
+		OutputTokens: 50_000,  // 50K×$15×1.5 = $1.125
 	}
 
 	got := calc.Calculate("claude-sonnet-4-5", metrics, 0)
-	expected := uint64(1_200_000_000 + 750_000_000)
+	expected := uint64(1_800_000_000 + 1_125_000_000)
 	if got.Cost != expected {
 		t.Errorf("Calculate() Cost = %d nanoUSD, want %d nanoUSD", got.Cost, expected)
 	}
@@ -365,38 +373,255 @@ func TestPriceTable_Get_PrefixMatch(t *testing.T) {
 	pt := DefaultPriceTable()
 
 	tests := []struct {
-		modelID   string
-		wantFound bool
+		modelID     string
+		wantModelID string
 	}{
-		{"claude-sonnet-4-5", true},
-		{"claude-sonnet-4-5-20250514", true},
-		{"claude-opus-4-5", true},
-		{"claude-opus-4-5-20251001", true},
-		{"claude-opus-4-6", true},
-		{"claude-opus-4-6-20260205", true},
-		{"claude-haiku-4-5", true},
-		{"claude-haiku-4-5-20251001", true},
-		{"gpt-5.1", true},
-		{"gpt-5.1-codex", true},
-		{"gpt-5.4", true},
-		{"gpt-5.4-mini", true},
-		{"gpt-5.5", true},
-		{"gpt-5.5-pro", true},
-		{"gemini-2.5-pro", true},
-		{"gemini-3-pro-preview", true},
-		{"unknown-model", false},
+		{"claude-sonnet-4-5", "claude-sonnet-4-5"},
+		{"claude-sonnet-4-5-20250514", "claude-sonnet-4-5-20250514"},
+		{"claude-sonnet-4-5-20260719", "claude-sonnet-4-5"},
+		{"claude-opus-4-5", "claude-opus-4-5"},
+		{"claude-opus-4-5-20251001", "claude-opus-4-5"},
+		{"claude-opus-4-6", "claude-opus-4-6"},
+		{"claude-opus-4-6-20260205", "claude-opus-4-6-20260205"},
+		{"claude-haiku-4-5", "claude-haiku-4-5"},
+		{"claude-haiku-4-5-20251001", "claude-haiku-4-5"},
+		{"gpt-5.1", "gpt-5.1"},
+		{"gpt-5.1-codex", "gpt-5.1-codex"},
+		{"gpt-5.1-codex-20260719", "gpt-5.1-codex"},
+		{"gpt-5.4", "gpt-5.4"},
+		{"gpt-5.4-20260719", "gpt-5.4"},
+		{"gpt-5.4-mini", "gpt-5.4-mini"},
+		{"gpt-5.4-mini-20260719", "gpt-5.4-mini"},
+		{"gpt-5.5", "gpt-5.5"},
+		{"gpt-5.5-pro", "gpt-5.5-pro"},
+		{"gpt-5.6", "gpt-5.6"},
+		{"gpt-5.6-sol", "gpt-5.6-sol"},
+		{"gpt-5.6-terra", "gpt-5.6-terra"},
+		{"gpt-5.6-luna", "gpt-5.6-luna"},
+		{"gemini-2.5-pro", "gemini-2.5-pro"},
+		{"gemini-3-pro-preview", "gemini-3-pro-preview"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.modelID, func(t *testing.T) {
 			pricing := pt.Get(tt.modelID)
-			if tt.wantFound && pricing == nil {
-				t.Errorf("Get(%s) = nil, want non-nil", tt.modelID)
+			if pricing == nil {
+				t.Fatalf("Get(%s) = nil, want %s", tt.modelID, tt.wantModelID)
 			}
-			if !tt.wantFound && pricing != nil {
-				t.Errorf("Get(%s) = %v, want nil", tt.modelID, pricing)
+			if pricing.ModelID != tt.wantModelID {
+				t.Errorf("Get(%s).ModelID = %s, want %s", tt.modelID, pricing.ModelID, tt.wantModelID)
 			}
 		})
+	}
+
+	if pricing := pt.Get("unknown-model"); pricing != nil {
+		t.Errorf("Get(unknown-model) = %v, want nil", pricing)
+	}
+}
+
+func TestCalculator_Calculate_GPT54ExactPricing(t *testing.T) {
+	calc := NewCalculator()
+
+	tests := []struct {
+		name    string
+		model   string
+		metrics *usage.Metrics
+		want    uint64
+	}{
+		{
+			name:  "gpt-5.4 exact slug",
+			model: "gpt-5.4",
+			metrics: &usage.Metrics{
+				InputTokens:          100_000,
+				OutputTokens:         10_000,
+				CacheReadCount:       20_000,
+				Cache5mCreationCount: 4_000,
+				Cache1hCreationCount: 2_000,
+			},
+			want: 427_500_000,
+		},
+		{
+			name:  "gpt-5.4 suffix uses prefix price",
+			model: "gpt-5.4-20260719",
+			metrics: &usage.Metrics{
+				InputTokens:  100_000,
+				OutputTokens: 10_000,
+			},
+			want: 400_000_000,
+		},
+		{
+			name:  "gpt-5.4-mini suffix uses longest prefix price",
+			model: "gpt-5.4-mini-20260719",
+			metrics: &usage.Metrics{
+				InputTokens:  100_000,
+				OutputTokens: 10_000,
+			},
+			want: 120_000_000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := calc.Calculate(tt.model, tt.metrics, 0)
+			if got.Cost != tt.want {
+				t.Errorf("Calculate(%s) Cost = %d, want %d", tt.model, got.Cost, tt.want)
+			}
+			if got.Multiplier != DefaultMultiplier {
+				t.Errorf("Calculate(%s) Multiplier = %d, want %d", tt.model, got.Multiplier, DefaultMultiplier)
+			}
+		})
+	}
+}
+
+func TestGPT56Pricing(t *testing.T) {
+	pt := DefaultPriceTable()
+	tests := []struct {
+		model      string
+		input      uint64
+		cacheRead  uint64
+		cacheWrite uint64
+		output     uint64
+	}{
+		{"gpt-5.6", 5_000_000, 500_000, 6_250_000, 30_000_000},
+		{"gpt-5.6-sol", 5_000_000, 500_000, 6_250_000, 30_000_000},
+		{"gpt-5.6-terra", 2_500_000, 250_000, 3_125_000, 15_000_000},
+		{"gpt-5.6-luna", 1_000_000, 100_000, 1_250_000, 6_000_000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			p := pt.Get(tt.model)
+			if p == nil {
+				t.Fatalf("Get(%s) = nil", tt.model)
+			}
+			if p.InputPriceMicro != tt.input || p.CacheReadPriceMicro != tt.cacheRead ||
+				p.Cache5mWritePriceMicro != tt.cacheWrite || p.OutputPriceMicro != tt.output {
+				t.Fatalf("unexpected prices for %s: %#v", tt.model, p)
+			}
+			if !p.Has1MContext || p.Context1MThreshold != 272_000 ||
+				p.InputPremiumNum != 2 || p.InputPremiumDenom != 1 ||
+				p.OutputPremiumNum != 3 || p.OutputPremiumDenom != 2 {
+				t.Fatalf("unexpected long-context pricing for %s: %#v", tt.model, p)
+			}
+		})
+	}
+
+	calc := NewCalculator()
+	atThreshold := calc.Calculate("gpt-5.6-sol", &usage.Metrics{
+		InputTokens:  272_000,
+		OutputTokens: 10_000,
+	}, 0)
+	if atThreshold.Cost != 1_660_000_000 {
+		t.Fatalf("at-threshold cost = %d, want 1660000000", atThreshold.Cost)
+	}
+
+	aboveThreshold := calc.Calculate("gpt-5.6-sol", &usage.Metrics{
+		InputTokens:  300_000,
+		OutputTokens: 10_000,
+	}, 0)
+	if aboveThreshold.Cost != 3_450_000_000 {
+		t.Fatalf("above-threshold cost = %d, want 3450000000", aboveThreshold.Cost)
+	}
+
+	withCache := calc.Calculate("gpt-5.6-sol", &usage.Metrics{
+		InputTokens:        50_000,
+		OutputTokens:       10_000,
+		CacheReadCount:     30_000,
+		CacheCreationCount: 200_000,
+	}, 0)
+	if withCache.Cost != 3_480_000_000 {
+		t.Fatalf("cache-triggered premium cost = %d, want 3480000000", withCache.Cost)
+	}
+}
+
+// TestGeminiFlashImagePricing guards the default price entries for OpenRouter's
+// (and native) Gemini 2.5 Flash Image model: image output tokens must be charged
+// at the image rate ($30/M), the OpenRouter google/-prefixed slug and its
+// -preview variant must resolve via prefix match, and the image slug must NOT be
+// mis-matched onto the cheaper non-image gemini-2.5-flash entry.
+func TestGeminiFlashImagePricing(t *testing.T) {
+	pt := DefaultPriceTable()
+
+	for _, id := range []string{
+		"gemini-2.5-flash-image",
+		"google/gemini-2.5-flash-image",
+		"google/gemini-2.5-flash-image-preview",
+	} {
+		p := pt.Get(id)
+		if p == nil {
+			t.Fatalf("Get(%s) = nil, want the flash-image price entry", id)
+		}
+		if p.ImageOutputPriceMicro != 30_000_000 {
+			t.Errorf("Get(%s).ImageOutputPriceMicro = %d, want 30_000_000", id, p.ImageOutputPriceMicro)
+		}
+		if p.InputPriceMicro != 300_000 || p.OutputPriceMicro != 2_500_000 {
+			t.Errorf("Get(%s) text prices = in %d/out %d, want in 300_000/out 2_500_000",
+				id, p.InputPriceMicro, p.OutputPriceMicro)
+		}
+	}
+
+	// Disambiguation: the bare image slug must resolve to the image entry (which
+	// carries image pricing), not fall back to the non-image gemini-2.5-flash.
+	if p := pt.Get("gemini-2.5-flash-image"); p == nil || p.ImageOutputPriceMicro == 0 {
+		t.Errorf("gemini-2.5-flash-image resolved without image pricing: %#v", p)
+	}
+	// The non-image model must keep its own (image-free) pricing untouched.
+	if p := pt.Get("gemini-2.5-flash"); p == nil || p.ImageOutputPriceMicro != 0 {
+		t.Errorf("gemini-2.5-flash should have no image pricing, got %#v", p)
+	}
+}
+
+// TestImageModelPricing guards every default token-priced image model (OpenRouter
+// + native) against the "Unknown model, cost 0" gap: each resolves with a nonzero
+// image-output rate, the OpenRouter-prefixed slugs and their -preview variants
+// resolve via prefix match, and slugs that prefix-collide with a cheaper
+// non-image model (gpt-image-2 vs the-alias, gpt-5.4-image-2 vs gpt-5.4) resolve
+// to the image entry, not the base model.
+func TestImageModelPricing(t *testing.T) {
+	pt := DefaultPriceTable()
+
+	// Every image slug that must carry an image-output rate. Both the bare native
+	// id and the OpenRouter provider-prefixed slug (incl. -preview variants).
+	imageSlugs := []struct {
+		id            string
+		wantImageMPMi uint64 // ImageOutputPriceMicro
+	}{
+		{"gpt-image-2", 30_000_000},
+		{"openai/gpt-image-2", 30_000_000},
+		{"gpt-5.4-image-2", 30_000_000},
+		{"openai/gpt-5.4-image-2", 30_000_000},
+		{"x-ai/grok-imagine-image-quality", 11_980_000},
+		{"gemini-3-pro-image", 120_000_000},
+		{"google/gemini-3-pro-image", 120_000_000},
+		{"google/gemini-3-pro-image-preview", 120_000_000},
+		{"gemini-3.1-flash-image", 60_000_000},
+		{"google/gemini-3.1-flash-image", 60_000_000},
+		{"google/gemini-3.1-flash-image-preview", 60_000_000},
+		{"gemini-3.1-flash-lite-image", 30_000_000},
+		{"google/gemini-3.1-flash-lite-image", 30_000_000},
+	}
+	for _, s := range imageSlugs {
+		p := pt.Get(s.id)
+		if p == nil {
+			t.Errorf("Get(%s) = nil, want an image price entry", s.id)
+			continue
+		}
+		if p.ImageOutputPriceMicro != s.wantImageMPMi {
+			t.Errorf("Get(%s).ImageOutputPriceMicro = %d, want %d", s.id, p.ImageOutputPriceMicro, s.wantImageMPMi)
+		}
+	}
+
+	// Prefix-collision disambiguation: the image slug must NOT resolve to the
+	// cheaper non-image base model that it happens to start-with.
+	if p := pt.Get("gpt-5.4-image-2"); p == nil || p.ImageOutputPriceMicro == 0 {
+		t.Errorf("gpt-5.4-image-2 must resolve to the image entry, not the non-image gpt-5.4: %#v", p)
+	}
+	if p := pt.Get("gpt-5.4"); p == nil || p.ImageOutputPriceMicro != 0 {
+		t.Errorf("gpt-5.4 (non-image) should have no image pricing, got %#v", p)
+	}
+	// The lite image slug must not collapse onto the (shorter) flash-image slug.
+	if p := pt.Get("google/gemini-3.1-flash-lite-image"); p == nil || p.OutputPriceMicro != 1_500_000 {
+		t.Errorf("gemini-3.1-flash-lite-image resolved to the wrong (non-lite) entry: %#v", p)
 	}
 }
 

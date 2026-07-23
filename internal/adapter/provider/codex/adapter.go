@@ -20,7 +20,6 @@ import (
 	"github.com/awsl-project/maxx/internal/codexutil"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
@@ -41,6 +40,7 @@ func init() {
 				}
 			}
 			codexCacheMu.Unlock()
+			globalCodexWebSocketSessions.pruneIdle(now)
 		}
 	}()
 }
@@ -51,8 +51,21 @@ type TokenCache struct {
 	ExpiresAt   time.Time
 }
 
-// ProviderUpdateFunc is a callback to persist token updates to the provider config
-type ProviderUpdateFunc func(provider *domain.Provider) error
+// ProviderUpdateFunc is a callback to persist token updates to the provider config.
+// It is a type alias (not a defined type) so the router's duck-typed
+// `SetProviderUpdateFunc(func(*domain.Provider) error)` interface — which uses the
+// literal func type — matches this method's signature exactly; a defined type
+// would silently fail the assertion and leave token persistence wired to nothing.
+type ProviderUpdateFunc = func(provider *domain.Provider) error
+
+// ProviderReloadFunc re-reads the freshest provider record (e.g. from the
+// repository). It lets the adapter pick up a token another path rotated and
+// persisted while this adapter was waiting on the refresh lock.
+//
+// It is a type alias (not a defined type) so the router's duck-typed
+// `SetProviderReloadFunc(func() (*domain.Provider, error))` interface — which
+// uses the literal func type — matches this method's signature exactly.
+type ProviderReloadFunc = func() (*domain.Provider, error)
 
 // CodexAdapter handles communication with OpenAI Codex API
 type CodexAdapter struct {
@@ -61,11 +74,18 @@ type CodexAdapter struct {
 	tokenMu        sync.RWMutex
 	httpClient     *http.Client
 	providerUpdate ProviderUpdateFunc
+	providerReload ProviderReloadFunc
 }
 
 // SetProviderUpdateFunc sets the callback for persisting provider updates
 func (a *CodexAdapter) SetProviderUpdateFunc(fn ProviderUpdateFunc) {
 	a.providerUpdate = fn
+}
+
+// SetProviderReloadFunc sets the callback used to re-read the freshest provider
+// record under the refresh lock.
+func (a *CodexAdapter) SetProviderReloadFunc(fn ProviderReloadFunc) {
+	a.providerReload = fn
 }
 
 func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
@@ -97,6 +117,9 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 		}
 	}
 
+	// Provider rebuild/update may change BaseURL; clear unsupported WS cache.
+	clearCodexWebSocketUnsupported(p.ID)
+
 	return adapter, nil
 }
 
@@ -114,7 +137,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	// Get access token
-	accessToken, err := a.getAccessToken(ctx)
+	accessToken, err := a.getAccessToken(ctx, false, "")
 	if err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
 		proxyErr.Scope = domain.ScopeKey
@@ -126,30 +149,45 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	cacheID, updatedBody := applyCodexRequestTuning(c, requestBody)
 	requestBody = updatedBody
 
-	// Apply provider-level overrides for reasoning and service_tier
+	// Semantic outbound params (reasoning effort, service_tier) are applied
+	// authoritatively by the executor's param stage before the body reaches this
+	// adapter — see executor.applyOutboundParamPolicy. This adapter intentionally
+	// does transport only.
 	config := provider.Config.Codex
-	if config.Reasoning != "" {
-		if updated, err := sjson.SetBytes(requestBody, "reasoning.effort", config.Reasoning); err == nil {
-			requestBody = updated
-		}
-	}
-	if config.ServiceTier != "" {
-		if updated, err := sjson.SetBytes(requestBody, "service_tier", config.ServiceTier); err == nil {
-			requestBody = updated
-		}
-	}
-	requestBody = payloadoverride.ApplyGlobal(requestBody, "codex", flow.GetMappedModel(c))
 
-	// Build upstream URL and stream mode
+	// Build upstream URL and stream mode.
+	//
+	// Custom downstream with passthrough on (default): forward the exact Responses
+	// path the client used (preserving /v1, since New API / OpenAI-compatible
+	// gateways serve /v1/responses, not /responses). Stream vs non-stream is
+	// conveyed via the body's "stream" flag, not /responses/compact (which is
+	// ChatGPT-specific and 404s elsewhere).
+	//
+	// Official ChatGPT backend (no custom BaseURL), or custom downstream with
+	// passthrough explicitly disabled: use the ChatGPT contract — /responses for
+	// streaming, /responses/compact for non-streaming.
+	upstreamStream := clientWantsStream
 	baseURL := CodexBaseURL
-	if config.BaseURL != "" {
+	custom := config.BaseURL != ""
+	if custom {
 		baseURL = strings.TrimRight(config.BaseURL, "/")
 	}
-	upstreamURL := baseURL + "/responses"
-	upstreamStream := true
-	if !clientWantsStream {
-		upstreamURL = baseURL + "/responses/compact"
-		upstreamStream = false
+
+	var upstreamURL string
+	if custom && domain.ResponsesPassthroughEnabled(config.ResponsesPassthrough) {
+		path := flow.GetResponsesClientPath(c)
+		if path == "" {
+			// No client Responses path captured (e.g. converted from another
+			// client type) — default to the OpenAI-compatible endpoint.
+			path = "/v1/responses"
+		}
+		upstreamURL = baseURL + path
+	} else {
+		upstreamURL = baseURL + "/responses"
+		if !clientWantsStream {
+			upstreamURL = baseURL + "/responses/compact"
+			upstreamStream = false
+		}
 	}
 	if len(requestBody) > 0 {
 		if updated, err := sjson.SetBytes(requestBody, "stream", upstreamStream); err == nil {
@@ -168,6 +206,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Apply headers with passthrough support (client headers take priority)
 	a.applyCodexHeaders(upstreamReq, request, accessToken, config.AccountID, upstreamStream, cacheID)
+	applyCodexProtocolIdentity(c, upstreamReq)
 
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
@@ -182,9 +221,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Execute request
 	resp, err := a.httpClient.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-		proxyErr.Message = "failed to connect to upstream"
-		return proxyErr
+		return domain.NewUpstreamConnectionError("failed to connect to upstream")
 	}
 	defer resp.Body.Close()
 
@@ -192,13 +229,11 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	if resp.StatusCode == http.StatusUnauthorized {
 		resp.Body.Close()
 
-		// Invalidate token cache
-		a.tokenMu.Lock()
-		a.tokenCache = &TokenCache{}
-		a.tokenMu.Unlock()
-
-		// Get new token
-		accessToken, err = a.getAccessToken(ctx)
+		// Force a real refresh: skip the cache and the persisted access token
+		// (the latter is the same credential the upstream just rejected). Pass
+		// the rejected token so a refresh another goroutine already completed is
+		// still accepted, and only the actually-failed token is refused.
+		accessToken, err = a.getAccessToken(ctx, true, accessToken)
 		if err != nil {
 			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
 			proxyErr.Scope = domain.ScopeKey
@@ -215,12 +250,11 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			return proxyErr
 		}
 		a.applyCodexHeaders(upstreamReq, request, accessToken, config.AccountID, upstreamStream, cacheID)
+		applyCodexProtocolIdentity(c, upstreamReq)
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
-			proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-			proxyErr.Message = "failed to connect to upstream after token refresh"
-			return proxyErr
+			return domain.NewUpstreamConnectionError("failed to connect to upstream after token refresh")
 		}
 		defer resp.Body.Close()
 	}
@@ -248,78 +282,167 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	return a.handleNonStreamResponse(c, resp)
 }
 
+func applyCodexProtocolIdentity(c *flow.Ctx, upstreamReq *http.Request) {
+	upstreamReq.Header["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, CodexUserAgent)}
+	if flow.IsProtocolConversion(c) {
+		upstreamReq.Header.Del("Version")
+	}
+}
+
 // WarmToken pre-warms the access token cache to avoid blocking during Execute
 func (a *CodexAdapter) WarmToken(ctx context.Context) error {
-	_, err := a.getAccessToken(ctx)
+	_, err := a.getAccessToken(ctx, false, "")
 	return err
 }
 
-func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
-	// Check cache
-	a.tokenMu.RLock()
-	if a.tokenCache.AccessToken != "" {
-		if !isFallbackCodexAccessToken(a.tokenCache.AccessToken) && (a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt)) {
-			token := a.tokenCache.AccessToken
-			a.tokenMu.RUnlock()
-			return token, nil
-		}
-	}
-	a.tokenMu.RUnlock()
-
-	// Use persisted access token if present (even if expiry is unknown)
-	config := ensureCodexConfig(a.provider)
-	if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
-		var expiresAt time.Time
-		if strings.TrimSpace(config.ExpiresAt) != "" {
-			if parsed, err := time.Parse(time.RFC3339, config.ExpiresAt); err == nil {
-				expiresAt = parsed
+// getAccessToken returns a valid access token, refreshing via the OAuth
+// refresh_token when necessary. When forceRefresh is true the in-memory cache
+// and the persisted access token are bypassed entirely — used on a 401 retry
+// where the current token has just been rejected upstream. rejectedToken is the
+// token that just failed (only meaningful when forceRefresh is true): a cached
+// token equal to it is treated as stale so the forced refresh actually refreshes,
+// while a newer token minted concurrently is still accepted.
+func (a *CodexAdapter) getAccessToken(ctx context.Context, forceRefresh bool, rejectedToken string) (string, error) {
+	if !forceRefresh {
+		// Check cache
+		a.tokenMu.RLock()
+		if a.tokenCache.AccessToken != "" {
+			if !isFallbackCodexAccessToken(a.tokenCache.AccessToken) && (a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt)) {
+				token := a.tokenCache.AccessToken
+				a.tokenMu.RUnlock()
+				return token, nil
 			}
 		}
-		a.tokenMu.Lock()
-		a.tokenCache = &TokenCache{
-			AccessToken: config.AccessToken,
-			ExpiresAt:   expiresAt,
-		}
-		a.tokenMu.Unlock()
+		a.tokenMu.RUnlock()
+	}
 
-		if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
-			return config.AccessToken, nil
+	// Work against a local provider snapshot. a.provider is set once at
+	// construction and never reassigned, so it can be read without a lock; the
+	// reload-under-lock path below rebinds this local (not the shared field) to
+	// the freshest record, avoiding a data race with concurrent callers.
+	prov := a.provider
+	config := ensureCodexConfig(prov)
+
+	if !forceRefresh {
+		// Use persisted access token only if present AND still valid. Caching an
+		// expired persisted token here could clobber a fresher token that a
+		// concurrent refresh just stored, so only write the cache when usable.
+		if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
+			var expiresAt time.Time
+			if strings.TrimSpace(config.ExpiresAt) != "" {
+				if parsed, err := time.Parse(time.RFC3339, config.ExpiresAt); err == nil {
+					expiresAt = parsed
+				}
+			}
+			if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
+				a.tokenMu.Lock()
+				a.tokenCache = &TokenCache{
+					AccessToken: config.AccessToken,
+					ExpiresAt:   expiresAt,
+				}
+				a.tokenMu.Unlock()
+				return config.AccessToken, nil
+			}
 		}
 	}
 
 	// Refresh token
 	if strings.TrimSpace(config.RefreshToken) == "" {
 		log.Printf("[Codex] level=INFO trigger=fallback provider=%q provider_id=%d reason=missing_refresh_token message=%q",
-			a.provider.Name,
-			a.provider.ID,
+			prov.Name,
+			prov.ID,
 			"codex provider config missing refresh token; using placeholder local token for fallback flow",
 		)
-		fallbackToken := buildFallbackCodexAccessToken(a.provider)
+		fallbackToken := buildFallbackCodexAccessToken(prov)
 		a.tokenMu.Lock()
 		a.tokenCache = &TokenCache{AccessToken: fallbackToken}
 		a.tokenMu.Unlock()
-		config.AccessToken = fallbackToken
-		config.ExpiresAt = time.Now().Add(5 * time.Second).Format(time.RFC3339)
 		if a.providerUpdate != nil {
-			if err := a.providerUpdate(a.provider); err != nil {
+			// Copy-on-write: mutate a clone, not the shared provider that
+			// concurrent requests read lock-free; repo.Update swaps the pointer.
+			cp, cpCfg := CloneForTokenPersist(prov)
+			cpCfg.AccessToken = fallbackToken
+			cpCfg.ExpiresAt = time.Now().Add(5 * time.Second).Format(time.RFC3339)
+			if err := a.providerUpdate(cp); err != nil {
 				log.Printf("[Codex] failed to persist fallback token: %v", err)
 			}
 		}
 		return fallbackToken, nil
 	}
 
-	tokenResp, err := RefreshAccessToken(ctx, config.RefreshToken)
+	// Serialize refreshes per account: refresh_tokens rotate and reusing an old
+	// one is rejected upstream, so concurrent refreshes (across requests, the
+	// quota task, and the quota handler) must not run in parallel.
+	unlock := AcquireRefreshLock(RefreshLockKey(config.AccountID, config.RefreshToken))
+	defer unlock()
+
+	// Re-read the freshest provider under the lock: another path (quota task or
+	// handler, or another adapter instance) may have rotated and persisted a new
+	// token while we waited, leaving our snapshot's refresh_token stale.
+	if a.providerReload != nil {
+		if fresh, rerr := a.providerReload(); rerr == nil && fresh != nil {
+			freshCfg := ensureCodexConfig(fresh)
+			if strings.TrimSpace(freshCfg.RefreshToken) != "" {
+				prov = fresh
+				config = freshCfg
+				// If the freshly persisted access token is usable (and, on a
+				// forced refresh, differs from the rejected one), adopt it and
+				// skip a needless refresh that would rotate the token again.
+				if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) &&
+					(!forceRefresh || config.AccessToken != rejectedToken) {
+					var expiresAt time.Time
+					if strings.TrimSpace(config.ExpiresAt) != "" {
+						if parsed, perr := time.Parse(time.RFC3339, config.ExpiresAt); perr == nil {
+							expiresAt = parsed
+						}
+					}
+					if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
+						a.tokenMu.Lock()
+						a.tokenCache = &TokenCache{AccessToken: config.AccessToken, ExpiresAt: expiresAt}
+						a.tokenMu.Unlock()
+						return config.AccessToken, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Double-check: another goroutine may have produced a fresh token while we
+	// waited for the lock. Reuse it instead of spending another refresh_token.
+	// On a forced refresh, only accept a token that differs from the rejected
+	// one (otherwise it is the same credential the upstream just refused).
+	a.tokenMu.RLock()
+	cachedToken := a.tokenCache.AccessToken
+	cachedExpiry := a.tokenCache.ExpiresAt
+	a.tokenMu.RUnlock()
+	if cachedToken != "" && !isFallbackCodexAccessToken(cachedToken) &&
+		(!forceRefresh || cachedToken != rejectedToken) &&
+		(cachedExpiry.IsZero() || time.Now().Add(60*time.Second).Before(cachedExpiry)) {
+		return cachedToken, nil
+	}
+
+	tokenResp, err := RefreshAccessTokenWithRetry(ctx, config.RefreshToken, 3)
 	if err != nil {
-		if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
+		// On a forced refresh, don't fall back to the persisted token: it was
+		// already rejected upstream and would only trigger another 401.
+		if !forceRefresh && strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
 			return config.AccessToken, nil
 		}
 		return "", err
 	}
 
-	// Calculate expiration time (with 60s buffer)
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
+	// Store the raw expiry; every read path already applies a 60s safety margin
+	// before treating the token as expired (avoids double-buffering, and matches
+	// how the quota refreshers persist ExpiresAt).
+	expiresAt := TokenExpiresAt(tokenResp.ExpiresIn)
 
-	// Update cache
+	if err := a.persistRefreshedToken(prov, tokenResp, expiresAt); err != nil {
+		return "", err
+	}
+
+	// Update cache only after persistence succeeds. A rotated refresh_token that
+	// works only in memory is a trap: after restart/cache expiry the next caller
+	// would read the old persisted token and hit invalid_grant/reuse upstream.
 	a.tokenMu.Lock()
 	a.tokenCache = &TokenCache{
 		AccessToken: tokenResp.AccessToken,
@@ -327,48 +450,70 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
 	}
 	a.tokenMu.Unlock()
 
-	// Persist token to database if update function is set
-	if a.providerUpdate != nil {
-		config.AccessToken = tokenResp.AccessToken
-		config.ExpiresAt = expiresAt.Format(time.RFC3339)
-		if tokenResp.RefreshToken != "" {
-			config.RefreshToken = tokenResp.RefreshToken
-		}
-		if tokenResp.IDToken != "" {
-			if claims, parseErr := ParseIDToken(tokenResp.IDToken); parseErr == nil && claims != nil {
-				if v := strings.TrimSpace(claims.GetAccountID()); v != "" {
-					config.AccountID = v
-				}
-				if v := strings.TrimSpace(claims.GetUserID()); v != "" {
-					config.UserID = v
-				}
-				if v := strings.TrimSpace(claims.Email); v != "" {
-					config.Email = v
-				}
-				if v := strings.TrimSpace(claims.Name); v != "" {
-					config.Name = v
-				}
-				if v := strings.TrimSpace(claims.Picture); v != "" {
-					config.Picture = v
-				}
-				if v := strings.TrimSpace(claims.GetPlanType()); v != "" {
-					config.PlanType = v
-				}
-				if v := strings.TrimSpace(claims.GetSubscriptionStart()); v != "" {
-					config.SubscriptionStart = v
-				}
-				if v := strings.TrimSpace(claims.GetSubscriptionEnd()); v != "" {
-					config.SubscriptionEnd = v
-				}
-			}
-		}
-		// Best-effort: token already works in memory, log if DB update fails
-		if err := a.providerUpdate(a.provider); err != nil {
-			log.Printf("[Codex] failed to persist refreshed token: %v", err)
-		}
+	return tokenResp.AccessToken, nil
+}
+
+func (a *CodexAdapter) persistRefreshedToken(prov *domain.Provider, tokenResp *TokenResponse, expiresAt time.Time) error {
+	if tokenResp == nil {
+		return fmt.Errorf("failed to persist refreshed token: empty token response")
 	}
 
-	return tokenResp.AccessToken, nil
+	oldRefreshToken := ""
+	if prov != nil && prov.Config != nil && prov.Config.Codex != nil {
+		oldRefreshToken = prov.Config.Codex.RefreshToken
+	}
+	refreshRotated := tokenResp.RefreshToken != "" && tokenResp.RefreshToken != oldRefreshToken
+
+	if a.providerUpdate == nil {
+		if refreshRotated {
+			return fmt.Errorf("failed to persist refreshed token: provider update callback not configured")
+		}
+		return nil
+	}
+
+	// Copy-on-write: the cached repository hands out the same *Provider to every
+	// caller and the request hot path reads these fields lock-free, so mutate a
+	// clone instead of the shared struct. repo.Update atomically swaps the cache
+	// pointer; readers holding the old pointer see a consistent (if briefly stale)
+	// struct.
+	cp, cpCfg := CloneForTokenPersist(prov)
+	cpCfg.AccessToken = tokenResp.AccessToken
+	cpCfg.ExpiresAt = expiresAt.Format(time.RFC3339)
+	if tokenResp.RefreshToken != "" {
+		cpCfg.RefreshToken = tokenResp.RefreshToken
+	}
+	if tokenResp.IDToken != "" {
+		if claims, parseErr := ParseIDToken(tokenResp.IDToken); parseErr == nil && claims != nil {
+			if v := strings.TrimSpace(claims.GetAccountID()); v != "" {
+				cpCfg.AccountID = v
+			}
+			if v := strings.TrimSpace(claims.GetUserID()); v != "" {
+				cpCfg.UserID = v
+			}
+			if v := strings.TrimSpace(claims.Email); v != "" {
+				cpCfg.Email = v
+			}
+			if v := strings.TrimSpace(claims.Name); v != "" {
+				cpCfg.Name = v
+			}
+			if v := strings.TrimSpace(claims.Picture); v != "" {
+				cpCfg.Picture = v
+			}
+			if v := strings.TrimSpace(claims.GetPlanType()); v != "" {
+				cpCfg.PlanType = v
+			}
+			if v := strings.TrimSpace(claims.GetSubscriptionStart()); v != "" {
+				cpCfg.SubscriptionStart = v
+			}
+			if v := strings.TrimSpace(claims.GetSubscriptionEnd()); v != "" {
+				cpCfg.SubscriptionEnd = v
+			}
+		}
+	}
+	if err := a.providerUpdate(cp); err != nil {
+		return fmt.Errorf("failed to persist refreshed token: %w", err)
+	}
+	return nil
 }
 
 func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response) error {
@@ -389,9 +534,11 @@ func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response)
 		})
 		// Extract token usage from response
 		if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
+			metrics = usage.AdjustForClientType(metrics, domain.ClientTypeCodex)
 			eventChan.SendMetrics(&domain.AdapterMetrics{
-				InputTokens:  metrics.InputTokens,
-				OutputTokens: metrics.OutputTokens,
+				InputTokens:    metrics.InputTokens,
+				OutputTokens:   metrics.OutputTokens,
+				CacheReadCount: metrics.CacheReadCount,
 			})
 		}
 		// Extract model from response
@@ -434,6 +581,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
 	var collector usage.StreamCollector
 	var model string
+	var lastStreamErr *codexStreamError
 	reader := bufio.NewReader(resp.Body)
 	firstChunkSent := false
 	responseCompleted := false
@@ -463,6 +611,10 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 
 			if isCodexResponseCompletedLine(line) {
 				responseCompleted = true
+			}
+
+			if e := parseCodexStreamErrorLine(line); e != nil {
+				lastStreamErr = e
 			}
 
 			// Write to client
@@ -498,8 +650,36 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 				return proxyErr
 			}
 			proxyErr := domain.NewProxyErrorWithMessage(err, true, "stream closed before response.completed")
-			proxyErr.Scope = domain.ScopeProvider
-			proxyErr.Reason = domain.CooldownReasonNetworkError
+			// If the upstream emitted a structured error event in the stream
+			// (e.g. response.failed with code=model_not_supported), narrow the
+			// cooldown scope so an unrelated model on the same provider is not
+			// frozen along with the failing one. Anything we can't classify
+			// confidently keeps the conservative ScopeProvider fallback.
+			if scope, reason, ok := classifyCodexStreamError(lastStreamErr); ok {
+				if scope == domain.ScopeModel {
+					proxyErr.Model = lastStreamErr.model
+					if proxyErr.Model == "" {
+						proxyErr.Model = model
+					}
+					if proxyErr.Model == "" {
+						proxyErr.Model = flow.GetMappedModel(c)
+					}
+					// Without a model to attribute, ScopeModel would collapse
+					// to a (provider,"","") cooldown key — i.e. provider-wide —
+					// defeating the point of refining the scope. Fall back to
+					// the conservative ScopeProvider in that case.
+					if proxyErr.Model == "" {
+						proxyErr.Scope = domain.ScopeProvider
+						proxyErr.Reason = domain.CooldownReasonNetworkError
+						return proxyErr
+					}
+				}
+				proxyErr.Scope = scope
+				proxyErr.Reason = reason
+			} else {
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonNetworkError
+			}
 			return proxyErr
 		}
 	}
@@ -533,9 +713,11 @@ func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, 
 
 	// Send token usage collected incrementally
 	if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+		metrics := usage.AdjustForClientType(collector.Metrics, domain.ClientTypeCodex)
 		eventChan.SendMetrics(&domain.AdapterMetrics{
-			InputTokens:  collector.Metrics.InputTokens,
-			OutputTokens: collector.Metrics.OutputTokens,
+			InputTokens:    metrics.InputTokens,
+			OutputTokens:   metrics.OutputTokens,
+			CacheReadCount: metrics.CacheReadCount,
 		})
 	}
 
@@ -717,6 +899,11 @@ func classifyCodexHTTPError(statusCode int, body []byte, headers http.Header, mo
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
 		proxyErr.Retryable = false
 
+	case statusCode == http.StatusPaymentRequired:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		proxyErr.Retryable = false
+
 	case statusCode == 403:
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
@@ -829,7 +1016,6 @@ func (a *CodexAdapter) applyCodexHeaders(upstreamReq, clientReq *http.Request, a
 	upstreamReq.Header.Set("Connection", "Keep-Alive")
 
 	// Set Codex-specific headers only if client didn't provide them
-	ensureHeader(upstreamReq.Header, clientReq, "Version", CodexVersion)
 	ensureHeader(upstreamReq.Header, clientReq, "Openai-Beta", OpenAIBetaHeader)
 	if cacheID != "" {
 		upstreamReq.Header.Set("Conversation_id", cacheID)
@@ -837,7 +1023,11 @@ func (a *CodexAdapter) applyCodexHeaders(upstreamReq, clientReq *http.Request, a
 	} else {
 		ensureHeader(upstreamReq.Header, clientReq, "Session_id", uuid.NewString())
 	}
-	upstreamReq.Header.Set("User-Agent", resolveCodexUserAgent(clientReq))
+	clientUserAgent := ""
+	if clientReq != nil {
+		clientUserAgent = clientReq.Header.Get("User-Agent")
+	}
+	upstreamReq.Header["User-Agent"] = []string{clientUserAgent}
 	if hasAccessToken {
 		ensureHeader(upstreamReq.Header, clientReq, "Originator", CodexOriginator)
 	}
@@ -855,20 +1045,6 @@ func ensureHeader(dst http.Header, clientReq *http.Request, key, defaultValue st
 		return
 	}
 	dst.Set(key, defaultValue)
-}
-
-func resolveCodexUserAgent(clientReq *http.Request) string {
-	if clientReq != nil {
-		if ua := clientReq.Header.Get("User-Agent"); strings.TrimSpace(ua) != "" {
-			return ua
-		}
-	}
-	return CodexUserAgent
-}
-
-func isCodexCLIUserAgent(userAgent string) bool {
-	ua := strings.ToLower(strings.TrimSpace(userAgent))
-	return strings.HasPrefix(ua, "codex_cli_rs/") || strings.HasPrefix(ua, "codex-cli/")
 }
 
 var codexFilteredHeaders = map[string]bool{

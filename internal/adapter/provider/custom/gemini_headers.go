@@ -30,10 +30,12 @@ func applyGeminiHeaders(upstreamReq, clientReq *http.Request, apiKey string) {
 		upstreamReq.Header.Del("Authorization")
 	}
 
-	// 4. Set User-Agent if client didn't provide one
-	if clientReq == nil || clientReq.Header.Get("User-Agent") == "" {
-		upstreamReq.Header.Set("User-Agent", geminiUserAgent)
+	// 4. Preserve the client User-Agent; Execute replaces it after conversion.
+	clientUserAgent := ""
+	if clientReq != nil {
+		clientUserAgent = clientReq.Header.Get("User-Agent")
 	}
+	upstreamReq.Header["User-Agent"] = []string{clientUserAgent}
 
 	// 5. Set Accept header based on URL (streaming or not)
 	if strings.Contains(upstreamReq.URL.String(), "streamGenerateContent") {

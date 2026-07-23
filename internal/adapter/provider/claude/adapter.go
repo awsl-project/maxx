@@ -124,6 +124,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Apply headers
 	a.applyClaudeHeaders(upstreamReq, request, accessToken, clientWantsStream, extraBetas)
+	upstreamReq.Header["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, ClaudeUserAgent)}
 
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
@@ -138,9 +139,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Execute request
 	resp, err := a.httpClient.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-		proxyErr.Message = "failed to connect to upstream"
-		return proxyErr
+		return domain.NewUpstreamConnectionError("failed to connect to upstream")
 	}
 	defer resp.Body.Close()
 
@@ -171,12 +170,11 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			return proxyErr
 		}
 		a.applyClaudeHeaders(upstreamReq, request, accessToken, clientWantsStream, extraBetas)
+		upstreamReq.Header["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, ClaudeUserAgent)}
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
-			proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-			proxyErr.Message = "failed to connect to upstream after token refresh"
-			return proxyErr
+			return domain.NewUpstreamConnectionError("failed to connect to upstream after token refresh")
 		}
 		defer resp.Body.Close()
 	}
@@ -592,7 +590,11 @@ func (a *ClaudeAdapter) applyClaudeHeaders(upstreamReq, clientReq *http.Request,
 	}
 
 	// Set User-Agent
-	upstreamReq.Header.Set("User-Agent", resolveClaudeUserAgent(clientReq))
+	clientUserAgent := ""
+	if clientReq != nil {
+		clientUserAgent = clientReq.Header.Get("User-Agent")
+	}
+	upstreamReq.Header["User-Agent"] = []string{clientUserAgent}
 }
 
 // isClaudeOAuthToken checks if the token is an OAuth access token
@@ -606,20 +608,6 @@ func ensureHeader(dst http.Header, clientReq *http.Request, key, defaultValue st
 		return
 	}
 	dst.Set(key, defaultValue)
-}
-
-func resolveClaudeUserAgent(clientReq *http.Request) string {
-	if clientReq != nil {
-		if ua := clientReq.Header.Get("User-Agent"); strings.TrimSpace(ua) != "" {
-			return ua
-		}
-	}
-	return ClaudeUserAgent
-}
-
-func isClaudeCLIUserAgent(userAgent string) bool {
-	ua := strings.ToLower(strings.TrimSpace(userAgent))
-	return strings.HasPrefix(ua, "claude-cli/") || strings.HasPrefix(ua, "claude-code/")
 }
 
 func newUpstreamHTTPClient() *http.Client {
@@ -697,6 +685,11 @@ func classifyClaudeHTTPError(statusCode int, body []byte, headers http.Header, m
 	case statusCode == 401:
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == http.StatusPaymentRequired:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
 		proxyErr.Retryable = false
 
 	case statusCode == 403:
@@ -779,7 +772,6 @@ func extractModelFromResponse(body []byte) string {
 	}
 	return ""
 }
-
 
 var claudeFilteredHeaders = map[string]bool{
 	// Hop-by-hop headers

@@ -12,12 +12,15 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/stats"
 	"golang.org/x/sync/errgroup"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type UsageStatsRepository struct {
 	db *DB
 }
+
+const usageStatsRawBackfillWindow = 2 * time.Hour
 
 func NewUsageStatsRepository(db *DB) *UsageStatsRepository {
 	return &UsageStatsRepository{db: db}
@@ -197,10 +200,12 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 	currentHour := truncateToHourInLocation(now, loc)
 	currentMinute := now.Truncate(time.Minute)
 	twoMinutesAgo := currentMinute.Add(-time.Minute)
+	realtimeStart := r.rawBackfillStart(tenantID, loc, currentMinute)
 
-	// 判断是否需要补全实时数据（仅当查询范围包含最近 2 分钟内的数据）
-	// 如果 EndTime 在 2 分钟之前，说明是纯历史查询，预聚合数据已完整覆盖
-	needRealtimeData := filter.EndTime == nil || !filter.EndTime.Before(twoMinutesAgo)
+	// 判断是否需要补全实时数据（查询范围触及 raw backfill 窗口）。
+	// raw backfill 窗口会从最新已聚合 minute 往前 overlap 2 分钟开始；如果尚无 minute 聚合,
+	// 最多回扫 2 小时,避免服务重启后统计页在后台聚合前误显示空数据。
+	needRealtimeData := filter.EndTime == nil || !filter.EndTime.Before(realtimeStart)
 
 	// 1. 查询历史数据（使用目标粒度的预聚合数据）
 	// 如果需要补全实时数据，则排除当前时间桶（避免查出会被替换的数据）
@@ -268,14 +273,17 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 		})
 	}
 
-	// 2c. 查询当前小时内已完成的分钟数据（不包括最近 2 分钟）
+	// 2c. 查询当前小时内已完成的分钟数据（不包括 raw backfill 窗口）
 	minuteStart := currentHour
 	if currentBucket.After(currentHour) {
 		minuteStart = currentBucket
 	}
-	if twoMinutesAgo.After(minuteStart) {
+	if realtimeStart.After(twoMinutesAgo) {
+		realtimeStart = twoMinutesAgo
+	}
+	if realtimeStart.After(minuteStart) {
 		g.Go(func() error {
-			minuteStats, err := r.queryStatsInRange(tenantID, domain.GranularityMinute, minuteStart, twoMinutesAgo, filter)
+			minuteStats, err := r.queryStatsInRange(tenantID, domain.GranularityMinute, minuteStart, realtimeStart, filter)
 			if err != nil {
 				return err
 			}
@@ -286,9 +294,13 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 		})
 	}
 
-	// 2d. 查询最近 2 分钟的实时数据
+	// 2d. 查询 raw backfill 窗口内的实时数据
+	rawStart := realtimeStart
+	if filter.StartTime != nil && filter.StartTime.After(rawStart) {
+		rawStart = *filter.StartTime
+	}
 	g.Go(func() error {
-		realtimeStats, err := r.queryRecentMinutesStats(tenantID, twoMinutesAgo, filter)
+		realtimeStats, err := r.queryRecentMinutesStats(tenantID, rawStart, filter)
 		if err != nil {
 			return err
 		}
@@ -645,13 +657,11 @@ func (r *UsageStatsRepository) GetLatestTimeBucket(tenantID uint64, granularity 
 	return &t, nil
 }
 
-// GetProviderStats 获取 Provider 统计数据
-// 使用分层查询策略,复用 queryAllWithRealtime 获取实时数据;
-// 按 provider 聚合的逻辑统一走 stats.GroupByProvider 纯函数,与前端 useProviderStatsFromUsageStats 行为一致。
+// GetProviderStats 获取 Provider 统计数据。
+// 使用 usage_stats 分层聚合历史数据,再用一个有界 raw-attempt 窗口补偿尚未聚合的已完成请求。
+// 这样服务重启后不必等待后台聚合任务跑完,Provider 卡片也能立刻显示持久化的 SR/TKN。
 func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
-	filter := repository.UsageStatsFilter{
-		Granularity: domain.GranularityMinute, // 使用 minute 粒度以获取最新数据
-	}
+	filter := repository.UsageStatsFilter{}
 	if clientType != "" {
 		filter.ClientType = &clientType
 	}
@@ -659,11 +669,209 @@ func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType stri
 		filter.ProjectID = &projectID
 	}
 
-	allStats, err := r.queryAllWithRealtime(tenantID, filter)
+	loc := r.getConfiguredTimezone()
+	now := time.Now().In(loc)
+	backfillStart := r.rawBackfillStart(tenantID, loc, now.Truncate(time.Minute))
+
+	result, err := r.queryPersistedProviderStatsBefore(tenantID, filter, backfillStart)
 	if err != nil {
 		return nil, err
 	}
-	return stats.GroupByProvider(allStats), nil
+
+	rawStats, err := r.queryRawProviderStats(tenantID, filter, backfillStart, now)
+	if err != nil {
+		return nil, err
+	}
+	mergeProviderStats(result, rawStats)
+	return result, nil
+}
+
+func (r *UsageStatsRepository) rawBackfillStart(tenantID uint64, loc *time.Location, currentMinute time.Time) time.Time {
+	backfillStart := currentMinute.In(loc).Add(-usageStatsRawBackfillWindow).Truncate(time.Minute)
+	if latestMinute, err := r.GetLatestTimeBucket(tenantID, domain.GranularityMinute); err == nil && latestMinute != nil {
+		candidate := latestMinute.In(loc).Add(-2 * time.Minute)
+		if candidate.After(backfillStart) {
+			backfillStart = candidate
+		}
+	}
+	return backfillStart
+}
+
+func mergeProviderStats(dst, src map[uint64]*domain.ProviderStats) {
+	for providerID, s := range src {
+		if s == nil {
+			continue
+		}
+		if existing, ok := dst[providerID]; ok {
+			existing.TotalRequests += s.TotalRequests
+			existing.SuccessfulRequests += s.SuccessfulRequests
+			existing.FailedRequests += s.FailedRequests
+			existing.TotalInputTokens += s.TotalInputTokens
+			existing.TotalOutputTokens += s.TotalOutputTokens
+			existing.TotalCacheRead += s.TotalCacheRead
+			existing.TotalCacheWrite += s.TotalCacheWrite
+			existing.TotalCost += s.TotalCost
+			if existing.TotalRequests > 0 {
+				existing.SuccessRate = float64(existing.SuccessfulRequests) / float64(existing.TotalRequests) * 100
+			}
+			continue
+		}
+		clone := *s
+		dst[providerID] = &clone
+	}
+}
+
+func (r *UsageStatsRepository) queryPersistedProviderStatsBefore(tenantID uint64, filter repository.UsageStatsFilter, end time.Time) (map[uint64]*domain.ProviderStats, error) {
+	result := make(map[uint64]*domain.ProviderStats)
+	loc := r.getConfiguredTimezone()
+	end = end.In(loc)
+	monthStart := stats.TruncateToGranularity(end, domain.GranularityMonth, loc)
+	dayStart := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, loc)
+	hourStart := truncateToHourInLocation(end, loc)
+
+	windows := []struct {
+		granularity domain.Granularity
+		start       *time.Time
+		end         time.Time
+	}{
+		{granularity: domain.GranularityMonth, end: monthStart},
+		{granularity: domain.GranularityDay, start: &monthStart, end: dayStart},
+		{granularity: domain.GranularityHour, start: &dayStart, end: hourStart},
+		{granularity: domain.GranularityMinute, start: &hourStart, end: end},
+	}
+
+	for _, window := range windows {
+		if !window.end.After(time.Time{}) && window.start == nil {
+			continue
+		}
+		if window.start != nil && !window.end.After(*window.start) {
+			continue
+		}
+		statsForWindow, err := r.queryPersistedProviderStatsWindow(tenantID, filter, window.granularity, window.start, window.end)
+		if err != nil {
+			return nil, err
+		}
+		mergeProviderStats(result, statsForWindow)
+	}
+
+	return result, nil
+}
+
+func (r *UsageStatsRepository) queryPersistedProviderStatsWindow(tenantID uint64, filter repository.UsageStatsFilter, granularity domain.Granularity, start *time.Time, end time.Time) (map[uint64]*domain.ProviderStats, error) {
+	result := make(map[uint64]*domain.ProviderStats)
+	if !end.After(time.Time{}) {
+		return result, nil
+	}
+
+	conditions := []string{"tenant_id = ?", "granularity = ?", "provider_id <> 0", "time_bucket < ?"}
+	args := []interface{}{tenantID, string(granularity), toTimestamp(end)}
+	if start != nil {
+		conditions = append(conditions, "time_bucket >= ?")
+		args = append(args, toTimestamp(*start))
+	}
+	if filter.ClientType != nil && *filter.ClientType != "" {
+		conditions = append(conditions, "client_type = ?")
+		args = append(args, *filter.ClientType)
+	}
+	if filter.ProjectID != nil && *filter.ProjectID > 0 {
+		conditions = append(conditions, "project_id = ?")
+		args = append(args, *filter.ProjectID)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			provider_id,
+			COALESCE(SUM(total_requests), 0),
+			COALESCE(SUM(successful_requests), 0),
+			COALESCE(SUM(failed_requests), 0),
+			COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0),
+			COALESCE(SUM(cache_read), 0),
+			COALESCE(SUM(cache_write), 0),
+			COALESCE(SUM(cost), 0)
+		FROM usage_stats
+		WHERE %s
+		GROUP BY provider_id
+	`, strings.Join(conditions, " AND "))
+
+	rows, err := r.db.gorm.Raw(query, args...).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		ps := &domain.ProviderStats{}
+		if err := rows.Scan(&ps.ProviderID, &ps.TotalRequests, &ps.SuccessfulRequests, &ps.FailedRequests, &ps.TotalInputTokens, &ps.TotalOutputTokens, &ps.TotalCacheRead, &ps.TotalCacheWrite, &ps.TotalCost); err != nil {
+			return nil, err
+		}
+		if ps.TotalRequests > 0 {
+			ps.SuccessRate = float64(ps.SuccessfulRequests) / float64(ps.TotalRequests) * 100
+		}
+		result[ps.ProviderID] = ps
+	}
+
+	return result, nil
+}
+
+func (r *UsageStatsRepository) queryRawProviderStats(tenantID uint64, filter repository.UsageStatsFilter, start, end time.Time) (map[uint64]*domain.ProviderStats, error) {
+	result := make(map[uint64]*domain.ProviderStats)
+	if !end.After(start) {
+		return result, nil
+	}
+
+	conditions := []string{
+		"a.end_time >= ?",
+		"a.end_time < ?",
+		"a.provider_id <> 0",
+		"a.status IN ('COMPLETED', 'FAILED', 'CANCELLED')",
+		"COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)) = ?",
+	}
+	args := []interface{}{toTimestamp(start), toTimestamp(end), tenantID}
+	if filter.ClientType != nil && *filter.ClientType != "" {
+		conditions = append(conditions, "COALESCE(r.client_type, '') = ?")
+		args = append(args, *filter.ClientType)
+	}
+	if filter.ProjectID != nil && *filter.ProjectID > 0 {
+		conditions = append(conditions, "COALESCE(r.project_id, 0) = ?")
+		args = append(args, *filter.ProjectID)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			a.provider_id,
+			COUNT(*),
+			SUM(CASE WHEN a.status = 'COMPLETED' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN a.status IN ('FAILED', 'CANCELLED') THEN 1 ELSE 0 END),
+			COALESCE(SUM(a.input_token_count), 0),
+			COALESCE(SUM(a.output_token_count), 0),
+			COALESCE(SUM(a.cache_read_count), 0),
+			COALESCE(SUM(a.cache_write_count), 0),
+			COALESCE(SUM(a.cost), 0)
+		FROM proxy_upstream_attempts a
+		LEFT JOIN proxy_requests r ON a.proxy_request_id = r.id
+		WHERE %s
+		GROUP BY a.provider_id
+	`, strings.Join(conditions, " AND "))
+
+	rows, err := r.db.gorm.Raw(query, args...).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		ps := &domain.ProviderStats{}
+		if err := rows.Scan(&ps.ProviderID, &ps.TotalRequests, &ps.SuccessfulRequests, &ps.FailedRequests, &ps.TotalInputTokens, &ps.TotalOutputTokens, &ps.TotalCacheRead, &ps.TotalCacheWrite, &ps.TotalCost); err != nil {
+			return nil, err
+		}
+		if ps.TotalRequests > 0 {
+			ps.SuccessRate = float64(ps.SuccessfulRequests) / float64(ps.TotalRequests) * 100
+		}
+		result[ps.ProviderID] = ps
+	}
+
+	return result, nil
 }
 
 // queryAllWithRealtime 通用的分层查询函数，返回所有统计数据（包括实时数据）
@@ -1657,4 +1865,45 @@ func (r *UsageStatsRepository) queryDashboardHistoricalDays(tenantID uint64, sta
 		return nil, err
 	}
 	return out, nil
+}
+
+// ReassignAPITokenID merges historical usage stats from a retired token into
+// the canonical token. It preserves counters when both token IDs already have
+// rows for the same dimensional bucket.
+func (r *UsageStatsRepository) ReassignAPITokenID(tenantID uint64, fromID uint64, toID uint64) error {
+	if fromID == 0 || toID == 0 || fromID == toID {
+		return nil
+	}
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`
+			INSERT INTO usage_stats (
+				created_at, tenant_id, time_bucket, granularity, route_id, provider_id,
+				project_id, api_token_id, client_type, model, total_requests,
+				successful_requests, failed_requests, total_duration_ms, total_ttft_ms,
+				input_tokens, output_tokens, cache_read, cache_write, cost
+			)
+			SELECT
+				created_at, tenant_id, time_bucket, granularity, route_id, provider_id,
+				project_id, ?, client_type, model, total_requests,
+				successful_requests, failed_requests, total_duration_ms, total_ttft_ms,
+				input_tokens, output_tokens, cache_read, cache_write, cost
+			FROM usage_stats
+			WHERE tenant_id = ? AND api_token_id = ?
+			ON CONFLICT(tenant_id, granularity, time_bucket, route_id, provider_id, project_id, api_token_id, client_type, model)
+			DO UPDATE SET
+				total_requests = usage_stats.total_requests + excluded.total_requests,
+				successful_requests = usage_stats.successful_requests + excluded.successful_requests,
+				failed_requests = usage_stats.failed_requests + excluded.failed_requests,
+				total_duration_ms = usage_stats.total_duration_ms + excluded.total_duration_ms,
+				total_ttft_ms = usage_stats.total_ttft_ms + excluded.total_ttft_ms,
+				input_tokens = usage_stats.input_tokens + excluded.input_tokens,
+				output_tokens = usage_stats.output_tokens + excluded.output_tokens,
+				cache_read = usage_stats.cache_read + excluded.cache_read,
+				cache_write = usage_stats.cache_write + excluded.cache_write,
+				cost = usage_stats.cost + excluded.cost
+		`, toID, tenantID, fromID).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`DELETE FROM usage_stats WHERE tenant_id = ? AND api_token_id = ?`, tenantID, fromID).Error
+	})
 }

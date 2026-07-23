@@ -148,22 +148,43 @@ func (s *CodexTaskService) refreshAllQuotas(ctx context.Context) bool {
 			// Get or refresh access token
 			accessToken := config.AccessToken
 			if accessToken == "" || s.isTokenExpired(config.ExpiresAt) {
-				tokenResp, err := codex.RefreshAccessToken(ctx, config.RefreshToken)
-				if err != nil {
-					log.Printf("[CodexTask] Failed to refresh token for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
-					continue
+				// Serialize per-account refresh and re-read the freshest token
+				// under the lock: the request adapter / quota handler may have
+				// just rotated the refresh_token, so the snapshot above can be
+				// stale and reusing it would trip refresh_token_reused.
+				unlock := codex.AcquireRefreshLock(codex.RefreshLockKey(config.AccountID, config.RefreshToken))
+				if fresh, ferr := s.providerRepo.GetByID(tenant.ID, provider.ID); ferr == nil && fresh != nil && fresh.Config != nil && fresh.Config.Codex != nil {
+					provider = fresh
+					config = fresh.Config.Codex
 				}
-				accessToken = tokenResp.AccessToken
+				if config.AccessToken != "" && !s.isTokenExpired(config.ExpiresAt) {
+					// Another path already refreshed while we waited; reuse it.
+					accessToken = config.AccessToken
+					unlock()
+				} else {
+					tokenResp, err := codex.RefreshAccessTokenWithRetry(ctx, config.RefreshToken, 3)
+					if err != nil {
+						unlock()
+						log.Printf("[CodexTask] Failed to refresh token for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
+						continue
+					}
+					accessToken = tokenResp.AccessToken
 
-				// Update provider config
-				config.AccessToken = tokenResp.AccessToken
-				config.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
-					config.RefreshToken = tokenResp.RefreshToken
-				}
-				if err := s.providerRepo.Update(provider); err != nil {
-					log.Printf("[CodexTask] Failed to persist refreshed token for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
-					continue
+					// Copy-on-write: mutate a clone, not the shared provider that
+					// concurrent requests read lock-free; Update swaps the pointer.
+					cp, cpCfg := codex.CloneForTokenPersist(provider)
+					cpCfg.AccessToken = tokenResp.AccessToken
+					cpCfg.ExpiresAt = codex.TokenExpiresAt(tokenResp.ExpiresIn).Format(time.RFC3339)
+					if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != cpCfg.RefreshToken {
+						cpCfg.RefreshToken = tokenResp.RefreshToken
+					}
+					if err := s.providerRepo.Update(cp); err != nil {
+						unlock()
+						log.Printf("[CodexTask] Failed to persist refreshed token for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
+						continue
+					}
+					config = cpCfg
+					unlock()
 				}
 			}
 

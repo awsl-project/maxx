@@ -11,6 +11,10 @@ export function useProviderNavigation() {
     goToCodex: () => navigate('/providers/create/codex'),
     goToClaude: () => navigate('/providers/create/claude'),
     goToBedrock: () => navigate('/providers/create/bedrock'),
+    goToOpenRouter: () => navigate('/providers/create/openrouter'),
+    goToNewApi: () => navigate('/providers/create/newapi'),
+    goToOllama: () => navigate('/providers/create/ollama'),
+    goToGrok: () => navigate('/providers/create/grok'),
     goToProviders: () => navigate('/providers'),
     goBack: () => navigate(-1),
   };

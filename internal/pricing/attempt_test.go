@@ -96,6 +96,34 @@ func TestRecalcAttemptUpdate_PreservesHistoricalMultiplier(t *testing.T) {
 	}
 }
 
+// 按上游成本(usage.cost)计费的行:重算保留存下的 raw 成本,只重乘历史倍率,
+// 绝不按 token 用价表重算(即便有 token 且 ModelPriceID==0)。
+func TestRecalcAttemptUpdate_UpstreamCostPreserved(t *testing.T) {
+	resetGlobalCalculator(t)
+	// 价表里有该模型且价格极高;若误走 token 路径会得出巨大 cost。
+	GlobalCalculator().LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 5, ModelID: "google/gemini-3-pro-image", InputPriceMicro: 999_000_000},
+	})
+
+	// upstream $0.04 raw, 历史倍率 2×(20000)→ 期望 80_000_000。带 token 干扰项。
+	metrics := &usage.Metrics{InputTokens: 1_000_000, UpstreamCostNanoUSD: 40_000_000}
+	const expected = uint64(80_000_000)
+
+	newCost, update, changed := RecalcAttemptUpdate("google/gemini-3-pro-image", metrics, 20000, 0, 0)
+	if newCost != expected {
+		t.Errorf("newCost = %d, want %d (upstream × historical 2×, not token table)", newCost, expected)
+	}
+	if !changed || update.Cost != expected || update.ModelPriceID != 0 {
+		t.Errorf("update = %+v changed=%v, want Cost=%d ModelPriceID=0 changed=true", update, changed, expected)
+	}
+
+	// 已一致(cost 相符且 ModelPriceID==0)→ 不触发 update。
+	newCost2, _, changed2 := RecalcAttemptUpdate("google/gemini-3-pro-image", metrics, 20000, expected, 0)
+	if changed2 {
+		t.Errorf("changed = true for an already-consistent upstream-billed row (newCost=%d)", newCost2)
+	}
+}
+
 // TestRecalcAttemptUpdate_ModelPriceIDOnlyChange 验证 review 反馈:
 // 当 Cost 没变但价格记录被换成等额新版本(ModelPriceID 不同)时,
 // 必须仍然触发 update,以刷新 attempt 上的 model_price_id 审计链。

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Wand2,
   Mail,
@@ -7,9 +7,6 @@ import {
   RefreshCw,
   Clock,
   Lock,
-  Plus,
-  ArrowRight,
-  Zap,
   Copy,
   Check,
   Eye,
@@ -17,26 +14,18 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ClientIcon } from '@/components/icons/client-icons';
-import type {
-  Provider,
-  AntigravityQuotaData,
-  AntigravityModelQuota,
-  ModelMapping,
-  ModelMappingInput,
-} from '@/lib/transport';
+import type { Provider, AntigravityQuotaData, AntigravityModelQuota } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
-import {
-  useUpdateProvider,
-  useModelMappings,
-  useCreateModelMapping,
-  useUpdateModelMapping,
-  useDeleteModelMapping,
-} from '@/hooks/queries';
+import { useUpdateProvider } from '@/hooks/queries';
 import { Button, Switch } from '@/components/ui';
-import { ModelInput } from '@/components/ui/model-input';
 import { ANTIGRAVITY_COLOR } from '../types';
 import { CLIProxyAPISwitch } from './cliproxyapi-switch';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
+import { ProviderModelMappings } from './provider-model-mappings';
+import {
+  ProviderMaxConcurrencyField,
+  useProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 interface AntigravityProviderViewProps {
   provider: Provider;
@@ -134,141 +123,6 @@ function ModelQuotaCard({ model }: { model: AntigravityModelQuota }) {
   );
 }
 
-// Provider Model Mappings Section
-function ProviderModelMappings({ provider }: { provider: Provider }) {
-  const { t } = useTranslation();
-  const { data: allMappings } = useModelMappings();
-  const createMapping = useCreateModelMapping();
-  const updateMapping = useUpdateModelMapping();
-  const deleteMapping = useDeleteModelMapping();
-  const [newPattern, setNewPattern] = useState('');
-  const [newTarget, setNewTarget] = useState('');
-
-  // Filter mappings for this provider
-  const providerMappings = useMemo(() => {
-    return (allMappings || []).filter(
-      (m) => m.scope === 'provider' && m.providerID === provider.id,
-    );
-  }, [allMappings, provider.id]);
-
-  const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
-
-  const handleAddMapping = async () => {
-    if (!newPattern.trim() || !newTarget.trim()) return;
-
-    await createMapping.mutateAsync({
-      pattern: newPattern.trim(),
-      target: newTarget.trim(),
-      scope: 'provider',
-      providerID: provider.id,
-      providerType: 'antigravity',
-      priority: providerMappings.length * 10 + 1000,
-      isEnabled: true,
-    });
-    setNewPattern('');
-    setNewTarget('');
-  };
-
-  const handleUpdateMapping = async (mapping: ModelMapping, data: Partial<ModelMappingInput>) => {
-    await updateMapping.mutateAsync({
-      id: mapping.id,
-      data: {
-        pattern: data.pattern ?? mapping.pattern,
-        target: data.target ?? mapping.target,
-        scope: 'provider',
-        providerID: provider.id,
-        providerType: 'antigravity',
-        priority: mapping.priority,
-        isEnabled: mapping.isEnabled,
-      },
-    });
-  };
-
-  const handleDeleteMapping = async (id: number) => {
-    await deleteMapping.mutateAsync(id);
-  };
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-4 border-b border-border pb-2">
-        <Zap size={18} className="text-yellow-500" />
-        <h4 className="text-lg font-semibold text-foreground">{t('modelMappings.title')}</h4>
-        <span className="text-sm text-muted-foreground">({providerMappings.length})</span>
-      </div>
-
-      <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">{t('modelMappings.pageDesc')}</p>
-
-        {providerMappings.length > 0 && (
-          <div className="space-y-2 mb-4">
-            {providerMappings.map((mapping, index) => (
-              <div key={mapping.id} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
-                <ModelInput
-                  value={mapping.pattern}
-                  onChange={(pattern) => handleUpdateMapping(mapping, { pattern })}
-                  placeholder={t('modelMappings.matchPattern')}
-                  disabled={isPending}
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                <ModelInput
-                  value={mapping.target}
-                  onChange={(target) => handleUpdateMapping(mapping, { target })}
-                  placeholder={t('modelMappings.targetModel')}
-                  disabled={isPending}
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDeleteMapping(mapping.id)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {providerMappings.length === 0 && (
-          <div className="text-center py-6 mb-4">
-            <p className="text-muted-foreground text-sm">{t('modelMappings.noMappings')}</p>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 pt-4 border-t border-border">
-          <ModelInput
-            value={newPattern}
-            onChange={setNewPattern}
-            placeholder={t('modelMappings.matchPattern')}
-            disabled={isPending}
-            className="flex-1 min-w-0 h-8 text-sm"
-          />
-          <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-          <ModelInput
-            value={newTarget}
-            onChange={setNewTarget}
-            placeholder={t('modelMappings.targetModel')}
-            disabled={isPending}
-            className="flex-1 min-w-0 h-8 text-sm"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleAddMapping}
-            disabled={!newPattern.trim() || !newTarget.trim() || isPending}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            {t('common.add')}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function AntigravityProviderView({
   provider,
   onDelete,
@@ -288,6 +142,8 @@ export function AntigravityProviderView({
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     () => provider.config?.disableErrorCooldown ?? false,
   );
+  const { maxConcurrency, setMaxConcurrency, handleCommitMaxConcurrency } =
+    useProviderMaxConcurrencyField(provider, updateProvider);
 
   useEffect(() => {
     setUseCLIProxyAPI(provider.config?.antigravity?.useCLIProxyAPI ?? false);
@@ -447,7 +303,9 @@ export function AntigravityProviderView({
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-mono text-sm text-foreground bg-card px-2 py-1 rounded border border-border/50 flex-1 truncate">
-                      {showToken ? provider.config.antigravity.refreshToken : `${provider.config.antigravity.refreshToken.slice(0, 20)}...`}
+                      {showToken
+                        ? provider.config.antigravity.refreshToken
+                        : `${provider.config.antigravity.refreshToken.slice(0, 20)}...`}
                     </div>
                     <button
                       onClick={() => setShowToken(!showToken)}
@@ -482,7 +340,13 @@ export function AntigravityProviderView({
               </div>
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 space-y-3">
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+                onCommit={handleCommitMaxConcurrency}
+                disabled={updateProvider.isPending}
+              />
               <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
                 <div className="pr-4">
                   <div className="text-sm font-medium text-foreground">

@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,12 +25,13 @@ import (
 // AdminHandler handles admin API requests over HTTP
 // Delegates business logic to AdminService
 type AdminHandler struct {
-	svc         *service.AdminService
-	backupSvc   *service.BackupService
-	userRepo    repository.UserRepository
-	logPath     string
-	restartFn   func() error
-	authEnabled bool
+	svc                  *service.AdminService
+	backupSvc            *service.BackupService
+	userRepo             repository.UserRepository
+	logPath              string
+	restartFn            func() error
+	authEnabled          bool
+	providerProxyHandler *ProviderProxyHandler
 }
 
 // NewAdminHandler creates a new admin handler
@@ -52,6 +57,10 @@ func (h *AdminHandler) SetRestartFunc(fn func() error) {
 // SetAuthEnabled sets whether auth is enabled for this handler.
 func (h *AdminHandler) SetAuthEnabled(enabled bool) {
 	h.authEnabled = enabled
+}
+
+func (h *AdminHandler) SetProviderProxyHandler(providerProxyHandler *ProviderProxyHandler) {
+	h.providerProxyHandler = providerProxyHandler
 }
 
 // ServeHTTP routes admin requests
@@ -82,10 +91,18 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "restart":
 		h.handleRestart(w, r)
 	case "providers":
-		h.handleProviders(w, r, id)
+		if len(parts) == 3 && parts[2] == "bulk-delete" {
+			h.handleBulkDeleteProviders(w, r)
+		} else {
+			h.handleProviders(w, r, id)
+		}
 	case "routes":
 		if len(parts) > 2 && parts[2] == "batch-positions" {
 			h.handleBatchUpdateRoutePositions(w, r)
+		} else if len(parts) > 2 && parts[2] == "bulk-delete" {
+			h.handleBulkDeleteRoutes(w, r)
+		} else if len(parts) > 2 && parts[2] == "ttft-probe" {
+			h.handleRouteTTFTProbe(w, r)
 		} else {
 			h.handleRoutes(w, r, id)
 		}
@@ -171,6 +188,14 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		h.handleBedrockDiscoveredModels(w, r, id)
 		return
 	}
+	if strings.HasSuffix(path, "/runtime-models/preview") {
+		h.handleProviderRuntimeModelsPreview(w, r)
+		return
+	}
+	if id > 0 && strings.HasSuffix(path, "/runtime-models") {
+		h.handleProviderRuntimeModels(w, r, id)
+		return
+	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 
@@ -182,14 +207,14 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 				return
 			}
-			writeJSON(w, http.StatusOK, provider)
+			writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(provider))
 		} else {
 			providers, err := h.svc.GetProviders(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusOK, providers)
+			writeJSON(w, http.StatusOK, sanitizeProvidersForRole(providers, true))
 		}
 	case http.MethodPost:
 		var provider domain.Provider
@@ -201,7 +226,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusCreated, provider)
+		writeJSON(w, http.StatusCreated, sanitizeProviderAfterMutation(&provider))
 	case http.MethodPut:
 		if id == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
@@ -225,10 +250,10 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		provider.TenantID = existing.TenantID
 		provider.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeProviderMutationError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, provider)
+		writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(&provider))
 	case http.MethodDelete:
 		if id == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
@@ -242,6 +267,214 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+type providerRuntimeModelsResult struct {
+	Available bool     `json:"available"`
+	Models    []string `json:"models"`
+	Source    string   `json:"source,omitempty"`
+	Error     string   `json:"error,omitempty"`
+}
+
+func (h *AdminHandler) handleProviderRuntimeModels(w http.ResponseWriter, r *http.Request, id uint64) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	provider, err := h.svc.GetProvider(tenantID, id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+
+	result := h.fetchProviderRuntimeModels(r, provider)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *AdminHandler) handleProviderRuntimeModelsPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var provider domain.Provider
+	if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result := h.fetchProviderRuntimeModels(r, &provider)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *AdminHandler) fetchProviderRuntimeModels(r *http.Request, provider *domain.Provider) providerRuntimeModelsResult {
+	if provider == nil || provider.Config == nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "provider config unavailable"}
+	}
+
+	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
+	case "bedrock":
+		adapter, ok := h.svc.GetProviderAdapter(provider.ID)
+		if !ok {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "bedrock adapter unavailable"}
+		}
+		bedrockA, ok := adapter.(*bedrock.BedrockAdapter)
+		if !ok {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "bedrock adapter unavailable"}
+		}
+		discovered := bedrockA.DiscoveredModels(r.Context(), true)
+		models := make([]string, 0, len(discovered.Models))
+		for _, model := range discovered.Models {
+			models = append(models, model.ShortName)
+		}
+		return providerRuntimeModelsResult{Available: discovered.Available, Models: uniqueSortedStrings(models), Source: "bedrock"}
+	case "openrouter":
+		if provider.Config.OpenRouter == nil || strings.TrimSpace(provider.Config.OpenRouter.APIKey) == "" {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "openrouter api key unavailable"}
+		}
+		return fetchOpenAICompatibleModels(r, "https://openrouter.ai/api/v1/models", provider.Config.OpenRouter.APIKey, "openrouter")
+	case "custom", "newapi":
+		// new-api is OpenAI-compatible, so /v1/models discovery works the same way.
+		if provider.Config.Custom == nil || strings.TrimSpace(customRuntimeModelsBaseURL(provider.Config.Custom)) == "" {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "custom provider base url unavailable"}
+		}
+		modelsURL, err := providerModelsURL(customRuntimeModelsBaseURL(provider.Config.Custom))
+		if err != nil {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: err.Error()}
+		}
+		return fetchOpenAICompatibleModels(r, modelsURL, provider.Config.Custom.APIKey, "custom")
+	default:
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "provider runtime model discovery unsupported"}
+	}
+}
+
+func customRuntimeModelsBaseURL(custom *domain.ProviderConfigCustom) string {
+	if custom == nil {
+		return ""
+	}
+	if custom.ClientBaseURL != nil {
+		if baseURL := strings.TrimSpace(custom.ClientBaseURL[domain.ClientTypeOpenAI]); baseURL != "" {
+			return baseURL
+		}
+	}
+	return custom.BaseURL
+}
+
+func providerModelsURL(baseURL string) (string, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return "", fmt.Errorf("provider base url unavailable")
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid provider base url")
+	}
+	if strings.HasSuffix(parsed.Path, "/v1") {
+		return baseURL + "/models", nil
+	}
+	return baseURL + "/v1/models", nil
+}
+
+func fetchOpenAICompatibleModels(r *http.Request, modelsURL string, apiKey string, source string) providerRuntimeModelsResult {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "build models request failed"}
+	}
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "fetch provider models failed: " + err.Error()}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: fmt.Sprintf("fetch provider models failed: upstream status %d", resp.StatusCode)}
+	}
+
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+		Models []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "decode provider models failed"}
+	}
+
+	models := make([]string, 0, len(payload.Data)+len(payload.Models))
+	for _, model := range payload.Data {
+		models = append(models, model.ID)
+	}
+	for _, model := range payload.Models {
+		if model.ID != "" {
+			models = append(models, model.ID)
+		} else {
+			models = append(models, model.Name)
+		}
+	}
+	models = uniqueSortedStrings(models)
+	return providerRuntimeModelsResult{Available: len(models) > 0, Models: models, Source: source}
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func bulkDeleteErrorStatus(err error) int {
+	if errors.Is(err, service.ErrIDsRequired) || errors.Is(err, service.ErrInvalidRouteClientType) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+func (h *AdminHandler) handleBulkDeleteProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req domain.ProviderBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.BulkDeleteProviders(tenantID, req)
+	if err != nil {
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleBedrockDiscoveredModels surfaces the runtime discovery catalog
@@ -412,11 +645,7 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 				existing.IsEnabled = b
 			}
 		}
-		if v, ok := updates["isNative"]; ok {
-			if b, ok := v.(bool); ok {
-				existing.IsNative = b
-			}
-		}
+		// isNative is a server-derived field; ignore client-supplied values.
 		if v, ok := updates["projectID"]; ok {
 			if f, ok := v.(float64); ok {
 				existing.ProjectID = uint64(f)
@@ -493,8 +722,36 @@ func (h *AdminHandler) handleBatchUpdateRoutePositions(w http.ResponseWriter, r 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "positions updated successfully"})
 }
 
+func (h *AdminHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req domain.RouteBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.BulkDeleteRoutes(tenantID, req)
+	if err != nil {
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
 // Project handlers
 func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
+	// Check for archive inactive endpoint: /admin/projects/archive-inactive
+	if len(parts) > 2 && parts[2] == "archive-inactive" {
+		h.handleArchiveInactiveProjects(w, r)
+		return
+	}
+
 	// Check for by-slug endpoint: /admin/projects/by-slug/{slug}
 	if len(parts) > 2 && parts[2] == "by-slug" {
 		h.handleProjectBySlug(w, r, parts)
@@ -580,6 +837,34 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 }
 
 // handleProjectBySlug handles GET /admin/projects/by-slug/{slug}
+
+func (h *AdminHandler) handleArchiveInactiveProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var body struct {
+		ThresholdDays int `json:"thresholdDays"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if body.ThresholdDays <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "thresholdDays must be positive"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.ArchiveInactiveProjects(tenantID, body.ThresholdDays)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *AdminHandler) handleProjectBySlug(w http.ResponseWriter, r *http.Request, parts []string) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -825,8 +1110,151 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// parseTimeQuery parses a time query parameter as either a 13-digit millisecond timestamp or RFC3339.
+func parseTimeQuery(raw, name string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	if millis, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		digits := len(strings.TrimLeft(raw, "-"))
+		if digits != 13 {
+			return nil, errors.New("invalid " + name + ": expected 13-digit millisecond timestamp or RFC3339")
+		}
+		t := time.UnixMilli(millis).UTC()
+		return &t, nil
+	}
+	for _, format := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(format, raw); err == nil {
+			utc := t.UTC()
+			return &utc, nil
+		}
+	}
+	return nil, errors.New("invalid " + name + ": expected millisecond timestamp or RFC3339")
+}
+
+func parseProxyRequestFilter(r *http.Request) (*repository.ProxyRequestFilter, error) {
+	providerIDStr := r.URL.Query().Get("providerId")
+	statusStr := r.URL.Query().Get("status")
+	apiTokenIDStr := r.URL.Query().Get("apiTokenId")
+	projectIDStr := r.URL.Query().Get("projectId")
+	startTimeStr := r.URL.Query().Get("startTime")
+	endTimeStr := r.URL.Query().Get("endTime")
+	errorModeStr := r.URL.Query().Get("errorMode")
+
+	if providerIDStr == "" && statusStr == "" && apiTokenIDStr == "" && projectIDStr == "" && startTimeStr == "" && endTimeStr == "" && errorModeStr == "" {
+		return nil, nil
+	}
+
+	filter := &repository.ProxyRequestFilter{}
+	if providerIDStr != "" {
+		providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+		if err != nil {
+			return nil, errors.New("invalid providerId")
+		}
+		filter.ProviderID = &providerID
+	}
+	if statusStr != "" {
+		filter.Status = &statusStr
+	}
+	if apiTokenIDStr != "" {
+		apiTokenID, err := strconv.ParseUint(apiTokenIDStr, 10, 64)
+		if err != nil {
+			return nil, errors.New("invalid apiTokenId")
+		}
+		filter.APITokenID = &apiTokenID
+	}
+	if projectIDStr != "" {
+		projectID, err := strconv.ParseUint(projectIDStr, 10, 64)
+		if err != nil {
+			return nil, errors.New("invalid projectId")
+		}
+		filter.ProjectID = &projectID
+	}
+	if startTimeStr != "" {
+		startTime, err := parseTimeQuery(startTimeStr, "startTime")
+		if err != nil {
+			return nil, err
+		}
+		filter.StartTime = startTime
+	}
+	if endTimeStr != "" {
+		endTime, err := parseTimeQuery(endTimeStr, "endTime")
+		if err != nil {
+			return nil, err
+		}
+		filter.EndTime = endTime
+	}
+	if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
+		return nil, errors.New("endTime must be greater than or equal to startTime")
+	}
+	if errorModeStr != "" {
+		switch repository.ProxyRequestErrorMode(errorModeStr) {
+		case repository.ProxyRequestErrorModeAll, repository.ProxyRequestErrorModeOnly, repository.ProxyRequestErrorModeExclude:
+			filter.ErrorMode = repository.ProxyRequestErrorMode(errorModeStr)
+		default:
+			return nil, errors.New("invalid errorMode")
+		}
+	}
+	return filter, nil
+}
+
+func emptyProxyRequestsCursorResult() *service.CursorPaginationResult {
+	return &service.CursorPaginationResult{Items: []*domain.ProxyRequest{}}
+}
+
+func emptyProxyRequestErrorStats() *repository.ProxyRequestErrorStats {
+	return &repository.ProxyRequestErrorStats{
+		StatusCounts:     []repository.ProxyRequestCountBucket{},
+		HTTPStatusCounts: []repository.ProxyRequestHTTPStatusBucket{},
+		ProviderCounts:   []repository.ProxyRequestProviderBucket{},
+		ModelCounts:      []repository.ProxyRequestCountBucket{},
+		Trend:            []repository.ProxyRequestTrendPoint{},
+	}
+}
+
+func (h *AdminHandler) userPanelMemberRequestTokenID(r *http.Request, tenantID uint64) (uint64, bool, error) {
+	if !h.userPanelMemberUsageStatsEnabled(r) {
+		return 0, false, nil
+	}
+
+	canonicalToken, err := h.userPanelMemberCanonicalAPIToken(tenantID, maxxctx.GetUserID(r.Context()))
+	if err != nil {
+		return 0, true, err
+	}
+	if canonicalToken == nil || canonicalToken.ID == 0 || !canonicalToken.IsEnabled {
+		return 0, true, nil
+	}
+	return canonicalToken.ID, true, nil
+}
+
+func (h *AdminHandler) userPanelMemberCanonicalAPIToken(tenantID uint64, userID uint64) (*domain.APIToken, error) {
+	if tenantID == 0 || userID == 0 {
+		return nil, nil
+	}
+	tokens, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, tokens)
+}
+
+func applyUserPanelMemberRequestFilter(filter *repository.ProxyRequestFilter, tokenID uint64) *repository.ProxyRequestFilter {
+	if filter == nil {
+		filter = &repository.ProxyRequestFilter{}
+	} else {
+		copy := *filter
+		filter = &copy
+	}
+	filter.APITokenID = &tokenID
+	return filter
+}
+
+func requestBelongsToUserPanelToken(req *domain.ProxyRequest, tokenID uint64) bool {
+	return req != nil && tokenID != 0 && req.APITokenID == tokenID
+}
+
 // ProxyRequest handlers
-// Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
+// Routes: /admin/requests, /admin/requests/count, /admin/requests/error-stats, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
 func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
 	// Check for count endpoint: /admin/requests/count
 	if len(parts) > 2 && parts[2] == "count" {
@@ -834,9 +1262,27 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check for error stats endpoint: /admin/requests/error-stats
+	if len(parts) > 2 && parts[2] == "error-stats" {
+		h.handleProxyRequestsErrorStats(w, r)
+		return
+	}
+
 	// Check for active endpoint: /admin/requests/active
 	if len(parts) > 2 && parts[2] == "active" {
 		h.handleActiveProxyRequests(w, r)
+		return
+	}
+
+	// Check for cleanup failed count endpoint: /admin/requests/cleanup-failed-count
+	if len(parts) > 2 && parts[2] == "cleanup-failed-count" {
+		h.handleCleanupFailedProxyRequestsCount(w, r)
+		return
+	}
+
+	// Check for cleanup failed endpoint: /admin/requests/cleanup-failed
+	if len(parts) > 2 && parts[2] == "cleanup-failed" {
+		h.handleCleanupFailedProxyRequests(w, r)
 		return
 	}
 
@@ -856,9 +1302,14 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 
 	switch r.Method {
 	case http.MethodGet:
+		memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
 		if id > 0 {
 			req, err := h.svc.GetProxyRequest(tenantID, id)
-			if err != nil {
+			if err != nil || (memberScoped && !requestBelongsToUserPanelToken(req, memberTokenID)) {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "proxy request not found"})
 				return
 			}
@@ -876,42 +1327,18 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 				after, _ = strconv.ParseUint(a, 10, 64)
 			}
 
-			// 构建过滤条件
-			var filter *repository.ProxyRequestFilter
-			providerIDStr := r.URL.Query().Get("providerId")
-			statusStr := r.URL.Query().Get("status")
-			apiTokenIDStr := r.URL.Query().Get("apiTokenId")
-			projectIDStr := r.URL.Query().Get("projectId")
+			filter, err := parseProxyRequestFilter(r)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
 
-			if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" {
-				filter = &repository.ProxyRequestFilter{}
-				if providerIDStr != "" {
-					providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
-					if err != nil {
-						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid providerId"})
-						return
-					}
-					filter.ProviderID = &providerID
+			if memberScoped {
+				if memberTokenID == 0 {
+					writeJSON(w, http.StatusOK, emptyProxyRequestsCursorResult())
+					return
 				}
-				if statusStr != "" {
-					filter.Status = &statusStr
-				}
-				if apiTokenIDStr != "" {
-					apiTokenID, err := strconv.ParseUint(apiTokenIDStr, 10, 64)
-					if err != nil {
-						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid apiTokenId"})
-						return
-					}
-					filter.APITokenID = &apiTokenID
-				}
-				if projectIDStr != "" {
-					projectID, err := strconv.ParseUint(projectIDStr, 10, 64)
-					if err != nil {
-						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid projectId"})
-						return
-					}
-					filter.ProjectID = &projectID
-				}
+				filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
 			}
 
 			result, err := h.svc.GetProxyRequestsCursor(tenantID, limit, before, after, filter)
@@ -927,6 +1354,73 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 }
 
 // ProxyRequestsCount handler
+
+func (h *AdminHandler) handleCleanupFailedProxyRequestsCount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	filter, err := parseProxyRequestFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, 0)
+			return
+		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
+	}
+	count, err := h.svc.CountFailedProxyRequests(tenantID, filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, count)
+}
+
+func (h *AdminHandler) handleCleanupFailedProxyRequests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	filter, err := parseProxyRequestFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, &domain.ProxyRequestCleanupFailedResult{})
+			return
+		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
+	}
+	result, err := h.svc.CleanupFailedProxyRequests(tenantID, filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -935,42 +1429,23 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 
-	// 解析过滤参数
-	var filter *repository.ProxyRequestFilter
-	providerIDStr := r.URL.Query().Get("providerId")
-	statusStr := r.URL.Query().Get("status")
-	apiTokenIDStr := r.URL.Query().Get("apiTokenId")
-	projectIDStr := r.URL.Query().Get("projectId")
+	filter, err := parseProxyRequestFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 
-	if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" {
-		filter = &repository.ProxyRequestFilter{}
-		if providerIDStr != "" {
-			providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid providerId"})
-				return
-			}
-			filter.ProviderID = &providerID
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, 0)
+			return
 		}
-		if statusStr != "" {
-			filter.Status = &statusStr
-		}
-		if apiTokenIDStr != "" {
-			apiTokenID, err := strconv.ParseUint(apiTokenIDStr, 10, 64)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid apiTokenId"})
-				return
-			}
-			filter.APITokenID = &apiTokenID
-		}
-		if projectIDStr != "" {
-			projectID, err := strconv.ParseUint(projectIDStr, 10, 64)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid projectId"})
-				return
-			}
-			filter.ProjectID = &projectID
-		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
 	}
 
 	count, err := h.svc.GetProxyRequestsCountWithFilter(tenantID, filter)
@@ -981,6 +1456,43 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, count)
 }
 
+func (h *AdminHandler) handleProxyRequestsErrorStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	filter, err := parseProxyRequestFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if filter != nil {
+		filter.ErrorMode = repository.ProxyRequestErrorModeAll
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, emptyProxyRequestErrorStats())
+			return
+		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
+	}
+
+	stats, err := h.svc.GetProxyRequestErrorStats(tenantID, filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // ActiveProxyRequests handler - returns all requests with PENDING or IN_PROGRESS status
 func (h *AdminHandler) handleActiveProxyRequests(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -989,10 +1501,24 @@ func (h *AdminHandler) handleActiveProxyRequests(w http.ResponseWriter, r *http.
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	requests, err := h.svc.GetActiveProxyRequests(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if memberScoped {
+		filtered := make([]*domain.ProxyRequest, 0, len(requests))
+		for _, req := range requests {
+			if requestBelongsToUserPanelToken(req, memberTokenID) {
+				filtered = append(filtered, req)
+			}
+		}
+		requests = filtered
 	}
 	writeJSON(w, http.StatusOK, requests)
 }
@@ -1005,6 +1531,18 @@ func (h *AdminHandler) handleProxyUpstreamAttempts(w http.ResponseWriter, r *htt
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		req, err := h.svc.GetProxyRequest(tenantID, proxyRequestID)
+		if err != nil || !requestBelongsToUserPanelToken(req, memberTokenID) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "proxy request not found"})
+			return
+		}
+	}
 	attempts, err := h.svc.GetProxyUpstreamAttempts(tenantID, proxyRequestID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -1080,7 +1618,11 @@ func (h *AdminHandler) handleSettings(w http.ResponseWriter, r *http.Request, pa
 			return
 		}
 		if err := h.svc.DeleteSetting(key); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, domain.ErrInvalidInput) {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -1237,6 +1779,11 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 // API Token handlers
 func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, id uint64) {
 	tenantID := maxxctx.GetTenantID(r.Context())
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if strings.HasSuffix(path, "/api-tokens/cleanup-expired") {
+		h.handleCleanupExpiredAPITokens(w, r, tenantID)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -1296,12 +1843,13 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		var body struct {
-			Name        *string `json:"name"`
-			Description *string `json:"description"`
-			ProjectID   *uint64 `json:"projectID"`
-			IsEnabled   *bool   `json:"isEnabled"`
-			DevMode     *bool   `json:"devMode"`
-			ExpiresAt   *string `json:"expiresAt"`
+			Name          *string `json:"name"`
+			Description   *string `json:"description"`
+			ProjectID     *uint64 `json:"projectID"`
+			IsEnabled     *bool   `json:"isEnabled"`
+			DevMode       *bool   `json:"devMode"`
+			ExpiresAt     *string `json:"expiresAt"`
+			ResetValidity *bool   `json:"resetValidity"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -1338,6 +1886,13 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 				existing.ExpiresAt = &t
 			}
 		}
+		if body.ResetValidity != nil && *body.ResetValidity {
+			existing.IsEnabled = true
+			existing.ExpiresAt = nil
+			existing.LastUsedAt = nil
+			existing.LastIP = ""
+			existing.LastIPAt = nil
+		}
 		if err := h.svc.UpdateAPIToken(tenantID, existing); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -1356,6 +1911,21 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (h *AdminHandler) handleCleanupExpiredAPITokens(w http.ResponseWriter, r *http.Request, tenantID uint64) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	result, err := h.svc.CleanupExpiredAPITokens(tenantID, time.Now())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Model Mapping handlers
@@ -1581,12 +2151,32 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
-	stats, err := h.svc.GetUsageStats(tenantID, filter)
+	var stats []*domain.UsageStats
+	var err error
+	if h.userPanelMemberUsageStatsEnabled(r) {
+		stats, err = getUserPanelUsageStatsForUser(h.svc, tenantID, maxxctx.GetUserID(r.Context()), filter)
+	} else {
+		stats, err = h.svc.GetUsageStats(tenantID, filter)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if stats == nil {
+		stats = []*domain.UsageStats{}
+	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *AdminHandler) userPanelMemberUsageStatsEnabled(r *http.Request) bool {
+	if maxxctx.GetUserRole(r.Context()) != string(domain.UserRoleMember) || maxxctx.GetUserID(r.Context()) == 0 {
+		return false
+	}
+	settings, err := h.svc.GetSettings()
+	if err != nil {
+		return false
+	}
+	return settings["ui_multitenant_enabled"] == "true" && settings["ui_multitenant_layout"] == "user_panel"
 }
 
 // handleRecalculateUsageStats handles POST /admin/usage-stats/recalculate

@@ -7,11 +7,28 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/tidwall/gjson"
 )
+
+// collectMetricsEvent drains an AdapterEventChan and returns the first
+// EventMetrics payload it finds, or nil if none was sent.
+func collectMetricsEvent(ch domain.AdapterEventChan) *domain.AdapterMetrics {
+	for {
+		select {
+		case ev := <-ch:
+			if ev != nil && ev.Type == domain.EventMetrics {
+				return ev.Metrics
+			}
+		default:
+			return nil
+		}
+	}
+}
 
 type scriptedReadCloser struct {
 	chunks [][]byte
@@ -96,6 +113,7 @@ func TestApplyCodexHeadersFiltersSensitiveAndPreservesUA(t *testing.T) {
 	clientReq.Header.Set("X-Forwarded-For", "1.2.3.4")
 	clientReq.Header.Set("Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")
 	clientReq.Header.Set("X-Request-Id", "rid-1")
+	clientReq.Header.Set("X-OpenAI-Internal-Codex-Responses-Lite", "true")
 	clientReq.Header.Set("X-Custom", "ok")
 
 	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
@@ -109,11 +127,47 @@ func TestApplyCodexHeadersFiltersSensitiveAndPreservesUA(t *testing.T) {
 	if got := upstreamReq.Header.Get("X-Request-Id"); got != "" {
 		t.Fatalf("expected X-Request-Id filtered, got %q", got)
 	}
+	if got := upstreamReq.Header.Get("X-OpenAI-Internal-Codex-Responses-Lite"); got != "true" {
+		t.Fatalf("expected Codex Responses Lite header passthrough, got %q", got)
+	}
 	if got := upstreamReq.Header.Get("User-Agent"); got != "codex-cli/1.2.3" {
 		t.Fatalf("expected User-Agent passthrough, got %q", got)
 	}
 	if got := upstreamReq.Header.Get("X-Custom"); got != "ok" {
 		t.Fatalf("expected X-Custom passthrough, got %q", got)
+	}
+}
+
+func TestApplyCodexProtocolIdentity(t *testing.T) {
+	tests := []struct {
+		name               string
+		originalClientType domain.ClientType
+		expectedUserAgent  string
+		expectedVersion    string
+	}{
+		{"same protocol preserves identity", domain.ClientTypeCodex, "source-client/1.0", "source-version"},
+		{"conversion uses target identity", domain.ClientTypeClaude, CodexUserAgent, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientReq := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+			clientReq.Header.Set("User-Agent", "source-client/1.0")
+			ctx := flow.NewCtx(httptest.NewRecorder(), clientReq)
+			ctx.Set(flow.KeyOriginalClientType, tt.originalClientType)
+			ctx.Set(flow.KeyClientType, domain.ClientTypeCodex)
+
+			upstreamReq := httptest.NewRequest(http.MethodPost, "https://chatgpt.com/backend-api/codex/responses", nil)
+			upstreamReq.Header.Set("Version", "source-version")
+			applyCodexProtocolIdentity(ctx, upstreamReq)
+
+			if got := upstreamReq.Header.Get("User-Agent"); got != tt.expectedUserAgent {
+				t.Fatalf("User-Agent = %q, want %q", got, tt.expectedUserAgent)
+			}
+			if got := upstreamReq.Header.Get("Version"); got != tt.expectedVersion {
+				t.Fatalf("Version = %q, want %q", got, tt.expectedVersion)
+			}
+		})
 	}
 }
 
@@ -146,18 +200,18 @@ func TestApplyCodexHeadersPreservesProvidedUA(t *testing.T) {
 	}
 }
 
-func TestApplyCodexHeadersUsesDefaultUAWhenClientReqNil(t *testing.T) {
+func TestApplyCodexHeadersPreservesMissingUAWhenClientReqNil(t *testing.T) {
 	a := &CodexAdapter{}
 	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
 
 	a.applyCodexHeaders(upstreamReq, nil, "token-1", "acct-1", true, "")
 
-	if got := upstreamReq.Header.Get("User-Agent"); got != CodexUserAgent {
-		t.Fatalf("expected default Codex User-Agent when client request is nil, got %q", got)
+	if got := upstreamReq.Header.Get("User-Agent"); got != "" {
+		t.Fatalf("expected missing client User-Agent to remain empty, got %q", got)
 	}
 }
 
-func TestApplyCodexHeadersUsesDefaultUAWhenClientUAIsBlank(t *testing.T) {
+func TestApplyCodexHeadersPreservesBlankClientUA(t *testing.T) {
 	a := &CodexAdapter{}
 	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
 	clientReq, _ := http.NewRequest("POST", "http://localhost/responses", nil)
@@ -165,8 +219,26 @@ func TestApplyCodexHeadersUsesDefaultUAWhenClientUAIsBlank(t *testing.T) {
 
 	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
 
-	if got := upstreamReq.Header.Get("User-Agent"); got != CodexUserAgent {
-		t.Fatalf("expected default Codex User-Agent when client UA is blank, got %q", got)
+	if got := upstreamReq.Header.Get("User-Agent"); got != "   " {
+		t.Fatalf("expected blank client User-Agent passthrough, got %q", got)
+	}
+}
+
+func TestApplyCodexHeadersPreservesVersionOnlyWhenProvided(t *testing.T) {
+	a := &CodexAdapter{}
+	clientReq, _ := http.NewRequest("POST", "http://localhost/responses", nil)
+	clientReq.Header.Set("Version", "0.144.1")
+	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
+
+	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
+	if got := upstreamReq.Header.Get("Version"); got != "0.144.1" {
+		t.Fatalf("expected client Version passthrough, got %q", got)
+	}
+
+	upstreamReq2, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
+	a.applyCodexHeaders(upstreamReq2, nil, "token-1", "acct-1", true, "")
+	if _, ok := upstreamReq2.Header["Version"]; ok {
+		t.Fatalf("expected missing client Version to remain absent, got %q", upstreamReq2.Header.Get("Version"))
 	}
 }
 
@@ -279,6 +351,146 @@ func TestHandleStreamResponseReturnsProviderErrorOnReadErrorBeforeCompleted(t *t
 	}
 }
 
+// TestHandleStreamResponseScopesModelOnInStreamModelError exercises the path
+// where the upstream emits a structured "model not supported" event and then
+// closes the stream without response.completed. Without scope refinement the
+// adapter would freeze the entire provider; with it, only the failing model
+// should be cooled down.
+func TestHandleStreamResponseScopesModelOnInStreamModelError(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+
+	// Real-world shape observed for ChatGPT-account Codex on unsupported models:
+	// upstream returns 200 OK, sends an error event, then EOFs.
+	stream := strings.Join([]string{
+		`data: {"type":"response.created","response":{"model":"gpt-5.5-codex"}}`,
+		`data: {"type":"response.failed","response":{"model":"gpt-5.5-codex","error":{"code":"model_not_supported","message":"The 'gpt-5.5-codex' model is not supported when using Codex with a ChatGPT account."}}}`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected stream close without response.completed to return error")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Errorf("Scope = %q, want %q (in-stream model error should narrow scope)", proxyErr.Scope, domain.ScopeModel)
+	}
+	if proxyErr.Reason != domain.CooldownReasonModelUnavailable {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonModelUnavailable)
+	}
+	if proxyErr.Model != "gpt-5.5-codex" {
+		t.Errorf("Model = %q, want %q", proxyErr.Model, "gpt-5.5-codex")
+	}
+}
+
+// TestHandleStreamResponseScopesModelOnFastAPIDetail covers the observed
+// ChatGPT-account Codex shape: a single SSE event with no `type` field and a
+// `detail` message naming the unsupported model. The error event itself
+// carries no model field, so the adapter must attribute the model from the
+// flow context's mapped model.
+func TestHandleStreamResponseScopesModelOnFastAPIDetail(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set(flow.KeyMappedModel, "gpt-5.5-codex")
+
+	stream := `data: {"detail":"The 'gpt-5.5-codex' model is not supported when using Codex with a ChatGPT account."}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Errorf("Scope = %q, want %q", proxyErr.Scope, domain.ScopeModel)
+	}
+	if proxyErr.Model != "gpt-5.5-codex" {
+		t.Errorf("Model = %q, want %q (must attribute from flow context when error event lacks model)", proxyErr.Model, "gpt-5.5-codex")
+	}
+}
+
+// TestHandleStreamResponseDowngradesToProviderWhenModelUnattributable guards
+// the safety net: if classifyCodexStreamError returns ScopeModel but no model
+// can be attributed from anywhere, ScopeModel with empty Model would collapse
+// to a (provider, "", "") cooldown key — i.e. provider-wide — defeating the
+// scope refinement. The adapter must fall back to the explicit ScopeProvider.
+func TestHandleStreamResponseDowngradesToProviderWhenModelUnattributable(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	// Deliberately do not set KeyMappedModel.
+
+	stream := `data: {"detail":"unknown model"}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Errorf("Scope = %q, want %q (unattributable model should not emit ScopeModel)", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+}
+
+// TestHandleStreamResponseKeepsProviderScopeWithoutErrorEvent guards the
+// fallback: a stream that closes without ANY structured error signal should
+// still cool down the whole provider so genuine outages keep tripping the
+// wider cooldown.
+func TestHandleStreamResponseKeepsProviderScopeWithoutErrorEvent(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+
+	stream := `data: {"type":"response.output_text.delta","delta":"hello"}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected error for incomplete stream")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Errorf("Scope = %q, want %q (no error event → provider-wide fallback)", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+}
+
 func TestHandleStreamResponseAllowsCompletedStreamWithoutTrailingNewline(t *testing.T) {
 	a := &CodexAdapter{}
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
@@ -294,5 +506,174 @@ func TestHandleStreamResponseAllowsCompletedStreamWithoutTrailingNewline(t *test
 
 	if err := a.handleStreamResponse(ctx, resp); err != nil {
 		t.Fatalf("expected completed stream without trailing newline to succeed, got %v", err)
+	}
+}
+
+func TestPersistRefreshedTokenFailsOnUpdateError(t *testing.T) {
+	orig := &domain.Provider{
+		ID:   42,
+		Name: "codex-account",
+		Config: &domain.ProviderConfig{Codex: &domain.ProviderConfigCodex{
+			AccessToken:  "old-at",
+			RefreshToken: "old-rt",
+			ExpiresAt:    "old-exp",
+		}},
+	}
+	updateErr := errors.New("db down")
+	a := &CodexAdapter{
+		providerUpdate: func(p *domain.Provider) error {
+			if p == orig {
+				t.Fatal("provider update must receive a clone, not the shared provider pointer")
+			}
+			if got := p.Config.Codex.AccessToken; got != "new-at" {
+				t.Fatalf("persisted access token = %q, want new-at", got)
+			}
+			if got := p.Config.Codex.RefreshToken; got != "new-rt" {
+				t.Fatalf("persisted refresh token = %q, want new-rt", got)
+			}
+			return updateErr
+		},
+	}
+
+	err := a.persistRefreshedToken(orig, &TokenResponse{AccessToken: "new-at", RefreshToken: "new-rt", ExpiresIn: 3600}, time.Unix(123, 0).UTC())
+	if err == nil || !strings.Contains(err.Error(), "failed to persist refreshed token") || !errors.Is(err, updateErr) {
+		t.Fatalf("expected wrapped persistence error, got %v", err)
+	}
+	if got := orig.Config.Codex.AccessToken; got != "old-at" {
+		t.Fatalf("original provider was mutated: access token = %q", got)
+	}
+	if got := orig.Config.Codex.RefreshToken; got != "old-rt" {
+		t.Fatalf("original provider was mutated: refresh token = %q", got)
+	}
+}
+
+func TestPersistRefreshedTokenRequiresUpdaterForRotatedRefreshToken(t *testing.T) {
+	a := &CodexAdapter{}
+	orig := &domain.Provider{Config: &domain.ProviderConfig{Codex: &domain.ProviderConfigCodex{RefreshToken: "old-rt"}}}
+
+	err := a.persistRefreshedToken(orig, &TokenResponse{AccessToken: "new-at", RefreshToken: "new-rt", ExpiresIn: 3600}, time.Unix(123, 0).UTC())
+	if err == nil || !strings.Contains(err.Error(), "provider update callback not configured") {
+		t.Fatalf("expected missing updater error for rotated refresh token, got %v", err)
+	}
+}
+
+func TestHandleNonStreamResponseForwardsCacheReadCount(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
+
+	body := `{"id":"resp_1","object":"response","model":"gpt-5","usage":{"input_tokens":120,"output_tokens":40,"input_tokens_details":{"cached_tokens":80}}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	if err := a.handleNonStreamResponse(ctx, resp); err != nil {
+		t.Fatalf("handleNonStreamResponse: %v", err)
+	}
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics to be emitted")
+	}
+	// Codex usage.input_tokens includes cached_tokens; AdjustForClientType
+	// subtracts so pricing does not bill the cached portion at the input rate
+	// on top of the cache-read rate. Expect input_tokens (120) - cached (80) = 40.
+	if metrics.InputTokens != 40 || metrics.OutputTokens != 40 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d, want input=40 output=40", metrics.InputTokens, metrics.OutputTokens)
+	}
+	if metrics.CacheReadCount != 80 {
+		t.Fatalf("expected CacheReadCount=80, got %d", metrics.CacheReadCount)
+	}
+}
+
+func TestHandleStreamResponseForwardsCacheReadCount(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
+
+	// Real Codex Responses SSE: usage is only carried on the terminating
+	// response.completed event.
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"hi"}`,
+		`data: {"type":"response.completed","response":{"model":"gpt-5","usage":{"input_tokens":200,"output_tokens":50,"input_tokens_details":{"cached_tokens":150}}}}`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	if err := a.handleStreamResponse(ctx, resp); err != nil {
+		t.Fatalf("handleStreamResponse: %v", err)
+	}
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics to be emitted from response.completed")
+	}
+	// After AdjustForClientType: input_tokens (200) - cached (150) = 50.
+	if metrics.InputTokens != 50 || metrics.OutputTokens != 50 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d, want input=50 output=50", metrics.InputTokens, metrics.OutputTokens)
+	}
+	if metrics.CacheReadCount != 150 {
+		t.Fatalf("expected CacheReadCount=150, got %d", metrics.CacheReadCount)
+	}
+}
+
+// A cache-only metric (no fresh input/output tokens, just a prompt-cache hit)
+// must still flow through sendFinalStreamEvents. Metrics.IsEmpty is the gate;
+// regressing it to drop cache-only metrics would silently zero out cache stats
+// for some streams.
+func TestSendFinalStreamEventsEmitsCacheOnlyMetrics(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	_ = flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+
+	collector := &usage.StreamCollector{Metrics: &usage.Metrics{CacheReadCount: 42}}
+	model := ""
+	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
+
+	a.sendFinalStreamEvents(eventChan, collector, &model, resp)
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics for cache-only metrics")
+	}
+	if metrics.CacheReadCount != 42 {
+		t.Fatalf("expected CacheReadCount=42, got %d", metrics.CacheReadCount)
+	}
+	if metrics.InputTokens != 0 || metrics.OutputTokens != 0 {
+		t.Fatalf("expected zero input/output tokens, got input=%d output=%d", metrics.InputTokens, metrics.OutputTokens)
+
+	}
+}
+
+func TestClassifyCodexHTTPError402InsufficientBalanceIsKeyQuota(t *testing.T) {
+	proxyErr := classifyCodexHTTPError(
+		http.StatusPaymentRequired,
+		[]byte(`{"error":{"message":"Insufficient balance","type":"bad_response_status_code"}}`),
+		make(http.Header),
+		"gpt-5",
+	)
+
+	if proxyErr.Scope != domain.ScopeKey {
+		t.Fatalf("Scope = %v, want ScopeKey", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonQuotaExhausted {
+		t.Fatalf("Reason = %v, want CooldownReasonQuotaExhausted", proxyErr.Reason)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("402 insufficient balance should not retry the same provider")
 	}
 }

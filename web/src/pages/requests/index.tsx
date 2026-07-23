@@ -1,9 +1,22 @@
-﻿import { useState, useMemo, useRef, useEffect, type UIEvent } from 'react';
-import { useCallback, memo } from 'react';
+﻿import {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+  memo,
+  type UIEvent,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
+  useCleanupFailedProxyRequests,
+  useCleanupFailedProxyRequestsCount,
   useInfiniteProxyRequests,
+  useProxyRequestErrorStats,
   useProxyRequestUpdates,
   useProxyRequestsCount,
   useProviders,
@@ -11,11 +24,52 @@ import {
   useProjects,
   useVisibleAPITokens,
 } from '@/hooks/queries';
-import { Activity, RefreshCw, Loader2, CheckCircle, AlertTriangle, Ban } from 'lucide-react';
+import {
+  Activity,
+  RefreshCw,
+  Loader2,
+  CheckCircle,
+  AlertTriangle,
+  Ban,
+  CalendarRange,
+  X,
+  Clock,
+  BarChart3,
+  Trash2,
+} from 'lucide-react';
+import {
+  type RequestColumnId,
+  type RequestColumnPrefs,
+  MIN_COLUMN_WIDTHS,
+  MAX_COLUMN_WIDTH,
+  REQUEST_COLUMNS_STORAGE_KEY,
+  columnLabelKey,
+  columnShortLabelKey,
+  isCenteredColumn,
+  migrateColumnPrefs,
+  readColumnPrefs,
+  resolveVisibleColumns,
+  writeColumnPrefs,
+} from './column-prefs';
+import { RequestsColumnSettings } from './column-settings';
+import { requestProtocolLabelKey, resolveRequestProtocol } from './request-protocol';
+import { format as formatDate } from 'date-fns';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import type {
   APIToken,
   Project,
+  CursorPaginationParams,
   ProxyRequest,
+  ProxyRequestErrorMode,
+  ProxyRequestErrorStats,
   ProxyRequestStatus,
   Provider,
 } from '@/lib/transport';
@@ -35,23 +89,35 @@ import {
   SelectValue,
   SelectGroup,
   SelectLabel,
+  Input,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  Button,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from '@/components/ui';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useAuth } from '@/lib/auth-context';
 import { calculateVirtualRange } from './virtual-range';
-
-type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
-
-const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
-
-const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
-  antigravity: 'Antigravity',
-  kiro: 'Kiro',
-  codex: 'Codex',
-  custom: 'Custom',
-};
+import { getRequestModelChain } from './model-chain';
+import {
+  PROVIDER_TYPE_CONFIGS,
+  PROVIDER_TYPE_ORDER,
+  createProviderTypeGroups,
+} from '@/pages/providers/types';
 
 type RequestFilterMode = 'token' | 'provider' | 'project';
 
@@ -61,6 +127,36 @@ const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
+
+function ProtocolBadge({
+  request,
+}: {
+  request: Pick<ProxyRequest, 'protocol' | 'isStream' | 'statusCode'>;
+}) {
+  const { t } = useTranslation();
+  const protocol = resolveRequestProtocol(request);
+  const label = t(requestProtocolLabelKey(protocol));
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide',
+        protocol === 'websocket' && 'bg-violet-500/15 text-violet-400',
+        protocol === 'sse' && 'bg-sky-500/15 text-sky-400',
+        protocol === 'http' && 'bg-muted text-muted-foreground',
+      )}
+      title={label}
+    >
+      {protocol === 'websocket' ? 'WS' : protocol === 'sse' ? 'SSE' : 'HTTP'}
+    </span>
+  );
+}
+
+function dateToISOString(value: Date | undefined): string | undefined {
+  if (!value || !Number.isFinite(value.getTime())) {
+    return undefined;
+  }
+  return value.toISOString();
+}
 
 function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'>): boolean {
   return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
@@ -160,6 +256,12 @@ function buildScopedStorageKey(baseKey: string, tenantID?: number, userID?: numb
   return `${baseKey}:tenant-${tenantID}:user-${userID}`;
 }
 
+function buildColumnPrefsLegacyKeys(storageKey: string): string[] {
+  return [REQUEST_COLUMNS_STORAGE_KEY, `${REQUEST_COLUMNS_STORAGE_KEY}:anonymous`].filter(
+    (key) => key !== storageKey,
+  );
+}
+
 /** Maps each proxy request status to its corresponding badge variant. */
 export const statusVariant: Record<
   ProxyRequestStatus,
@@ -196,6 +298,15 @@ export function RequestsPage() {
     () => buildScopedStorageKey(REQUEST_PROJECT_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
     [user?.id, user?.tenantID],
   );
+  const columnPrefsStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_COLUMNS_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+
+  const [columnPrefs, setColumnPrefs] = useState<RequestColumnPrefs>(() =>
+    readColumnPrefs(columnPrefsStorageKey),
+  );
+  const skipNextColumnPrefsWriteRef = useRef(false);
 
   // 过滤维度（默认令牌）
   const [filterMode, setFilterMode] = useState<RequestFilterMode>(() =>
@@ -215,6 +326,11 @@ export function RequestsPage() {
   );
   // Status 过滤器
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
+  const [errorMode, setErrorMode] = useState<ProxyRequestErrorMode>('all');
+  const [errorStatsOpen, setErrorStatsOpen] = useState(false);
+  const [cleanupFailedOpen, setCleanupFailedOpen] = useState(false);
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -225,6 +341,9 @@ export function RequestsPage() {
   const activeProviderId = filterMode === 'provider' ? selectedProviderId : undefined;
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
   const activeProjectId = filterMode === 'project' ? selectedProjectId : undefined;
+
+  const activeStartTime = useMemo(() => dateToISOString(startDate), [startDate]);
+  const activeEndTime = useMemo(() => dateToISOString(endDate), [endDate]);
 
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
@@ -238,7 +357,9 @@ export function RequestsPage() {
   const waitingProjectFilterValidation =
     filterMode === 'project' && selectedProjectId !== undefined && !projectsIsSuccess;
   const waitingFilterValidation =
-    waitingProviderFilterValidation || waitingTokenFilterValidation || waitingProjectFilterValidation;
+    waitingProviderFilterValidation ||
+    waitingTokenFilterValidation ||
+    waitingProjectFilterValidation;
   const requestsQueryEnabled = !waitingFilterValidation;
 
   // 使用 Infinite Query
@@ -248,6 +369,9 @@ export function RequestsPage() {
       selectedStatus,
       activeTokenId,
       activeProjectId,
+      activeStartTime,
+      activeEndTime,
+      errorMode,
       requestsQueryEnabled,
     );
 
@@ -256,8 +380,35 @@ export function RequestsPage() {
     selectedStatus,
     activeTokenId,
     activeProjectId,
+    activeStartTime,
+    activeEndTime,
+    errorMode,
     requestsQueryEnabled,
   );
+
+  const cleanupFailedCountParams = useMemo<CursorPaginationParams>(() => {
+    const params: CursorPaginationParams = {};
+    if (activeProviderId !== undefined) params.providerId = activeProviderId;
+    if (selectedStatus !== undefined) params.status = selectedStatus;
+    if (activeTokenId !== undefined) params.apiTokenId = activeTokenId;
+    if (activeProjectId !== undefined) params.projectId = activeProjectId;
+    if (activeStartTime !== undefined) params.startTime = activeStartTime;
+    if (activeEndTime !== undefined) params.endTime = activeEndTime;
+    return params;
+  }, [
+    activeEndTime,
+    activeProjectId,
+    activeProviderId,
+    activeStartTime,
+    activeTokenId,
+    selectedStatus,
+  ]);
+
+  const { data: failedCount, refetch: refetchFailedCount } = useCleanupFailedProxyRequestsCount(
+    cleanupFailedCountParams,
+    requestsQueryEnabled,
+  );
+  const cleanupFailedRequests = useCleanupFailedProxyRequests();
 
   // Check if API Token auth is enabled
   const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
@@ -268,6 +419,74 @@ export function RequestsPage() {
   // Check if there are any projects
   const hasProjects = projects.length > 0;
 
+  const columnAvailability = useMemo(
+    () => ({ hasProjects, apiTokenAuthEnabled }),
+    [apiTokenAuthEnabled, hasProjects],
+  );
+  const visibleColumns = useMemo(
+    () => resolveVisibleColumns(columnPrefs, columnAvailability),
+    [columnAvailability, columnPrefs],
+  );
+
+  useEffect(() => {
+    migrateColumnPrefs(columnPrefsStorageKey, buildColumnPrefsLegacyKeys(columnPrefsStorageKey));
+    skipNextColumnPrefsWriteRef.current = true;
+    setColumnPrefs(readColumnPrefs(columnPrefsStorageKey));
+  }, [columnPrefsStorageKey]);
+
+  useEffect(() => {
+    if (skipNextColumnPrefsWriteRef.current) {
+      skipNextColumnPrefsWriteRef.current = false;
+      return;
+    }
+    writeColumnPrefs(columnPrefsStorageKey, columnPrefs);
+  }, [columnPrefs, columnPrefsStorageKey]);
+
+  const handleColumnPrefsChange = useCallback((next: RequestColumnPrefs) => {
+    setColumnPrefs(next);
+  }, []);
+
+  const handleColumnResizeStart = useCallback(
+    (columnId: RequestColumnId, event: ReactMouseEvent<HTMLSpanElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = columnPrefs.widths[columnId];
+
+      const onMove = (moveEvent: MouseEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const nextWidth = startWidth + delta;
+        setColumnPrefs((prev) => {
+          const min = MIN_COLUMN_WIDTHS[columnId];
+          const clamped = Math.min(MAX_COLUMN_WIDTH, Math.max(min, Math.round(nextWidth)));
+          if (prev.widths[columnId] === clamped) {
+            return prev;
+          }
+          return {
+            ...prev,
+            widths: {
+              ...prev.widths,
+              [columnId]: clamped,
+            },
+          };
+        });
+      };
+
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [columnPrefs.widths],
+  );
+
   // Subscribe to real-time updates
   useProxyRequestUpdates();
 
@@ -277,6 +496,40 @@ export function RequestsPage() {
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
   // Create API Token ID to name mapping
   const tokenMap = useMemo(() => new Map(apiTokens.map((t) => [t.id, t.name])), [apiTokens]);
+
+  const errorStatsParams = useMemo<CursorPaginationParams>(() => {
+    const params: CursorPaginationParams = {};
+    if (activeProviderId !== undefined) params.providerId = activeProviderId;
+    if (selectedStatus !== undefined) params.status = selectedStatus;
+    if (activeTokenId !== undefined) params.apiTokenId = activeTokenId;
+    if (activeProjectId !== undefined) params.projectId = activeProjectId;
+    if (activeStartTime !== undefined) params.startTime = activeStartTime;
+    if (activeEndTime !== undefined) params.endTime = activeEndTime;
+    return params;
+  }, [
+    activeEndTime,
+    activeProjectId,
+    activeProviderId,
+    activeStartTime,
+    activeTokenId,
+    selectedStatus,
+  ]);
+
+  const { data: errorStats, isFetching: errorStatsFetching } = useProxyRequestErrorStats(
+    errorStatsParams,
+    errorStatsOpen && requestsQueryEnabled,
+  );
+
+  const handleCleanupFailedRequests = () => {
+    cleanupFailedRequests.mutate(cleanupFailedCountParams, {
+      onSuccess: () => {
+        setCleanupFailedOpen(false);
+        void refetch();
+        void refetchCount();
+        void refetchFailedCount();
+      },
+    });
+  };
 
   // 使用 totalCount
   const total = typeof totalCount === 'number' ? totalCount : 0;
@@ -303,7 +556,7 @@ export function RequestsPage() {
   // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
   const shouldVirtualizeDesktop =
     !isMobile && allRequests.length >= REQUESTS_VIRTUALIZE_THRESHOLD && viewportHeight > 0;
-  const desktopColumnCount = 14 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
+  const desktopColumnCount = Math.max(visibleColumns.length, 1);
   const desktopVirtualRange = useMemo(() => {
     if (!shouldVirtualizeDesktop) {
       return {
@@ -376,7 +629,7 @@ export function RequestsPage() {
     if (nextHeight > 0 && Math.abs(nextHeight - desktopRowHeight) > 1) {
       setDesktopRowHeight(nextHeight);
     }
-  }, [apiTokenAuthEnabled, desktopRowHeight, desktopVisibleRequests, hasProjects, isMobile]);
+  }, [desktopRowHeight, desktopVisibleRequests, isMobile, visibleColumns]);
 
   // IntersectionObserver 触底检测
   useEffect(() => {
@@ -543,6 +796,21 @@ export function RequestsPage() {
     scrollContainerRef.current?.scrollTo({ top: 0 });
   };
 
+  const handleErrorModeChange = (mode: ProxyRequestErrorMode) => {
+    setErrorMode(mode);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  };
+
+  const handleTimeRangeChange = (nextStart: Date | undefined, nextEnd: Date | undefined) => {
+    setStartDate(nextStart);
+    setEndDate(nextEnd);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  };
+
+  const handleClearTimeRange = () => {
+    handleTimeRangeChange(undefined, undefined);
+  };
+
   const handleOpenRequest = useCallback(
     (id: number) => {
       navigate(`/requests/${id}`);
@@ -556,38 +824,33 @@ export function RequestsPage() {
   const desktopTableHeader = (
     <TableHeader className="bg-card/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
       <TableRow className="hover:bg-transparent border-none text-sm">
-        <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
-        <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
-        <TableHead className="min-w-[250px] font-medium">{t('requests.model')}</TableHead>
-        {hasProjects && (
-          <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
-        )}
-        {apiTokenAuthEnabled && (
-          <TableHead className="w-[100px] font-medium">{t('requests.token')}</TableHead>
-        )}
-        <TableHead className="min-w-[100px] font-medium">{t('requests.provider')}</TableHead>
-        <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
-        <TableHead className="w-[60px] text-center font-medium">{t('requests.code')}</TableHead>
-        <TableHead className="w-[60px] text-center font-medium" title={t('requests.ttft')}>
-          TTFT
-        </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">{t('requests.duration')}</TableHead>
-        <TableHead className="w-[45px] text-center font-medium" title={t('requests.attempts')}>
-          {t('requests.attShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.inputTokens')}>
-          {t('requests.inShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.outputTokens')}>
-          {t('requests.outShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheRead')}>
-          {t('requests.cacheRShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheWrite')}>
-          {t('requests.cacheWShort')}
-        </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">{t('requests.cost')}</TableHead>
+        {visibleColumns.map((columnId) => {
+          const width = columnPrefs.widths[columnId];
+          const shortKey = columnShortLabelKey(columnId);
+          const fullLabel = columnId === 'ttft' ? 'TTFT' : t(columnLabelKey(columnId));
+          const displayLabel = columnId === 'ttft' ? 'TTFT' : shortKey ? t(shortKey) : fullLabel;
+          return (
+            <TableHead
+              key={columnId}
+              className={cn(
+                'relative font-medium select-none',
+                isCenteredColumn(columnId) && 'text-center',
+                columnId === 'client' && 'pr-4',
+              )}
+              style={{ width, minWidth: width, maxWidth: width }}
+              title={fullLabel}
+            >
+              <span className="block truncate pr-2">{displayLabel}</span>
+              <span
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t('requests.columns.resize', { column: fullLabel })}
+                onMouseDown={(event) => handleColumnResizeStart(columnId, event)}
+                className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
+              />
+            </TableHead>
+          );
+        })}
       </TableRow>
     </TableHeader>
   );
@@ -627,6 +890,44 @@ export function RequestsPage() {
         )}
         {/* Status Filter */}
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
+        <ErrorModeFilter mode={errorMode} onSelect={handleErrorModeChange} />
+        <button
+          onClick={() => setErrorStatsOpen(true)}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            'bg-error/10 hover:bg-error/15 border border-error/30 text-error',
+          )}
+        >
+          <BarChart3 size={14} />
+          <span>{t('requests.errorStats.action')}</span>
+        </button>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={(failedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
+          onClick={() => setCleanupFailedOpen(true)}
+        >
+          {cleanupFailedRequests.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="mr-2 h-4 w-4" />
+          )}
+          {t('requests.cleanupFailed.action')}
+        </Button>
+        <TimeRangeFilter
+          startDate={startDate}
+          endDate={endDate}
+          onChange={handleTimeRangeChange}
+          onClear={handleClearTimeRange}
+        />
+        {!isMobile && (
+          <RequestsColumnSettings
+            prefs={columnPrefs}
+            availability={columnAvailability}
+            onChange={handleColumnPrefsChange}
+          />
+        )}
         <button
           onClick={handleRefresh}
           disabled={isFetching || waitingFilterValidation}
@@ -641,6 +942,40 @@ export function RequestsPage() {
           <span>{t('requests.refresh')}</span>
         </button>
       </PageHeader>
+
+      <ErrorStatsDialog
+        open={errorStatsOpen}
+        onOpenChange={setErrorStatsOpen}
+        stats={errorStats}
+        loading={errorStatsFetching}
+        providerMap={providerMap}
+      />
+
+      <AlertDialog open={cleanupFailedOpen} onOpenChange={setCleanupFailedOpen}>
+        <AlertDialogContent className="border-destructive/30 bg-card shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-foreground">
+              {t('requests.cleanupFailed.title')}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-foreground/90">
+              {t('requests.cleanupFailed.description', { count: failedCount ?? 0 })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cleanupFailedRequests.isPending}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cleanupFailedRequests.isPending || (failedCount ?? 0) === 0}
+              onClick={handleCleanupFailedRequests}
+            >
+              {cleanupFailedRequests.isPending
+                ? t('requests.cleanupFailed.cleaning')
+                : t('requests.cleanupFailed.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Content */}
       <div className="flex-1 min-h-0 flex flex-col">
@@ -705,8 +1040,8 @@ export function RequestsPage() {
                         providerName={providerMap.get(req.providerID)}
                         projectName={projectMap.get(req.projectID)}
                         tokenName={tokenMap.get(req.apiTokenID)}
-                        showProjectColumn={hasProjects}
-                        showTokenColumn={apiTokenAuthEnabled}
+                        columns={visibleColumns}
+                        widths={columnPrefs.widths}
                         forceProjectBinding={forceProjectBinding}
                         nowMs={nowMs}
                         onOpenRequest={handleOpenRequest}
@@ -878,8 +1213,8 @@ type LogRowProps = {
   providerName?: string;
   projectName?: string;
   tokenName?: string;
-  showProjectColumn?: boolean;
-  showTokenColumn?: boolean;
+  columns: RequestColumnId[];
+  widths: Record<RequestColumnId, number>;
   forceProjectBinding?: boolean;
   nowMs: number;
   onOpenRequest: (id: number) => void;
@@ -890,8 +1225,8 @@ function LogRow({
   providerName,
   projectName,
   tokenName,
-  showProjectColumn,
-  showTokenColumn,
+  columns,
+  widths,
   forceProjectBinding,
   nowMs,
   onOpenRequest,
@@ -918,6 +1253,7 @@ function LogRow({
   const startTimeMs = useMemo(() => new Date(request.startTime).getTime(), [request.startTime]);
   const liveDurationMs =
     isPending && Number.isFinite(startTimeMs) ? Math.max(0, nowMs - startTimeMs) : null;
+  const modelChain = getRequestModelChain(request);
 
   const formatDuration = (ns?: number | null) => {
     if (ns === undefined || ns === null) return '-';
@@ -957,6 +1293,197 @@ function LogRow({
 
   const handleClick = () => onOpenRequest(request.id);
 
+  const renderCell = (columnId: RequestColumnId) => {
+    const width = widths[columnId];
+    const cellStyle = { width, minWidth: width, maxWidth: width };
+    const center = isCenteredColumn(columnId);
+
+    switch (columnId) {
+      case 'time':
+        return (
+          <TableCell
+            key={columnId}
+            className="px-2 py-1 font-mono text-sm whitespace-nowrap"
+            style={cellStyle}
+          >
+            {request.endTime && new Date(request.endTime).getTime() > 0 ? (
+              <span className="text-foreground font-medium">{formatTime(request.endTime)}</span>
+            ) : (
+              <span className="text-muted-foreground">
+                {formatTime(request.startTime || request.createdAt)}
+              </span>
+            )}
+          </TableCell>
+        );
+      case 'client':
+        return (
+          <TableCell key={columnId} className="px-2 pr-4 py-1" style={cellStyle}>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <ClientIcon type={request.clientType} size={16} className="shrink-0" />
+              <span className="text-sm text-foreground capitalize font-medium truncate">
+                {request.clientType}
+              </span>
+            </div>
+          </TableCell>
+        );
+      case 'model':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <div className="flex items-center gap-2 min-w-0" title={modelChain.title}>
+              <span className="text-sm text-foreground font-medium truncate">
+                {modelChain.requestModel || '-'}
+              </span>
+              {modelChain.mappedModel && (
+                <span className="text-[10px] text-muted-foreground truncate">
+                  → {modelChain.mappedModel}
+                </span>
+              )}
+            </div>
+          </TableCell>
+        );
+      case 'protocol':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <ProtocolBadge request={request} />
+          </TableCell>
+        );
+      case 'reasoningEffort':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span className="text-xs font-mono text-foreground/80">
+              {request.reasoningEffort || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'project':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <span className="text-sm text-muted-foreground truncate block" title={projectName}>
+              {projectName || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'token':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <span className="text-sm text-muted-foreground truncate block" title={tokenName}>
+              {tokenName || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'provider':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <span className="text-sm text-muted-foreground truncate block" title={providerName}>
+              {providerName || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'status':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <RequestStatusBadge
+              status={request.status}
+              projectID={request.projectID}
+              forceProjectBinding={forceProjectBinding}
+            />
+          </TableCell>
+        );
+      case 'code':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span
+              className={cn(
+                'font-mono text-xs font-medium px-1.5 py-0.5 rounded',
+                isFailed
+                  ? 'bg-red-400/10 text-red-400'
+                  : statusCode && statusCode >= 200 && statusCode < 300
+                    ? 'bg-blue-400/10 text-blue-400'
+                    : 'bg-muted text-muted-foreground',
+              )}
+            >
+              {statusCode && statusCode > 0 ? statusCode : '-'}
+            </span>
+          </TableCell>
+        );
+      case 'ttft':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span className="text-xs font-mono text-muted-foreground">
+              {request.ttft && request.ttft > 0
+                ? `${(request.ttft / 1_000_000_000).toFixed(2)}s`
+                : '-'}
+            </span>
+          </TableCell>
+        );
+      case 'duration':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span
+              className={`text-xs font-mono ${durationColor}`}
+              title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
+            >
+              {isPending ? formatLiveDuration(liveDurationMs) : formatDuration(displayDuration)}
+            </span>
+          </TableCell>
+        );
+      case 'attempts':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            {request.proxyUpstreamAttemptCount > 1 ? (
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning/10 text-warning text-[10px] font-bold">
+                {request.proxyUpstreamAttemptCount}
+              </span>
+            ) : request.proxyUpstreamAttemptCount === 1 ? (
+              <span className="text-xs text-muted-foreground/30">1</span>
+            ) : (
+              <span className="text-xs text-muted-foreground/30">-</span>
+            )}
+          </TableCell>
+        );
+      case 'inputTokens':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.inputTokenCount} color="text-sky-400" />
+          </TableCell>
+        );
+      case 'outputTokens':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
+          </TableCell>
+        );
+      case 'cacheRead':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.cacheReadCount} color="text-violet-400" />
+          </TableCell>
+        );
+      case 'cacheWrite':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
+          </TableCell>
+        );
+      case 'cost':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <CostCell cost={request.cost} />
+          </TableCell>
+        );
+      default:
+        return center ? (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            -
+          </TableCell>
+        ) : (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            -
+          </TableCell>
+        );
+    }
+  };
+
   return (
     <TableRow
       data-server-restarted-request={isServerRestarted ? 'true' : undefined}
@@ -988,151 +1515,7 @@ function LogRow({
         isRecent && !isPending && !isPendingBinding && 'bg-accent/20',
       )}
     >
-      {/* Time - 显示结束时间，如果没有结束时间则显示开始时间（更浅样式） */}
-      <TableCell className="w-[180px] px-2 py-1 font-mono text-sm whitespace-nowrap">
-        {request.endTime && new Date(request.endTime).getTime() > 0 ? (
-          <span className="text-foreground font-medium">{formatTime(request.endTime)}</span>
-        ) : (
-          <span className="text-muted-foreground">
-            {formatTime(request.startTime || request.createdAt)}
-          </span>
-        )}
-      </TableCell>
-
-      {/* Client */}
-      <TableCell className="w-[120px] px-2 pr-4 py-1">
-        <div className="flex items-center gap-1.5">
-          <ClientIcon type={request.clientType} size={16} className="shrink-0" />
-          <span className="text-sm text-foreground capitalize font-medium">
-            {request.clientType}
-          </span>
-        </div>
-      </TableCell>
-
-      {/* Model */}
-      <TableCell className="min-w-[250px] px-2 py-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-foreground font-medium" title={request.requestModel}>
-            {request.requestModel || '-'}
-          </span>
-          {request.responseModel && request.responseModel !== request.requestModel && (
-            <span className="text-[10px] text-muted-foreground shrink-0">
-              → {request.responseModel}
-            </span>
-          )}
-        </div>
-      </TableCell>
-
-      {/* Project */}
-      {showProjectColumn && (
-        <TableCell className="w-[100px] px-2 py-1">
-          <span
-            className="text-sm text-muted-foreground truncate max-w-[100px] block"
-            title={projectName}
-          >
-            {projectName || '-'}
-          </span>
-        </TableCell>
-      )}
-
-      {/* Token */}
-      {showTokenColumn && (
-        <TableCell className="w-[100px] px-2 py-1">
-          <span
-            className="text-sm text-muted-foreground truncate max-w-[100px] block"
-            title={tokenName}
-          >
-            {tokenName || '-'}
-          </span>
-        </TableCell>
-      )}
-
-      {/* Provider */}
-      <TableCell className="min-w-[100px] px-2 py-1">
-        <span className="text-sm text-muted-foreground" title={providerName}>
-          {providerName || '-'}
-        </span>
-      </TableCell>
-
-      {/* Status */}
-      <TableCell className="w-[100px] px-2 py-1">
-        <RequestStatusBadge
-          status={request.status}
-          projectID={request.projectID}
-          forceProjectBinding={forceProjectBinding}
-        />
-      </TableCell>
-
-      {/* Code */}
-      <TableCell className="w-[60px] px-2 py-1 text-center">
-        <span
-          className={cn(
-            'font-mono text-xs font-medium px-1.5 py-0.5 rounded',
-            isFailed
-              ? 'bg-red-400/10 text-red-400'
-              : statusCode && statusCode >= 200 && statusCode < 300
-                ? 'bg-blue-400/10 text-blue-400'
-                : 'bg-muted text-muted-foreground',
-          )}
-        >
-          {statusCode && statusCode > 0 ? statusCode : '-'}
-        </span>
-      </TableCell>
-
-      {/* TTFT (Time To First Token) */}
-      <TableCell className="w-[60px] px-2 py-1 text-center">
-        <span className="text-xs font-mono text-muted-foreground">
-          {request.ttft && request.ttft > 0 ? `${(request.ttft / 1_000_000_000).toFixed(2)}s` : '-'}
-        </span>
-      </TableCell>
-
-      {/* Duration */}
-      <TableCell className="w-[80px] px-2 py-1 text-center">
-        <span
-          className={`text-xs font-mono ${durationColor}`}
-          title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
-        >
-          {isPending ? formatLiveDuration(liveDurationMs) : formatDuration(displayDuration)}
-        </span>
-      </TableCell>
-
-      {/* Attempts */}
-      <TableCell className="w-[45px] px-2 py-1 text-center">
-        {request.proxyUpstreamAttemptCount > 1 ? (
-          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning/10 text-warning text-[10px] font-bold">
-            {request.proxyUpstreamAttemptCount}
-          </span>
-        ) : request.proxyUpstreamAttemptCount === 1 ? (
-          <span className="text-xs text-muted-foreground/30">1</span>
-        ) : (
-          <span className="text-xs text-muted-foreground/30">-</span>
-        )}
-      </TableCell>
-
-      {/* Input Tokens - sky blue */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.inputTokenCount} color="text-sky-400" />
-      </TableCell>
-
-      {/* Output Tokens - emerald green */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
-      </TableCell>
-
-      {/* Cache Read - violet */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.cacheReadCount} color="text-violet-400" />
-      </TableCell>
-
-      {/* Cache Write - amber */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
-      </TableCell>
-
-      {/* Cost */}
-      <TableCell className="w-[80px] px-2 py-1 text-center">
-        <CostCell cost={request.cost} />
-      </TableCell>
+      {columns.map((columnId) => renderCell(columnId))}
     </TableRow>
   );
 }
@@ -1142,8 +1525,8 @@ const MemoLogRow = memo(LogRow, (prev: Readonly<LogRowProps>, next: Readonly<Log
   if (prev.providerName !== next.providerName) return false;
   if (prev.projectName !== next.projectName) return false;
   if (prev.tokenName !== next.tokenName) return false;
-  if (prev.showProjectColumn !== next.showProjectColumn) return false;
-  if (prev.showTokenColumn !== next.showTokenColumn) return false;
+  if (prev.columns !== next.columns) return false;
+  if (prev.widths !== next.widths) return false;
   if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
   if (prev.onOpenRequest !== next.onOpenRequest) return false;
 
@@ -1193,6 +1576,7 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
     request.endTime && new Date(request.endTime).getTime() > 0
       ? formatTime(request.endTime)
       : formatTime(request.startTime || request.createdAt);
+  const modelChain = getRequestModelChain(request);
 
   return (
     <div
@@ -1205,12 +1589,27 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
         isServerRestarted && 'line-through decoration-red-300/80 decoration-2 opacity-70',
       )}
     >
-      {/* Row 1: Client + Model + Status */}
+      {/* Row 1: Client + Model + Protocol + Status */}
       <div className="flex items-center gap-2 mb-1">
         <ClientIcon type={request.clientType} size={14} className="shrink-0" />
-        <span className="text-sm font-medium text-foreground truncate flex-1">
-          {request.requestModel || '-'}
+        <span
+          className="text-sm font-medium text-foreground truncate flex-1"
+          title={modelChain.title}
+        >
+          {modelChain.requestModel || '-'}
+          {modelChain.mappedModel && (
+            <span className="text-xs text-muted-foreground font-normal">
+              {' '}
+              → {modelChain.mappedModel}
+            </span>
+          )}
         </span>
+        <ProtocolBadge request={request} />
+        {request.reasoningEffort && (
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {request.reasoningEffort}
+          </span>
+        )}
         <RequestStatusBadge status={request.status} />
       </div>
       {/* Row 2: Time + Duration + Cost */}
@@ -1290,28 +1689,7 @@ function ProviderFilter({
 
   // Group providers by type and sort alphabetically
   const groupedProviders = useMemo(() => {
-    const groups: Record<ProviderTypeKey, Provider[]> = {
-      antigravity: [],
-      kiro: [],
-      codex: [],
-      custom: [],
-    };
-
-    providers.forEach((p) => {
-      const type = p.type as ProviderTypeKey;
-      if (groups[type]) {
-        groups[type].push(p);
-      } else {
-        groups.custom.push(p);
-      }
-    });
-
-    // Sort alphabetically within each group
-    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
-      groups[key].sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    return groups;
+    return createProviderTypeGroups<Provider>(providers);
   }, [providers]);
 
   // Get selected provider name for display
@@ -1339,7 +1717,7 @@ function ProviderFilter({
           if (typeProviders.length === 0) return null;
           return (
             <SelectGroup key={typeKey}>
-              <SelectLabel>{PROVIDER_TYPE_LABELS[typeKey]}</SelectLabel>
+              <SelectLabel>{PROVIDER_TYPE_CONFIGS[typeKey].label}</SelectLabel>
               {typeProviders.map((provider) => (
                 <SelectItem key={provider.id} value={String(provider.id)}>
                   {provider.name}
@@ -1430,6 +1808,359 @@ function ProjectFilter({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function DateTimePicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: Date | undefined;
+  onChange: (date: Date | undefined) => void;
+  label: string;
+}) {
+  const handleDateSelect = (day: Date | undefined) => {
+    if (!day) {
+      onChange(undefined);
+      return;
+    }
+    const next = value ? new Date(value) : new Date(day);
+    next.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
+    onChange(next);
+  };
+
+  const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const [hours, minutes] = e.target.value.split(':').map(Number);
+    const next = value ? new Date(value) : new Date();
+    next.setHours(hours, minutes, 0, 0);
+    onChange(next);
+  };
+
+  const timeValue = value
+    ? `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`
+    : '';
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        className={cn(
+          'flex h-8 items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2 text-xs transition-colors hover:bg-muted',
+          !value && 'text-muted-foreground',
+        )}
+      >
+        <CalendarRange size={13} className="shrink-0 text-muted-foreground" />
+        <span>{value ? formatDate(value, 'MM/dd HH:mm') : label}</span>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar mode="single" selected={value} onSelect={handleDateSelect} autoFocus />
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+          <Clock size={14} className="text-muted-foreground" />
+          <Input
+            type="time"
+            value={timeValue}
+            onChange={handleTimeChange}
+            className="h-7 w-24 border-border/50 text-xs"
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TimeRangeFilter({
+  startDate,
+  endDate,
+  onChange,
+  onClear,
+}: {
+  startDate: Date | undefined;
+  endDate: Date | undefined;
+  onChange: (startDate: Date | undefined, endDate: Date | undefined) => void;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation();
+  const hasValue = startDate !== undefined || endDate !== undefined;
+
+  return (
+    <div className="flex items-center gap-1">
+      <DateTimePicker
+        value={startDate}
+        onChange={(d) => onChange(d, endDate)}
+        label={t('requests.timeFrom')}
+      />
+      <span className="text-xs text-muted-foreground">-</span>
+      <DateTimePicker
+        value={endDate}
+        onChange={(d) => onChange(startDate, d)}
+        label={t('requests.timeTo')}
+      />
+      {hasValue && (
+        <button
+          type="button"
+          onClick={onClear}
+          title={t('requests.clearTimeRange')}
+          aria-label={t('requests.clearTimeRange')}
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function formatStatusLabel(status: string, t: TFunction): string {
+  const key = status.toLowerCase();
+  const label = t(`requests.status.${key}`);
+  return label === `requests.status.${key}` ? status : label;
+}
+
+function formatRequestNumber(value: number | undefined): string {
+  return (value ?? 0).toLocaleString();
+}
+
+function formatErrorRate(value: number | undefined): string {
+  return `${((value ?? 0) * 100).toFixed(1)}%`;
+}
+
+function ErrorModeFilter({
+  mode,
+  onSelect,
+}: {
+  mode: ProxyRequestErrorMode;
+  onSelect: (mode: ProxyRequestErrorMode) => void;
+}) {
+  const { t } = useTranslation();
+  const options: ProxyRequestErrorMode[] = ['all', 'only', 'exclude'];
+
+  return (
+    <div className="flex items-center rounded-lg border border-border/50 bg-muted/40 p-0.5">
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onSelect(option)}
+          className={cn(
+            'px-2.5 py-1 rounded-md text-xs md:text-sm font-medium transition-all whitespace-nowrap',
+            mode === option
+              ? 'bg-error/15 text-error shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+          )}
+        >
+          {t(`requests.errorMode.${option}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ErrorStatsDialog({
+  open,
+  onOpenChange,
+  stats,
+  loading,
+  providerMap,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  stats: ProxyRequestErrorStats | undefined;
+  loading: boolean;
+  providerMap: Map<number, string>;
+}) {
+  const { t } = useTranslation();
+  const statusData = useMemo(
+    () =>
+      (stats?.statusCounts ?? []).map((item) => ({
+        name: formatStatusLabel(item.name, t),
+        count: item.count,
+      })),
+    [stats?.statusCounts, t],
+  );
+  const httpStatusData = useMemo(
+    () =>
+      (stats?.httpStatusCounts ?? []).map((item) => ({
+        name: String(item.statusCode),
+        count: item.count,
+      })),
+    [stats?.httpStatusCounts],
+  );
+  const providerData = useMemo(
+    () =>
+      (stats?.providerCounts ?? []).map((item) => ({
+        name: providerMap.get(item.providerId) ?? `#${item.providerId || '-'}`,
+        count: item.count,
+      })),
+    [providerMap, stats?.providerCounts],
+  );
+  const modelData = useMemo(
+    () =>
+      (stats?.modelCounts ?? []).map((item) => ({
+        name: item.name || t('common.unknown'),
+        count: item.count,
+      })),
+    [stats?.modelCounts, t],
+  );
+  const trendData = useMemo(
+    () =>
+      (stats?.trend ?? []).map((item) => ({
+        time: formatDate(new Date(item.startTime), 'MM-dd HH:mm'),
+        totalRequests: item.totalRequests,
+        errorRequests: item.errorRequests,
+      })),
+    [stats?.trend],
+  );
+
+  const empty = !loading && (!stats || stats.totalRequests === 0);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[max(72vw,96rem)] max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] overflow-y-auto grid-cols-[minmax(0,1fr)]">
+        <DialogHeader>
+          <DialogTitle>{t('requests.errorStats.title')}</DialogTitle>
+          <DialogDescription>{t('requests.errorStats.description')}</DialogDescription>
+        </DialogHeader>
+
+        {loading && !stats ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            {t('common.loading')}
+          </div>
+        ) : empty ? (
+          <div className="rounded-xl border border-border bg-muted/20 p-8 text-center text-muted-foreground">
+            {t('requests.errorStats.empty')}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <StatCard
+                label={t('requests.errorStats.totalRequests')}
+                value={formatRequestNumber(stats?.totalRequests)}
+              />
+              <StatCard
+                label={t('requests.errorStats.errorRequests')}
+                value={formatRequestNumber(stats?.errorRequests)}
+                tone="error"
+              />
+              <StatCard
+                label={t('requests.errorStats.errorRate')}
+                value={formatErrorRate(stats?.errorRate)}
+                tone="error"
+              />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <ChartPanel title={t('requests.errorStats.statusDistribution')}>
+                <DistributionList data={statusData} />
+              </ChartPanel>
+              <ChartPanel title={t('requests.errorStats.httpStatusDistribution')}>
+                <DistributionList data={httpStatusData} />
+              </ChartPanel>
+              <ChartPanel title={t('requests.errorStats.providerTop')}>
+                <DistributionList data={providerData} />
+              </ChartPanel>
+              <ChartPanel title={t('requests.errorStats.modelTop')}>
+                <DistributionList data={modelData} />
+              </ChartPanel>
+            </div>
+
+            <ChartPanel title={t('requests.errorStats.trend')}>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Line
+                      type="monotone"
+                      dataKey="totalRequests"
+                      name={t('requests.errorStats.totalRequests')}
+                      stroke="var(--color-chart-1)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="errorRequests"
+                      name={t('requests.errorStats.errorRequests')}
+                      stroke="var(--color-chart-6)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </ChartPanel>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string;
+  value: string;
+  tone?: 'default' | 'error';
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={cn('mt-1 text-2xl font-semibold', tone === 'error' && 'text-error')}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ChartPanel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 min-w-0">
+      <h3 className="text-sm font-semibold mb-3">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DistributionList({ data }: { data: { name: string; count: number }[] }) {
+  const { t } = useTranslation();
+  const maxCount = Math.max(...data.map((item) => item.count), 0);
+
+  if (data.length === 0 || maxCount === 0) {
+    return (
+      <div className="flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
+        {t('requests.errorStats.noData')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 py-1">
+      {data.map((item) => {
+        const percent = Math.max(6, (item.count / maxCount) * 100);
+        return (
+          <div key={item.name} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate text-foreground/90">{item.name}</span>
+              <span className="font-mono text-xs font-medium text-muted-foreground">
+                {formatRequestNumber(item.count)}
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-[var(--color-chart-6)]"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

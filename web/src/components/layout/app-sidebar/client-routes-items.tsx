@@ -4,8 +4,10 @@ import {
   getClientName,
   getClientColor,
 } from '@/components/icons/client-icons';
+import { usePublicSettings } from '@/hooks/queries/use-settings';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import type { ClientType } from '@/lib/transport';
+import { getVisibleProxyRouteClients } from '@/lib/proxy-route-exposure';
 import { AnimatedNavItem } from './animated-nav-item';
 
 function ClientNavItem({
@@ -36,10 +38,12 @@ function ClientNavItem({
  */
 export function ClientRoutesItems() {
   const { countsByClient } = useStreamingRequests();
+  const { data: publicSettings } = usePublicSettings();
+  const visibleClientTypes = getVisibleProxyRouteClients(publicSettings, allClientTypes);
 
   return (
     <>
-      {allClientTypes.map((clientType) => (
+      {visibleClientTypes.map((clientType) => (
         <ClientNavItem
           key={clientType}
           clientType={clientType}
