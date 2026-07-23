@@ -46,6 +46,7 @@ import {
   columnLabelKey,
   columnShortLabelKey,
   isCenteredColumn,
+  migrateColumnPrefs,
   readColumnPrefs,
   resolveVisibleColumns,
   writeColumnPrefs,
@@ -255,6 +256,12 @@ function buildScopedStorageKey(baseKey: string, tenantID?: number, userID?: numb
   return `${baseKey}:tenant-${tenantID}:user-${userID}`;
 }
 
+function buildColumnPrefsLegacyKeys(storageKey: string): string[] {
+  return [REQUEST_COLUMNS_STORAGE_KEY, `${REQUEST_COLUMNS_STORAGE_KEY}:anonymous`].filter(
+    (key) => key !== storageKey,
+  );
+}
+
 /** Maps each proxy request status to its corresponding badge variant. */
 export const statusVariant: Record<
   ProxyRequestStatus,
@@ -422,6 +429,7 @@ export function RequestsPage() {
   );
 
   useEffect(() => {
+    migrateColumnPrefs(columnPrefsStorageKey, buildColumnPrefsLegacyKeys(columnPrefsStorageKey));
     skipNextColumnPrefsWriteRef.current = true;
     setColumnPrefs(readColumnPrefs(columnPrefsStorageKey));
   }, [columnPrefsStorageKey]);

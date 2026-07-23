@@ -206,6 +206,40 @@ export function readColumnPrefs(storageKey: string): RequestColumnPrefs {
   }
 }
 
+/**
+ * Moves column prefs from older/unscoped keys to the active scoped key.
+ *
+ * Requests filters already migrated when storage became tenant/user scoped, but
+ * column prefs did not. That made existing column visibility/order appear to
+ * vanish after auth/bootstrap switched the page from anonymous to scoped keys.
+ */
+export function migrateColumnPrefs(storageKey: string, legacyKeys: readonly string[]): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (window.localStorage.getItem(storageKey) !== null) {
+    return;
+  }
+
+  for (const legacyKey of legacyKeys) {
+    if (!legacyKey || legacyKey === storageKey) {
+      continue;
+    }
+    const raw = window.localStorage.getItem(legacyKey);
+    if (raw === null) {
+      continue;
+    }
+    try {
+      const prefs = normalizeColumnPrefs(JSON.parse(raw));
+      window.localStorage.setItem(storageKey, JSON.stringify(prefs));
+      window.localStorage.removeItem(legacyKey);
+      return;
+    } catch {
+      window.localStorage.removeItem(legacyKey);
+    }
+  }
+}
+
 export function writeColumnPrefs(storageKey: string, prefs: RequestColumnPrefs): void {
   if (typeof window === 'undefined') {
     return;
