@@ -193,7 +193,7 @@ func TestGetProviderStatsIncludesPersistedRawBackfillAfterRestart(t *testing.T) 
 		t.Fatalf("seed usage_stats: %v", err)
 	}
 
-	request := &ProxyRequest{TenantID: 1, ClientType: "openai", ProjectID: 20, Status: "COMPLETED"}
+	request := &ProxyRequest{TenantID: 1, ClientType: "openai", ProjectID: 20, Status: "COMPLETED", EndTime: toTimestamp(recent)}
 	if err := db.gorm.Create(request).Error; err != nil {
 		t.Fatalf("seed request: %v", err)
 	}
