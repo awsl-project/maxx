@@ -242,6 +242,111 @@ func TestDispatchSmartMappingRetrySwitchesMappedModelAfterLimit(t *testing.T) {
 	}
 }
 
+type noProviderSwitchSmartMappingAdapter struct {
+	models       []string
+	succeedAfter int
+}
+
+func (a *noProviderSwitchSmartMappingAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *noProviderSwitchSmartMappingAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	model := flow.GetMappedModel(c)
+	a.models = append(a.models, model)
+	if a.succeedAfter > 0 && len(a.models) >= a.succeedAfter {
+		return nil
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream returned 500"), true, "upstream returned 500")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	proxyErr.HTTPStatusCode = http.StatusInternalServerError
+	return proxyErr
+}
+
+func TestDispatchDisableErrorCooldownKeepsSmartMappingRetryOnSameProvider(t *testing.T) {
+	proxyRepo := &recordingProxyRequestRepo{}
+	attemptRepo := &recordingAttemptRepo{}
+	firstAdapter := &noProviderSwitchSmartMappingAdapter{succeedAfter: 3}
+	secondAdapter := &noProviderSwitchSmartMappingAdapter{succeedAfter: 1}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
+	c := flow.NewCtx(rec, req)
+	proxyReq := &domain.ProxyRequest{
+		ID:         104,
+		TenantID:   domain.DefaultTenantID,
+		ClientType: domain.ClientTypeOpenAI,
+		Status:     "IN_PROGRESS",
+		StartTime:  time.Now(),
+	}
+	state := &execState{
+		ctx:          context.Background(),
+		proxyReq:     proxyReq,
+		tenantID:     domain.DefaultTenantID,
+		clientType:   domain.ClientTypeOpenAI,
+		requestModel: "requested-model",
+		routes: []*router.MatchedRoute{
+			{
+				Route: &domain.Route{ID: 10, TenantID: domain.DefaultTenantID, ProviderID: 22, ClientType: domain.ClientTypeOpenAI},
+				Provider: &domain.Provider{
+					ID:       22,
+					TenantID: domain.DefaultTenantID,
+					Type:     "custom",
+					Name:     "custom-smart-mapping-no-switch",
+					Config: &domain.ProviderConfig{
+						DisableErrorCooldown:     true,
+						SmartMappingRetryEnabled: true,
+						SmartMappingRetryLimit:   1,
+					},
+				},
+				ProviderAdapter: firstAdapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+			},
+			{
+				Route: &domain.Route{ID: 11, TenantID: domain.DefaultTenantID, ProviderID: 23, ClientType: domain.ClientTypeOpenAI},
+				Provider: &domain.Provider{
+					ID:       23,
+					TenantID: domain.DefaultTenantID,
+					Type:     "custom",
+					Name:     "custom-must-not-be-used",
+				},
+				ProviderAdapter: secondAdapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+			},
+		},
+	}
+	c.Set(flow.KeyExecutorState, state)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, attemptRepo)
+	e.modelMappingRepo = &stubModelMappingRepo{mappings: []*domain.ModelMapping{
+		{Pattern: "requested-*", Target: "mapped-a"},
+		{Pattern: "requested-*", Target: "mapped-b"},
+	}}
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	want := []string{"mapped-a", "mapped-b", "mapped-a"}
+	if len(firstAdapter.models) != len(want) {
+		t.Fatalf("first provider models = %#v, want %#v", firstAdapter.models, want)
+	}
+	for i := range want {
+		if firstAdapter.models[i] != want[i] {
+			t.Fatalf("first provider models = %#v, want %#v", firstAdapter.models, want)
+		}
+	}
+	if len(secondAdapter.models) != 0 {
+		t.Fatalf("second provider was called despite disable switch: %#v", secondAdapter.models)
+	}
+	if proxyReq.ProviderID != 22 {
+		t.Fatalf("final provider id = %d, want 22", proxyReq.ProviderID)
+	}
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
 type canceledContextRetryAdapter struct {
 	calls int
 }
