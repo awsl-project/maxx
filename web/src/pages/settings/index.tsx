@@ -130,12 +130,6 @@ export function SettingsPage() {
             <>
               <MultiTenantUISection />
               <TimezoneSection />
-              <DataRetentionSection />
-              <ProxyKillSwitchSection />
-              <ForceProjectSection />
-              <ProxyRouteExposureSection />
-              <AntigravitySection />
-              <BackupSection />
             </>
           )}
         </div>
@@ -387,7 +381,7 @@ function TimezoneSection() {
   );
 }
 
-function DataRetentionSection() {
+export function DataRetentionSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
@@ -729,7 +723,7 @@ function DataRetentionSection() {
   );
 }
 
-function ForceProjectSection() {
+export function ForceProjectSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
@@ -851,11 +845,11 @@ export function RequestDiagnosticsSection() {
   );
 }
 
-function ProxyKillSwitchSection() {
+export function ProxyKillSwitchSection() {
   return <ProxyKillSwitchCard />;
 }
 
-function ProxyRouteExposureSection() {
+export function ProxyRouteExposureSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
@@ -943,7 +937,7 @@ function ProxyRouteExposureSection() {
   );
 }
 
-function AntigravitySection() {
+export function AntigravitySection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
@@ -1322,7 +1316,7 @@ export function PprofSection() {
   );
 }
 
-function BackupSection() {
+export function BackupSection() {
   const { t } = useTranslation();
   const { transport } = useTransport();
   const fileInputRef = useRef<HTMLInputElement>(null);
