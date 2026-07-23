@@ -1692,6 +1692,7 @@
     "disableErrorCooldownDesc": "When enabled, upstream errors from this provider won't trigger automatic freeze or switch to the next provider for this reason. Related failures bypass the current retry-attempt limit and keep retrying this provider until the request succeeds, is cancelled, or times out. Existing freezes must expire or be cleared manually.",
     "disableSwitchBadge": "No switch",
     "disableSwitchBadgeDesc": "Automatic error freeze is disabled: upstream errors will not trigger automatic freeze or switch to the next provider for this reason.",
+    "smartMappingRetryBadgeDesc": "Smart mapping retry rotation is enabled: switch to the next mapped candidate after {{count}} failed attempt(s) on the current mapping.",
     "smartMappingRetry": "Smart mapping retry rotation",
     "smartMappingRetryDesc": "When enabled, switch to the next matching mapped model after the current mapped model fails the configured number of times.",
     "smartMappingRetryUnavailable": "At least 2 matching mapped targets are required to enable smart mapping retry rotation.",

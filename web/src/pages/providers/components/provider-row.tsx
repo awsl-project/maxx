@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Activity, Ban, Check, Copy, Globe, Mail, Share2, Snowflake } from 'lucide-react';
+import { Activity, Ban, Check, Copy, Globe, Mail, Repeat2, Share2, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 import { Button } from '@/components/ui/button';
@@ -524,19 +524,34 @@ export function ProviderRow({
           )}
         </div>
       </div>
-      {provider.config?.disableErrorCooldown && (
-        <div
-          className="relative z-10 flex shrink-0 items-center self-stretch"
-          title={t('provider.disableSwitchBadgeDesc')}
-        >
-          <span
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-700 shadow-[0_0_0_1px_rgba(245,158,11,0.08)] dark:text-amber-200"
-            aria-label={t('provider.disableSwitchBadgeDesc')}
-          >
-            <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-background shadow-sm">
-              <Ban className="h-2.5 w-2.5 stroke-[3]" />
+      {(provider.config?.disableErrorCooldown || provider.config?.smartMappingRetryEnabled) && (
+        <div className="relative z-10 flex shrink-0 items-center self-stretch gap-1">
+          {provider.config?.disableErrorCooldown && (
+            <span
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-700 shadow-[0_0_0_1px_rgba(245,158,11,0.08)] dark:text-amber-200"
+              title={t('provider.disableSwitchBadgeDesc')}
+              aria-label={t('provider.disableSwitchBadgeDesc')}
+            >
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-background shadow-sm">
+                <Ban className="h-2.5 w-2.5 stroke-[3]" />
+              </span>
             </span>
-          </span>
+          )}
+          {provider.config?.disableErrorCooldown && provider.config?.smartMappingRetryEnabled && (
+            <span
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-sky-500/40 bg-sky-500/15 text-sky-700 shadow-[0_0_0_1px_rgba(14,165,233,0.08)] dark:text-sky-200"
+              title={t('provider.smartMappingRetryBadgeDesc', {
+                count: provider.config.smartMappingRetryLimit ?? 1,
+              })}
+              aria-label={t('provider.smartMappingRetryBadgeDesc', {
+                count: provider.config.smartMappingRetryLimit ?? 1,
+              })}
+            >
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-sky-500 text-background shadow-sm">
+                <Repeat2 className="h-2.5 w-2.5 stroke-[3]" />
+              </span>
+            </span>
+          )}
         </div>
       )}
 

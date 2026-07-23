@@ -125,6 +125,8 @@ describe('custom provider share command builder', () => {
     name: 'GLM Share Provider',
     config: {
       disableErrorCooldown: true,
+      smartMappingRetryEnabled: true,
+      smartMappingRetryLimit: 2,
       custom: {
         baseURL: 'https://api.example.com/v1',
         apiKey: 'sk-real-secret',
@@ -141,10 +143,39 @@ describe('custom provider share command builder', () => {
     const command = buildCustomProviderShareCommand(baseProvider);
 
     expect(command).toBe(
-      'provider add --name "GLM Share Provider" --base-url https://api.example.com/v1 --api-key "<YOUR_API_KEY>" --clients openai,claude --models glm-5.2 --map glm-5.2=z-ai/glm-5.2 --response-map z-ai/glm-5.2=glm-5.2 --disable-error-cooldown --no-responses-passthrough',
+      'provider add --name "GLM Share Provider" --base-url https://api.example.com/v1 --api-key "<YOUR_API_KEY>" --clients openai,claude --models glm-5.2 --map glm-5.2=z-ai/glm-5.2 --response-map z-ai/glm-5.2=glm-5.2 --disable-error-cooldown --smart-mapping-retry --smart-mapping-retry-limit 2 --no-responses-passthrough',
     );
     expect(command).not.toContain('sk-real-secret');
     expect(parseBulkCustomProviderCommands(command ?? '').errors).toEqual([]);
+  });
+
+  it('round-trips smart mapping retry flags into provider config', () => {
+    const command =
+      'provider add --name Smart --base-url https://api.example.com/v1 --api-key sk-test --clients openai --models gpt-5 --map gpt-5=upstream-a,gpt-5=upstream-b --disable-error-cooldown --smart-mapping-retry --smart-mapping-retry-limit 3';
+
+    const parsed = parseBulkCustomProviderCommands(command);
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.commands[0]).toMatchObject({
+      disableErrorCooldown: true,
+      smartMappingRetryEnabled: true,
+      smartMappingRetryLimit: 3,
+    });
+    expect(toCreateProviderData(parsed.commands[0]).config).toMatchObject({
+      disableErrorCooldown: true,
+      smartMappingRetryEnabled: true,
+      smartMappingRetryLimit: 3,
+    });
+  });
+
+  it('rejects smart mapping retry without disabled error cooldown', () => {
+    const parsed = parseBulkCustomProviderCommands(
+      'provider add --name Smart --base-url https://api.example.com/v1 --api-key sk-test --clients openai --smart-mapping-retry',
+    );
+
+    expect(parsed.errors).toEqual([
+      { lineNumber: 1, message: 'Smart mapping retry requires --disable-error-cooldown' },
+    ]);
   });
 
   it('includes provider-scoped model mappings in the shared command', () => {
