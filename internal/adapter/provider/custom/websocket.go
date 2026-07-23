@@ -64,6 +64,7 @@ type customWebSocketSession struct {
 	fingerprint     string
 	lastUsedAt      atomic.Int64
 	activeTurns     atomic.Int32
+	releaseProvider func()
 }
 
 type customWebSocketSessionKey struct {
@@ -82,7 +83,15 @@ var globalCustomWebSocketSessions = &customWebSocketSessionStore{
 	maxEntries: customResponsesWebSocketMaxSessions,
 }
 
-func newCustomWebSocketSession(conn *websocket.Conn, handshakeHeader http.Header, fingerprint string) *customWebSocketSession {
+func newCustomWebSocketSession(
+	conn *websocket.Conn,
+	handshakeHeader http.Header,
+	fingerprint string,
+	releaseProvider func(),
+) *customWebSocketSession {
+	if releaseProvider == nil {
+		releaseProvider = func() {}
+	}
 	session := &customWebSocketSession{
 		conn:            conn,
 		handshakeHeader: handshakeHeader.Clone(),
@@ -90,6 +99,7 @@ func newCustomWebSocketSession(conn *websocket.Conn, handshakeHeader http.Header
 		done:            make(chan struct{}),
 		maxQueuedBytes:  customResponsesWebSocketMaxQueuedBytes,
 		fingerprint:     fingerprint,
+		releaseProvider: releaseProvider,
 	}
 	session.touch()
 	conn.SetReadLimit(customResponsesWebSocketMaxFrameBytes)
@@ -120,7 +130,12 @@ func (s *customWebSocketSession) isClosed() bool {
 func (s *customWebSocketSession) close() {
 	s.closeOnce.Do(func() {
 		close(s.done)
-		_ = s.conn.Close()
+		if s.conn != nil {
+			_ = s.conn.Close()
+		}
+		if s.releaseProvider != nil {
+			s.releaseProvider()
+		}
 	})
 }
 
@@ -305,7 +320,21 @@ func (a *CustomAdapter) ExecuteResponsesWebSocket(
 
 	reused := session != nil
 	if session == nil {
-		session, err = dialCustomResponsesWebSocket(ctx, target, headers, fingerprint)
+		releaseProvider, acquired := exchange.AcquireProviderSlot()
+		if !acquired {
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, true, "provider concurrency limit reached")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Code = "websocket_transport_unavailable"
+			proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
+			return nil, newCustomWebSocketAttemptError(proxyErr, false)
+		}
+		slotOwnedBySession := false
+		defer func() {
+			if !slotOwnedBySession {
+				releaseProvider()
+			}
+		}()
+		session, err = dialCustomResponsesWebSocket(ctx, target, headers, fingerprint, releaseProvider)
 		if err != nil {
 			proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to upgrade custom Codex websocket connection")
 			proxyErr.Scope = domain.ScopeProvider
@@ -315,6 +344,7 @@ func (a *CustomAdapter) ExecuteResponsesWebSocket(
 			log.Printf("[CustomWS] provider=%d dial %s failed: %v", provider.ID, target, err)
 			return nil, newCustomWebSocketAttemptError(proxyErr, false)
 		}
+		slotOwnedBySession = true
 		session.activeTurns.Add(1)
 		if !globalCustomWebSocketSessions.put(key, session) {
 			session.activeTurns.Add(-1)
@@ -626,7 +656,13 @@ func customWebSocketFingerprint(providerID uint64, target string, headers http.H
 	return fmt.Sprintf("%x", sum[:])
 }
 
-func dialCustomResponsesWebSocket(ctx context.Context, target string, headers http.Header, fingerprint string) (*customWebSocketSession, error) {
+func dialCustomResponsesWebSocket(
+	ctx context.Context,
+	target string,
+	headers http.Header,
+	fingerprint string,
+	releaseProvider func(),
+) (*customWebSocketSession, error) {
 	dialer := &websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  customResponsesWebSocketHandshake,
@@ -651,7 +687,7 @@ func dialCustomResponsesWebSocket(ctx context.Context, target string, headers ht
 			_ = response.Body.Close()
 		}
 	}
-	return newCustomWebSocketSession(conn, responseHeaders, fingerprint), nil
+	return newCustomWebSocketSession(conn, responseHeaders, fingerprint, releaseProvider), nil
 }
 
 func validateOutboundCustomCodexWebSocketFrame(frame []byte) error {

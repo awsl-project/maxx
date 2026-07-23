@@ -1650,6 +1650,8 @@
     "cloakSensitiveWordsDesc": "Words will be obfuscated with zero-width characters (comma or newline separated).",
     "cloakSensitiveWordsPlaceholder": "e.g. secret, internal-project",
     "displayName": "Display Name",
+    "maxConcurrency": "Max concurrency",
+    "maxConcurrencyDesc": "Active upstream sessions cap. 0 = unlimited.",
     "customBackend": "Backend",
     "customBackendHttp": "HTTP relay (pass-through)",
     "customBackendHttpDesc": "Forward requests to an upstream that already speaks the selected client protocol.",

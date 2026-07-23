@@ -44,6 +44,15 @@ func (a *recordingWSAdapter) ExecuteResponsesWebSocket(
 	if exchange != nil {
 		a.lastFrame = append([]byte(nil), exchange.Frame...)
 	}
+	if exchange != nil && exchange.TryAcquireProviderSlot != nil {
+		release, acquired := exchange.AcquireProviderSlot()
+		if !acquired {
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, true, "provider concurrency limit reached")
+			proxyErr.Scope = domain.ScopeProvider
+			return nil, &domain.ResponsesWebSocketAttemptError{Err: proxyErr}
+		}
+		defer release()
+	}
 	if len(a.errSequence) > 0 {
 		err := a.errSequence[0]
 		a.errSequence = a.errSequence[1:]
@@ -210,6 +219,41 @@ func TestDispatch_ResponsesWebSocketExecutesFirstProviderOnly(t *testing.T) {
 		t.Fatalf("attempt provider = %d, want 21", attemptRepo.created[0].ProviderID)
 	}
 	_ = proxyRepo
+}
+
+func TestDispatch_ResponsesWebSocketTriesNextProviderAfterSlotRace(t *testing.T) {
+	first := &recordingWSAdapter{resultModel: "gpt-test"}
+	second := &recordingWSAdapter{resultModel: "gpt-test"}
+	firstRoute := wsMatchedRoute(1, 31, first, true)
+	firstRoute.Provider.MaxConcurrency = 1
+	secondRoute := wsMatchedRoute(2, 32, second, true)
+	secondRoute.Provider.MaxConcurrency = 1
+	frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
+	c, proxyRepo, attemptRepo := newWSDispatchCtx(t, frame, nil, []*router.MatchedRoute{firstRoute, secondRoute})
+	r := router.NewRouter(nil, nil, nil, nil, nil)
+	release, acquired := r.TryAcquireProvider(firstRoute.Provider)
+	if !acquired {
+		t.Fatal("failed to occupy first provider slot")
+	}
+	defer release()
+	e := newWSDispatchExecutor(proxyRepo, attemptRepo)
+	e.router = r
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch error: %v", c.Err)
+	}
+	if first.wsCalls != 1 || second.wsCalls != 1 {
+		t.Fatalf("WS calls first=%d second=%d, want 1/1", first.wsCalls, second.wsCalls)
+	}
+	if len(attemptRepo.created) != 2 {
+		t.Fatalf("created attempts = %d, want 2", len(attemptRepo.created))
+	}
+	state, ok := getExecState(c)
+	if !ok || state.wsExchange.PinnedProviderID != secondRoute.Provider.ID {
+		t.Fatalf("pinned provider = %d, want %d", state.wsExchange.PinnedProviderID, secondRoute.Provider.ID)
+	}
 }
 
 func TestDispatch_ResponsesWebSocketRecordsCooldownWithoutSecondProvider(t *testing.T) {

@@ -26,13 +26,19 @@ import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/layout/page-header';
 import { cn } from '@/lib/utils';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
+import { useProviderForm } from '../context/provider-form-context';
 import { useCreateProvider } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 type ImportMode = 'oauth' | 'token';
 type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error';
 
 export function ClaudeTokenImport() {
+  const { formData, updateFormData } = useProviderForm();
   const { t } = useTranslation();
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
@@ -41,7 +47,9 @@ export function ClaudeTokenImport() {
   const [token, setToken] = useState('');
   const [validating, setValidating] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [validationResult, setValidationResult] = useState<ClaudeTokenValidationResult | null>(null);
+  const [validationResult, setValidationResult] = useState<ClaudeTokenValidationResult | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   // OAuth state
@@ -254,6 +262,7 @@ export function ClaudeTokenImport() {
       const providerData: CreateProviderData = {
         type: 'claude',
         name: oauthResult.email || 'Claude Account',
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           claude: {
             email: oauthResult.email || '',
@@ -290,6 +299,7 @@ export function ClaudeTokenImport() {
       const providerData: CreateProviderData = {
         type: 'claude',
         name: finalEmail || 'Claude Account',
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           claude: {
             email: finalEmail,
@@ -322,9 +332,7 @@ export function ClaudeTokenImport() {
         <div className="container max-w-2xl mx-auto py-8 px-6 space-y-8">
           {/* Hero Section */}
           <div className="text-center space-y-2 mb-8">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner bg-provider-claude/15"
-            >
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner bg-provider-claude/15">
               <Sparkles size={32} className="text-provider-claude" />
             </div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -334,6 +342,11 @@ export function ClaudeTokenImport() {
               {t('providers.claudeTokenImport.connectDescription')}
             </p>
           </div>
+
+          <ProviderMaxConcurrencyField
+            value={normalizeMaxConcurrency(formData.maxConcurrency)}
+            onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
+          />
 
           {/* Mode Tabs */}
           <div className="flex gap-2 p-1 bg-muted rounded-lg">

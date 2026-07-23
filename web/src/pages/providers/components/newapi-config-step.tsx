@@ -9,6 +9,10 @@ import { Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { OpenRouterModelMappings } from './openrouter-model-mappings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 // new-api / one-api style relays serve multiple client protocols under a single
 // base URL. Default to OpenAI (the image-generation path this type is built for);
@@ -33,13 +37,13 @@ export function NewApiConfigStep() {
   });
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
+  const [maxConcurrency, setMaxConcurrency] = useState(0);
   const [blackBox, setBlackBox] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const enabledClients = NEWAPI_CLIENT_TYPES.filter((c) => clients[c]);
-  const isValid = () =>
-    name.trim() !== '' && baseURL.trim() !== '' && enabledClients.length > 0;
+  const isValid = () => name.trim() !== '' && baseURL.trim() !== '' && enabledClients.length > 0;
 
   const toggleClient = (client: ClientType) =>
     setClients((prev) => ({ ...prev, [client]: !prev[client] }));
@@ -54,6 +58,7 @@ export function NewApiConfigStep() {
       const data: CreateProviderData = {
         type: 'newapi',
         name: name.trim(),
+        maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
           custom: {
@@ -132,6 +137,11 @@ export function NewApiConfigStep() {
                   className="w-full"
                 />
               </div>
+
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+              />
 
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">

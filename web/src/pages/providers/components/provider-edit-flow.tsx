@@ -50,6 +50,10 @@ import { OllamaProviderView } from './ollama-provider-view';
 import { GrokProviderView } from './grok-provider-view';
 import { ProviderModelMappings } from './provider-model-mappings';
 import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
@@ -300,6 +304,7 @@ type EditFormData = {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  maxConcurrency: number;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
   // false/undefined = 不启用 Codex Responses WebSocket；true = 允许 WS 上游。
@@ -368,6 +373,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
       smartMappingRetryEnabled: provider.config?.smartMappingRetryEnabled ?? false,
       smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
+      maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
       responsesWebSocket: provider.config?.custom?.responsesWebSocket === true,
     };
@@ -471,6 +477,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       const data: Partial<CreateProviderData> = {
         name: formData.name,
         type: provider.type || 'custom', // Preserve the provider type
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
@@ -539,6 +546,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         type: provider.type || 'custom',
         name: cloneName,
         logo: provider.logo,
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
@@ -861,6 +869,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     className="w-full"
                   />
                 </div>
+
+                <ProviderMaxConcurrencyField
+                  value={formData.maxConcurrency}
+                  onChange={(maxConcurrency) =>
+                    setFormData((prev) => ({ ...prev, maxConcurrency }))
+                  }
+                />
 
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">

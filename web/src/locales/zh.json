@@ -1647,6 +1647,8 @@
     "cloakSensitiveWordsDesc": "将以零宽字符混淆（逗号或换行分隔）。",
     "cloakSensitiveWordsPlaceholder": "例如：secret, internal-project",
     "displayName": "显示名称",
+    "maxConcurrency": "最大并发",
+    "maxConcurrencyDesc": "上游会话并发上限，0 表示不限制。",
     "customBackend": "后端类型",
     "customBackendHttp": "HTTP 中转（原样转发）",
     "customBackendHttpDesc": "转发到已经支持所选客户端协议的上游服务。",

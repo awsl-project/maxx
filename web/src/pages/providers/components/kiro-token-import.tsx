@@ -17,9 +17,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from 'react-i18next';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
+import { useProviderForm } from '../context/provider-form-context';
 import { useCreateProvider } from '@/hooks/queries';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 export function KiroTokenImport() {
+  const { formData, updateFormData } = useProviderForm();
   const { t } = useTranslation();
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
@@ -76,6 +82,7 @@ export function KiroTokenImport() {
       const providerData: CreateProviderData = {
         type: 'kiro',
         name: finalEmail || 'Kiro Account',
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           kiro: {
             authMethod: 'social',
@@ -132,6 +139,11 @@ export function KiroTokenImport() {
               {t('providers.kiroTokenImport.importDescription')}
             </p>
           </div>
+
+          <ProviderMaxConcurrencyField
+            value={normalizeMaxConcurrency(formData.maxConcurrency)}
+            onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
+          />
 
           {/* Token Input Form */}
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

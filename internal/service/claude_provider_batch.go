@@ -455,6 +455,7 @@ func (s *AdminService) persistClaudeBatchResults(tenantID uint64, req ClaudeProv
 			provider.ID = item.duplicate.ID
 			provider.TenantID = tenantID
 			provider.CreatedAt = item.duplicate.CreatedAt
+			preserveClaudeBatchOverwriteSettings(provider, item.duplicate)
 			if err := s.UpdateProvider(tenantID, provider); err != nil {
 				result.Status = ClaudeProviderBatchStatusPersistenceFailed
 				result.OK = false
@@ -648,6 +649,13 @@ func maskURL(raw string) string {
 	}
 	parsed.User = nil
 	return parsed.String()
+}
+
+func preserveClaudeBatchOverwriteSettings(candidate, existing *domain.Provider) {
+	if candidate == nil || existing == nil {
+		return
+	}
+	candidate.MaxConcurrency = existing.MaxConcurrency
 }
 
 func cloneProviderForBatch(provider *domain.Provider) *domain.Provider {

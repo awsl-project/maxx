@@ -8,6 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 const BEDROCK_REGIONS = [
   'us-east-1',
@@ -34,6 +38,7 @@ export function BedrockConfigStep() {
   const [modelPrefix, setModelPrefix] = useState('us');
   const [showSecret, setShowSecret] = useState(false);
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
+  const [maxConcurrency, setMaxConcurrency] = useState(0);
   const [blackBox, setBlackBox] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -51,6 +56,7 @@ export function BedrockConfigStep() {
       const data: CreateProviderData = {
         type: 'bedrock',
         name: name.trim(),
+        maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
           bedrock: {
@@ -119,6 +125,11 @@ export function BedrockConfigStep() {
                   className="w-full"
                 />
               </div>
+
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+              />
             </div>
           </div>
 

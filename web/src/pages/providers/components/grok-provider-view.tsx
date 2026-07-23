@@ -9,6 +9,10 @@ import { useUpdateProvider } from '@/hooks/queries';
 import type { ClientType, CreateProviderData, Provider } from '@/lib/transport';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { ProviderModelMappings } from './provider-model-mappings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 interface GrokProviderViewProps {
   provider: Provider;
@@ -29,6 +33,9 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
+  const [maxConcurrency, setMaxConcurrency] = useState(
+    normalizeMaxConcurrency(provider.maxConcurrency),
+  );
   const [blackBox, setBlackBox] = useState(!!provider.blackBox || !!provider.excludeFromExport);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -43,6 +50,7 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
       const data: Partial<CreateProviderData> = {
         name: name.trim(),
         type: 'grok',
+        maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
           grok: {
@@ -122,6 +130,10 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
                 </label>
                 <Input value={name} onChange={(event) => setName(event.target.value)} />
               </div>
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+              />
               <div>
                 <label className="mb-2 block text-sm font-medium text-foreground">
                   {t('addProvider.grok.email')}

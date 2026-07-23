@@ -10,6 +10,40 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
+func TestAdminServiceProviderMaxConcurrencyIsPersistedAndNormalized(t *testing.T) {
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("NewDBWithDSN() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := sqlite.NewProviderRepository(db)
+	svc := NewAdminService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
+	provider := &domain.Provider{Name: "limited", Type: "custom", MaxConcurrency: -3}
+	if err := svc.CreateProvider(domain.DefaultTenantID, provider); err != nil {
+		t.Fatalf("CreateProvider() error = %v", err)
+	}
+	created, err := repo.GetByID(domain.DefaultTenantID, provider.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if created.MaxConcurrency != 0 {
+		t.Fatalf("created max concurrency = %d, want 0", created.MaxConcurrency)
+	}
+
+	created.MaxConcurrency = 4
+	if err := svc.UpdateProvider(domain.DefaultTenantID, created); err != nil {
+		t.Fatalf("UpdateProvider() error = %v", err)
+	}
+	updated, err := repo.GetByID(domain.DefaultTenantID, created.ID)
+	if err != nil {
+		t.Fatalf("GetByID() after update error = %v", err)
+	}
+	if updated.MaxConcurrency != 4 {
+		t.Fatalf("updated max concurrency = %d, want 4", updated.MaxConcurrency)
+	}
+}
+
 func TestAdminServiceDeleteProviderCleansRoutesAndProviderModelMappings(t *testing.T) {
 	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

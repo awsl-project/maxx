@@ -14,6 +14,19 @@ type ResponsesWebSocketExchange struct {
 	PreviousResponseID string
 	PinnedProviderID   uint64
 	Sink               ResponsesWebSocketFrameSink
+	// TryAcquireProviderSlot is called only when an adapter creates a new
+	// persistent upstream session. The returned release function belongs to
+	// that session and must run exactly once when the session closes.
+	TryAcquireProviderSlot func() (release func(), acquired bool)
+}
+
+// AcquireProviderSlot reserves a slot for a new persistent upstream session.
+// A nil callback means the caller does not use provider concurrency limiting.
+func (e *ResponsesWebSocketExchange) AcquireProviderSlot() (func(), bool) {
+	if e == nil || e.TryAcquireProviderSlot == nil {
+		return func() {}, true
+	}
+	return e.TryAcquireProviderSlot()
 }
 
 type ResponsesWebSocketResult struct {

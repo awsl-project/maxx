@@ -39,6 +39,10 @@ import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { buildDisguisePayload } from '../utils/disguise';
 import { buildProviderRuntimeModelOptions } from './provider-model-mappings';
 import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -135,6 +139,7 @@ export function CustomConfigStep() {
         type: 'custom',
         name: formData.name,
         logo: formData.logo,
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
@@ -223,6 +228,11 @@ export function CustomConfigStep() {
                   className="w-full"
                 />
               </div>
+              <ProviderMaxConcurrencyField
+                value={formData.maxConcurrency ?? 0}
+                onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
+              />
+
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">
                   {t('provider.customBackend')}

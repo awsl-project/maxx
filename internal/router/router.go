@@ -73,6 +73,7 @@ type Router struct {
 	// Adapter cache
 	adapters map[uint64]provider.ProviderAdapter
 	mu       sync.RWMutex
+	limiter  *ProviderLimiter
 
 	// Cooldown manager
 	cooldownManager *cooldown.Manager
@@ -93,8 +94,21 @@ func NewRouter(
 		retryConfigRepo:     retryConfigRepo,
 		projectRepo:         projectRepo,
 		adapters:            make(map[uint64]provider.ProviderAdapter),
+		limiter:             NewProviderLimiter(),
 		cooldownManager:     cooldown.Default(),
 	}
+}
+
+// TryAcquireProvider reserves an upstream session slot for a provider.
+func (r *Router) TryAcquireProvider(p *domain.Provider) (func(), bool) {
+	if r == nil || p == nil {
+		return nil, false
+	}
+	return r.limiter.TryAcquire(p.ID, p.MaxConcurrency)
+}
+
+func (r *Router) isProviderAtConcurrencyLimit(p *domain.Provider) bool {
+	return r != nil && p != nil && r.limiter.IsAtLimit(p.ID, p.MaxConcurrency)
 }
 
 // InitAdapters initializes adapters for all providers
@@ -266,6 +280,10 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		if !ok {
 			continue
 		}
+		if r.isProviderAtConcurrencyLimit(prov) {
+			sawTransientSkip = true
+			continue
+		}
 
 		// Skip providers in cooldown (checks provider, key, and model-level cooldowns)
 		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType), requestModel) {
@@ -380,12 +398,6 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		stickyCancel()
 	}
 
-	// Codex Responses WebSocket turns execute exactly one provider: no
-	// cross-provider fallback is allowed after match.
-	if ctx.RequireResponsesWebSocket && len(matched) > 1 {
-		matched = matched[:1]
-	}
-
 	return &MatchResult{Routes: matched, Sticky: stickyWrite}, nil
 }
 
@@ -477,7 +489,7 @@ func (r *Router) HasResponsesWebSocketProvider(tenantID, projectID uint64) bool 
 	defer r.mu.RUnlock()
 	for _, route := range candidates {
 		prov, ok := providers[route.ProviderID]
-		if !ok || prov == nil {
+		if !ok || prov == nil || r.isProviderAtConcurrencyLimit(prov) {
 			continue
 		}
 		adp, ok := r.adapters[route.ProviderID]

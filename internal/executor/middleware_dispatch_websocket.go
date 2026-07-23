@@ -47,8 +47,8 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 		return
 	}
 
-	// Router returns at most one candidate for WebSocket; execute that route only.
-	// No cross-provider fallback and no second pass on Route.IsNative snapshot.
+	// Execute the first ordered WebSocket candidate. A later candidate is tried
+	// only when this unpinned first turn loses the provider-slot race before dial.
 	matched := state.routes[0]
 	if matched == nil || matched.Route == nil || matched.Provider == nil || matched.ProviderAdapter == nil {
 		proxyErr := domain.NewProxyErrorWithMessage(
@@ -107,6 +107,11 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 	outboundFrame = e.applyOutboundParamPolicy(outboundFrame, domain.ClientTypeCodex, mappedModel, matched.Provider)
 	turnExchange := *exchange
 	turnExchange.Frame = outboundFrame
+	if e.router != nil {
+		turnExchange.TryAcquireProviderSlot = func() (func(), bool) {
+			return e.router.TryAcquireProvider(matched.Provider)
+		}
+	}
 
 	proxyReq.RouteID = matched.Route.ID
 	proxyReq.ProviderID = matched.Provider.ID
@@ -225,6 +230,16 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 	pricing.MirrorCostToRequest(proxyReq, attempt)
 	proxyReq.TTFT = attempt.TTFT
 	_ = e.proxyRequestRepo.Update(proxyReq)
+
+	// Slot acquisition happens before dialing or writing an upstream frame. If
+	// it loses the race after routing, an unpinned first turn may safely try the
+	// next ordered candidate. All other WebSocket failures remain pinned and do
+	// not fall back across providers.
+	if errors.Is(execErr, domain.ErrNoAvailableProviders) && exchange.PinnedProviderID == 0 && len(state.routes) > 1 {
+		state.routes = state.routes[1:]
+		e.dispatchResponsesWebSocket(c)
+		return
+	}
 
 	var wsErr *domain.ResponsesWebSocketAttemptError
 	errors.As(execErr, &wsErr)

@@ -143,6 +143,7 @@ func (s *AdminService) GetProvider(tenantID uint64, id uint64) (*domain.Provider
 
 func (s *AdminService) CreateProvider(tenantID uint64, provider *domain.Provider) error {
 	provider.TenantID = tenantID
+	provider.MaxConcurrency = max(provider.MaxConcurrency, 0)
 	if provider.BlackBox {
 		provider.ExcludeFromExport = true
 	}
@@ -168,6 +169,7 @@ func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider
 	if existing.BlackBox {
 		return ErrProviderBlackBoxLocked
 	}
+	provider.MaxConcurrency = max(provider.MaxConcurrency, 0)
 	if provider.BlackBox {
 		provider.ExcludeFromExport = true
 	}
@@ -926,8 +928,8 @@ func filterRoutesByScope(routes []*domain.Route, projectID uint64, clientType do
 
 func cloneRouteForTarget(source *domain.Route, tenantID, targetProjectID uint64, position int) *domain.Route {
 	return &domain.Route{
-		TenantID:      tenantID,
-		IsEnabled:     source.IsEnabled,
+		TenantID:  tenantID,
+		IsEnabled: source.IsEnabled,
 		// IsNative is always recomputed from provider capability before save.
 		IsNative:      false,
 		ProjectID:     targetProjectID,

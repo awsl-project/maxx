@@ -54,6 +54,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 		wg.Wait()
 	}
 
+routeLoop:
 	for _, matchedRoute := range state.routes {
 		if ctx.Err() != nil {
 			state.lastErr = ctx.Err()
@@ -156,6 +157,18 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			}
 
 			attemptStartTime := time.Now()
+			releaseProvider := func() {}
+			if e.router != nil {
+				var acquired bool
+				releaseProvider, acquired = e.router.TryAcquireProvider(matchedRoute.Provider)
+				if !acquired {
+					log.Printf("[Executor] Provider %d is at its concurrency limit; trying the next route", matchedRoute.Provider.ID)
+					proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, true, "provider concurrency limit reached")
+					proxyErr.Scope = domain.ScopeProvider
+					state.lastErr = proxyErr
+					continue routeLoop
+				}
+			}
 			attemptRecord := &domain.ProxyUpstreamAttempt{
 				TenantID:       proxyReq.TenantID,
 				ProxyRequestID: proxyReq.ID,
@@ -221,7 +234,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 			originalWriter := c.Writer
 			c.Writer = responseWriter
-			err := matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
+			err := executeWithProviderSlot(releaseProvider, func() error {
+				return matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
+			})
 			c.Writer = originalWriter
 
 			if needsConversion && convertingWriter != nil && !state.isStream {
@@ -521,6 +536,11 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	}
 	state.ctx = ctx
 	c.Err = state.lastErr
+}
+
+func executeWithProviderSlot(release func(), execute func() error) error {
+	defer release()
+	return execute()
 }
 
 func shouldDeferNetworkErrorCooldown(proxyErr *domain.ProxyError, attempt int, retryConfig *domain.RetryConfig) bool {

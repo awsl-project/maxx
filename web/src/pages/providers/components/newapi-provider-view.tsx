@@ -9,6 +9,10 @@ import { Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { ProviderModelMappings } from './provider-model-mappings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 const NEWAPI_CLIENT_TYPES = ['openai', 'claude', 'gemini'] as const;
 
@@ -44,6 +48,9 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
+  const [maxConcurrency, setMaxConcurrency] = useState(
+    normalizeMaxConcurrency(provider.maxConcurrency),
+  );
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -63,6 +70,7 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
       const data: Partial<CreateProviderData> = {
         name: name.trim(),
         type: 'newapi',
+        maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
           custom: {
@@ -134,6 +142,11 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                   className="w-full"
                 />
               </div>
+
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+              />
 
               {!secretsAreWriteOnly && (
                 <div>

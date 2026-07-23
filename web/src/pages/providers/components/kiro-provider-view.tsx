@@ -9,6 +9,10 @@ import { Switch } from '@/components/ui';
 import { KIRO_COLOR } from '../types';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { ProviderModelMappings } from './provider-model-mappings';
+import {
+  ProviderMaxConcurrencyField,
+  useProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 interface KiroProviderViewProps {
   provider: Provider;
@@ -122,6 +126,8 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     () => provider.config?.disableErrorCooldown ?? false,
   );
+  const { maxConcurrency, setMaxConcurrency, handleCommitMaxConcurrency } =
+    useProviderMaxConcurrencyField(provider, updateProvider);
 
   useEffect(() => {
     setDisableErrorCooldown(provider.config?.disableErrorCooldown ?? false);
@@ -241,7 +247,13 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
               </div>
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 space-y-3">
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+                onCommit={handleCommitMaxConcurrency}
+                disabled={updateProvider.isPending}
+              />
               <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
                 <div className="pr-4">
                   <div className="text-sm font-medium text-foreground">

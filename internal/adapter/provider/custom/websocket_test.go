@@ -11,8 +11,8 @@ import (
 	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/gorilla/websocket"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 type recordingCustomWSSink struct {
@@ -61,6 +61,7 @@ func TestJoinCustomResponsesWebSocketURL(t *testing.T) {
 
 func TestExecuteResponsesWebSocket_CustomCodexGateway(t *testing.T) {
 	var dials atomic.Int32
+	keepUpstreamOpen := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dials.Add(1)
 		if r.Header.Get("Authorization") != "Bearer sk-live" {
@@ -85,8 +86,10 @@ func TestExecuteResponsesWebSocket_CustomCodexGateway(t *testing.T) {
 			t.Error("empty frame")
 		}
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-test","output":[]}}`))
+		<-keepUpstreamOpen
 	}))
 	defer upstream.Close()
+	defer close(keepUpstreamOpen)
 
 	provider := &domain.Provider{
 		ID:                   42,
@@ -100,12 +103,18 @@ func TestExecuteResponsesWebSocket_CustomCodexGateway(t *testing.T) {
 	}
 	adapter := &CustomAdapter{provider: provider}
 	connectionID := uuid.NewString()
+	var acquiredSlots atomic.Int32
+	var releasedSlots atomic.Int32
 	t.Cleanup(func() { adapter.CloseResponsesWebSocketConnection(connectionID) })
 	sink := &recordingCustomWSSink{}
 	result, err := adapter.ExecuteResponsesWebSocket(newCustomWSTestContext(t), provider, &domain.ResponsesWebSocketExchange{
 		ConnectionID: connectionID,
 		Frame:        []byte(`{"type":"response.create","model":"gpt-test","stream":true,"input":[]}`),
 		Sink:         sink,
+		TryAcquireProviderSlot: func() (func(), bool) {
+			acquiredSlots.Add(1)
+			return func() { releasedSlots.Add(1) }, true
+		},
 	})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -118,6 +127,13 @@ func TestExecuteResponsesWebSocket_CustomCodexGateway(t *testing.T) {
 	}
 	if len(sink.frames) != 1 {
 		t.Fatalf("frames = %d", len(sink.frames))
+	}
+	if acquiredSlots.Load() != 1 || releasedSlots.Load() != 0 {
+		t.Fatalf("slot lifecycle before close: acquired=%d released=%d", acquiredSlots.Load(), releasedSlots.Load())
+	}
+	adapter.CloseResponsesWebSocketConnection(connectionID)
+	if releasedSlots.Load() != 1 {
+		t.Fatalf("released slots after close = %d, want 1", releasedSlots.Load())
 	}
 }
 
@@ -166,4 +182,3 @@ func TestExecuteResponsesWebSocket_RejectsWhenFlagDisabled(t *testing.T) {
 		t.Fatalf("err = %#v, want capability failure when flag disabled", err)
 	}
 }
-
