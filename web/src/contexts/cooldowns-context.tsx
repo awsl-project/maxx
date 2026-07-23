@@ -8,6 +8,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { getTransport } from '@/lib/transport';
 import type { Cooldown, ProviderHealthLevel } from '@/lib/transport';
 import { subscribeCooldownUpdates } from '@/lib/cooldown-update-subscription';
+import { removeClearedCooldowns } from '@/lib/cooldown-cache';
 
 /** Get provider health level from its cooldowns */
 function computeHealthLevel(cooldowns: Cooldown[]): ProviderHealthLevel {
@@ -80,7 +81,21 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
   const clearCooldownMutation = useMutation({
     mutationFn: ({ providerId, options }: { providerId: number; options?: { clientType?: string; model?: string } }) =>
       getTransport().clearCooldown(providerId, options),
-    onSuccess: () => {
+    onMutate: async ({ providerId, options }) => {
+      await queryClient.cancelQueries({ queryKey: ['cooldowns'] });
+      const previousCooldowns = queryClient.getQueryData<Cooldown[]>(['cooldowns']);
+      queryClient.setQueryData<Cooldown[]>(['cooldowns'], (current = []) =>
+        removeClearedCooldowns(current, providerId, options),
+      );
+      return { previousCooldowns };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previousCooldowns) {
+        queryClient.setQueryData(['cooldowns'], context.previousCooldowns);
+      }
+      console.error('Failed to clear cooldown:', error);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
     },
   });
