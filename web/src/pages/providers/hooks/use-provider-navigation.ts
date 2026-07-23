@@ -1,20 +1,39 @@
 import { useNavigate } from 'react-router-dom';
+import type { ProviderTypeKey } from '../types';
+
+export const PROVIDER_CREATE_PATHS: Record<ProviderTypeKey, string> = {
+  custom: '/providers/create/custom',
+  antigravity: '/providers/create/antigravity',
+  kiro: '/providers/create/kiro',
+  codex: '/providers/create/codex',
+  claude: '/providers/create/claude',
+  bedrock: '/providers/create/bedrock',
+  openrouter: '/providers/create/openrouter',
+  newapi: '/providers/create/newapi',
+  ollama: '/providers/create/ollama',
+  grok: '/providers/create/grok',
+};
+
+export function getProviderCreatePath(type: ProviderTypeKey): string {
+  return PROVIDER_CREATE_PATHS[type];
+}
 
 export function useProviderNavigation() {
   const navigate = useNavigate();
 
   return {
     goToSelectType: () => navigate('/providers/create'),
-    goToCustomConfig: () => navigate('/providers/create/custom'),
-    goToAntigravity: () => navigate('/providers/create/antigravity'),
-    goToKiro: () => navigate('/providers/create/kiro'),
-    goToCodex: () => navigate('/providers/create/codex'),
-    goToClaude: () => navigate('/providers/create/claude'),
-    goToBedrock: () => navigate('/providers/create/bedrock'),
-    goToOpenRouter: () => navigate('/providers/create/openrouter'),
-    goToNewApi: () => navigate('/providers/create/newapi'),
-    goToOllama: () => navigate('/providers/create/ollama'),
-    goToGrok: () => navigate('/providers/create/grok'),
+    goToCustomConfig: () => navigate(PROVIDER_CREATE_PATHS.custom),
+    goToAntigravity: () => navigate(PROVIDER_CREATE_PATHS.antigravity),
+    goToKiro: () => navigate(PROVIDER_CREATE_PATHS.kiro),
+    goToCodex: () => navigate(PROVIDER_CREATE_PATHS.codex),
+    goToClaude: () => navigate(PROVIDER_CREATE_PATHS.claude),
+    goToBedrock: () => navigate(PROVIDER_CREATE_PATHS.bedrock),
+    goToOpenRouter: () => navigate(PROVIDER_CREATE_PATHS.openrouter),
+    goToNewApi: () => navigate(PROVIDER_CREATE_PATHS.newapi),
+    goToOllama: () => navigate(PROVIDER_CREATE_PATHS.ollama),
+    goToGrok: () => navigate(PROVIDER_CREATE_PATHS.grok),
+    goToProviderConfig: (type: ProviderTypeKey) => navigate(getProviderCreatePath(type)),
     goToProviders: () => navigate('/providers'),
     goBack: () => navigate(-1),
   };

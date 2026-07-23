@@ -23,42 +23,12 @@ import { useProviderNavigation } from '../hooks/use-provider-navigation';
 
 export function SelectTypeStep() {
   const { formData, updateFormData } = useProviderForm();
-  const {
-    goToCustomConfig,
-    goToAntigravity,
-    goToKiro,
-    goToCodex,
-    goToClaude,
-    goToBedrock,
-    goToOpenRouter,
-    goToNewApi,
-    goToOllama,
-    goToGrok,
-    goToProviders,
-  } = useProviderNavigation();
+  const { goToCustomConfig, goToProviderConfig, goToProviders } = useProviderNavigation();
   const { t } = useTranslation();
 
   const handleSelectType = (type: ProviderFormData['type']) => {
     updateFormData({ type });
-    if (type === 'antigravity') {
-      goToAntigravity();
-    } else if (type === 'bedrock') {
-      goToBedrock();
-    } else if (type === 'openrouter') {
-      goToOpenRouter();
-    } else if (type === 'kiro') {
-      goToKiro();
-    } else if (type === 'grok') {
-      goToGrok();
-    } else if (type === 'codex') {
-      goToCodex();
-    } else if (type === 'claude') {
-      goToClaude();
-    } else if (type === 'newapi') {
-      goToNewApi();
-    } else if (type === 'ollama') {
-      goToOllama();
-    }
+    goToProviderConfig(type);
   };
 
   const handleApplyTemplate = (templateId: string) => {
