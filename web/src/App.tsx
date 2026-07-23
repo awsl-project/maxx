@@ -16,6 +16,8 @@ import { RetryConfigsPage } from '@/pages/retry-configs';
 import { RoutingStrategiesPage } from '@/pages/routing-strategies';
 import { ConsolePage } from '@/pages/console';
 import { SettingsPage } from '@/pages/settings';
+import { DataManagementPage } from '@/pages/data-management';
+import { ProxyAccessPage } from '@/pages/proxy-access';
 import { DiagnosticsPage } from '@/pages/diagnostics';
 import { DocumentationPage } from '@/pages/documentation';
 import { LoginPage } from '@/pages/login';
@@ -150,6 +152,22 @@ function AppRoutes() {
           />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="data-management"
+            element={
+              <AdminRoute>
+                <DataManagementPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="proxy-access"
+            element={
+              <AdminRoute>
+                <ProxyAccessPage />
+              </AdminRoute>
+            }
+          />
           <Route
             path="diagnostics"
             element={

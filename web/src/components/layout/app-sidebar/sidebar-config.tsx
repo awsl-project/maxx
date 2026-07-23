@@ -16,6 +16,8 @@ import {
   Workflow,
   Gauge,
   Activity,
+  ShieldCheck,
+  Database,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -170,6 +172,22 @@ export const sidebarConfig: SidebarConfig = {
           to: '/api-token-limits',
           icon: Gauge,
           labelKey: 'nav.apiTokenLimits',
+          adminOnly: true,
+        },
+        {
+          type: 'standard',
+          key: 'proxy-access',
+          to: '/proxy-access',
+          icon: ShieldCheck,
+          labelKey: 'nav.proxyAccess',
+          adminOnly: true,
+        },
+        {
+          type: 'standard',
+          key: 'data-management',
+          to: '/data-management',
+          icon: Database,
+          labelKey: 'nav.dataManagement',
           adminOnly: true,
         },
         {

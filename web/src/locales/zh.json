@@ -109,7 +109,9 @@
     "users": "用户管理",
     "changePassword": "修改密码",
     "managePasskeys": "管理 Passkey",
-    "apiTokenLimits": "API Token 限流"
+    "apiTokenLimits": "API Token 限流",
+    "dataManagement": "数据管理",
+    "proxyAccess": "代理访问控制"
   },
   "userPanel": {
     "title": "用户控制台",
@@ -1978,5 +1980,13 @@
     "autoCooldownSeconds": "默认冻结时长",
     "autoCooldownHint": "当上游 429 / 并发限制没有返回 Retry-After，或上游连接错误在重试耗尽后需要自动冻结时，使用此秒数作为冻结时长；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
     "autoCooldownInvalid": "自动冻结默认时长必须是 1 到 86400 之间的整数。"
+  },
+  "dataManagement": {
+    "title": "数据管理",
+    "description": "管理请求保留、会话保留、详情存储、备份导出与备份导入。"
+  },
+  "proxyAccess": {
+    "title": "代理访问控制",
+    "description": "管理全局代理可用性、强制项目绑定、可见代理入口和路由相关 quota 刷新行为。"
   }
 }

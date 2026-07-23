@@ -109,7 +109,9 @@
     "users": "Users",
     "changePassword": "Change Password",
     "managePasskeys": "Manage Passkeys",
-    "apiTokenLimits": "API Token Limits"
+    "apiTokenLimits": "API Token Limits",
+    "dataManagement": "Data Management",
+    "proxyAccess": "Proxy Access"
   },
   "userPanel": {
     "title": "User Console",
@@ -1982,5 +1984,13 @@
     "autoCooldownSeconds": "Default cooldown duration",
     "autoCooldownHint": "When upstream 429 / concurrency limits do not return Retry-After, or upstream connection errors exhaust retries and need automatic cooldown, use this value as the cooldown duration. Upstream Retry-After or explicit CooldownUntil still takes priority.",
     "autoCooldownInvalid": "Default auto-cooldown duration must be an integer between 1 and 86400."
+  },
+  "dataManagement": {
+    "title": "Data Management",
+    "description": "Control request retention, session retention, detail storage, backup export, and backup import."
+  },
+  "proxyAccess": {
+    "title": "Proxy Access",
+    "description": "Control global proxy availability, project binding, visible proxy endpoints, and route-adjacent quota refresh behavior."
   }
 }
