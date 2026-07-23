@@ -450,6 +450,9 @@ type Provider struct {
 	// 空数组表示支持所有模型
 	SupportModels []string `json:"supportModels,omitempty"`
 
+	// Maximum number of upstream sessions allowed at once. Zero means unlimited.
+	MaxConcurrency int `json:"maxConcurrency,omitempty"`
+
 	// 为 true 时，该 provider 不参与导出/备份
 	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
 

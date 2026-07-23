@@ -10,6 +10,10 @@ import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { OPENROUTER_CLIENT_TYPES } from './openrouter-model-mappings';
 import { ProviderModelMappings } from './provider-model-mappings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 interface OpenRouterProviderViewProps {
   provider: Provider;
@@ -45,6 +49,9 @@ export function OpenRouterProviderView({
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
+  const [maxConcurrency, setMaxConcurrency] = useState(
+    normalizeMaxConcurrency(provider.maxConcurrency),
+  );
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -64,6 +71,7 @@ export function OpenRouterProviderView({
       const data: Partial<CreateProviderData> = {
         name: name.trim(),
         type: 'openrouter',
+        maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
           openrouter: {
@@ -134,6 +142,11 @@ export function OpenRouterProviderView({
                   className="w-full"
                 />
               </div>
+
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+              />
 
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">

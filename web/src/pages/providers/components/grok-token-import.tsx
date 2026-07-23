@@ -11,6 +11,11 @@ import { PageHeader } from '@/components/layout/page-header';
 import { useCreateModelMapping, useCreateProvider } from '@/hooks/queries';
 import type { ClientType, CreateProviderData } from '@/lib/transport';
 import type { ProviderConfigGrok } from '@/lib/transport/types';
+import { useProviderForm } from '../context/provider-form-context';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 export interface CPAxAIExportJSON {
   type?: string;
@@ -299,6 +304,7 @@ async function parseImportItemsFromFiles(files: FileList): Promise<GrokImportIte
 
 export function GrokTokenImport() {
   const { t } = useTranslation();
+  const { formData, updateFormData } = useProviderForm();
   const navigate = useNavigate();
   const createProvider = useCreateProvider();
   const createModelMapping = useCreateModelMapping();
@@ -339,6 +345,7 @@ export function GrokTokenImport() {
         const data: CreateProviderData = {
           type: 'grok',
           name: providerName(grok, item.source),
+          maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
           config: { disableErrorCooldown, grok },
           supportedClientTypes: [...GROK_CLIENT_TYPES],
           excludeFromExport: blackBox,
@@ -437,6 +444,10 @@ export function GrokTokenImport() {
               }}
               placeholder='{"type":"xai","auth_kind":"oauth",...}'
               className="min-h-64 font-mono text-xs"
+            />
+            <ProviderMaxConcurrencyField
+              value={normalizeMaxConcurrency(formData.maxConcurrency)}
+              onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
             />
           </div>
 

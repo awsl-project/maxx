@@ -14,6 +14,7 @@ export type BulkCustomProviderCommand = {
   disableErrorCooldown: boolean;
   smartMappingRetryEnabled: boolean;
   smartMappingRetryLimit?: number;
+  maxConcurrency: number;
   excludeFromExport: boolean;
   responsesPassthrough?: boolean;
 };
@@ -44,6 +45,7 @@ const VALUE_FLAGS = new Set([
   'backend',
   'logo',
   'smart-mapping-retry-limit',
+  'max-concurrency',
 ]);
 const BOOLEAN_FLAGS = new Set([
   'disable-error-cooldown',
@@ -182,6 +184,9 @@ export function buildCustomProviderShareCommand(
   if (provider.logo) {
     appendValue('--logo', provider.logo);
   }
+  if ((provider.maxConcurrency ?? 0) > 0) {
+    appendValue('--max-concurrency', String(provider.maxConcurrency));
+  }
   if (provider.config?.disableErrorCooldown) {
     command.push('--disable-error-cooldown');
     if (provider.config.smartMappingRetryEnabled) {
@@ -288,6 +293,7 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
     disableErrorCooldown: false,
     smartMappingRetryEnabled: false,
     smartMappingRetryLimit: undefined as number | undefined,
+    maxConcurrency: 0,
     excludeFromExport: false,
     responsesPassthrough: undefined as boolean | undefined,
   };
@@ -379,6 +385,15 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
         }
         break;
       }
+      case 'max-concurrency': {
+        const maxConcurrency = Number(value);
+        if (!/^\d+$/.test(value) || !Number.isSafeInteger(maxConcurrency)) {
+          errors.push({ lineNumber, message: 'Max concurrency must be 0 or greater' });
+        } else {
+          parsed.maxConcurrency = maxConcurrency;
+        }
+        break;
+      }
     }
   }
 
@@ -425,6 +440,7 @@ export function toCreateProviderData(command: BulkCustomProviderCommand): Create
     type: 'custom',
     name: command.name,
     logo: command.logo,
+    maxConcurrency: command.maxConcurrency,
     config: {
       disableErrorCooldown: command.disableErrorCooldown,
       smartMappingRetryEnabled: command.disableErrorCooldown && command.smartMappingRetryEnabled,

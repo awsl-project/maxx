@@ -26,14 +26,20 @@ import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/layout/page-header';
 import { cn } from '@/lib/utils';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
+import { useProviderForm } from '../context/provider-form-context';
 import { useCreateProvider } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
 import { CLIProxyAPISwitch } from './cliproxyapi-switch';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 type ImportMode = 'oauth' | 'token';
 type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error';
 
 export function CodexTokenImport() {
+  const { formData, updateFormData } = useProviderForm();
   const { t } = useTranslation();
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
@@ -236,6 +242,7 @@ export function CodexTokenImport() {
       const providerData: CreateProviderData = {
         type: 'codex',
         name: oauthResult.email || 'Codex Account',
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           codex: {
             email: oauthResult.email || '',
@@ -279,6 +286,7 @@ export function CodexTokenImport() {
       const providerData: CreateProviderData = {
         type: 'codex',
         name: finalEmail || 'Codex Account',
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           codex: {
             email: finalEmail,
@@ -334,6 +342,11 @@ export function CodexTokenImport() {
 
           {/* CLIProxyAPI Switch */}
           <CLIProxyAPISwitch checked={useCLIProxyAPI} onChange={setUseCLIProxyAPI} />
+
+          <ProviderMaxConcurrencyField
+            value={normalizeMaxConcurrency(formData.maxConcurrency)}
+            onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
+          />
 
           {/* Mode Tabs */}
           <div className="flex gap-2 p-1 bg-muted rounded-lg">

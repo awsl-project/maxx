@@ -168,6 +168,35 @@ describe('custom provider share command builder', () => {
     });
   });
 
+  it('round-trips provider max concurrency', () => {
+    const parsed = parseBulkCustomProviderCommands(
+      'provider add --name Limited --base-url https://api.example.com/v1 --api-key sk-test --clients openai --max-concurrency 7',
+    );
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.commands[0].maxConcurrency).toBe(7);
+    expect(toCreateProviderData(parsed.commands[0]).maxConcurrency).toBe(7);
+
+    const command = buildCustomProviderShareCommand({ ...baseProvider, maxConcurrency: 7 });
+    expect(command).toContain('--max-concurrency 7');
+    expect(parseBulkCustomProviderCommands(command ?? '').commands[0].maxConcurrency).toBe(7);
+  });
+
+  it.each(['1.5', '2foo', '-1', '9007199254740992'])(
+    'rejects invalid provider max concurrency %s',
+    (value) => {
+      const parsed = parseBulkCustomProviderCommands(
+        `provider add --name Limited --base-url https://api.example.com/v1 --api-key sk-test --clients openai --max-concurrency ${value}`,
+      );
+
+      expect(parsed.commands).toEqual([]);
+      expect(parsed.errors).toContainEqual({
+        lineNumber: 1,
+        message: 'Max concurrency must be 0 or greater',
+      });
+    },
+  );
+
   it('rejects smart mapping retry without disabled error cooldown', () => {
     const parsed = parseBulkCustomProviderCommands(
       'provider add --name Smart --base-url https://api.example.com/v1 --api-key sk-test --clients openai --smart-mapping-retry',

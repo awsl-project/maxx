@@ -327,7 +327,7 @@ func TestMatch_ResponsesWebSocketOnlyNativeCapableAdaptersEligible(t *testing.T)
 	}
 }
 
-func TestMatch_ResponsesWebSocketReturnsOneProvider(t *testing.T) {
+func TestMatch_ResponsesWebSocketReturnsOrderedProviders(t *testing.T) {
 	const (
 		providerA = uint64(401)
 		providerB = uint64(402)
@@ -353,8 +353,79 @@ func TestMatch_ResponsesWebSocketReturnsOneProvider(t *testing.T) {
 		t.Fatalf("Match: %v", err)
 	}
 	ids := matchedProviderIDs(result)
-	if len(ids) != 1 || ids[0] != providerA {
-		t.Fatalf("matched provider IDs = %v, want single first provider %d", ids, providerA)
+	if len(ids) != 2 || ids[0] != providerA || ids[1] != providerB {
+		t.Fatalf("matched provider IDs = %v, want [%d %d]", ids, providerA, providerB)
+	}
+}
+
+func TestMatch_ProviderConcurrencyLimitSkipsFullProvider(t *testing.T) {
+	r := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 71, TenantID: 1, ProviderID: 701, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+			{ID: 72, TenantID: 1, ProviderID: 702, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: 701, TenantID: 1, Type: wsRouterNativeType, Name: "full", MaxConcurrency: 1, SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			{ID: 702, TenantID: 1, Type: wsRouterNativeType, Name: "available", MaxConcurrency: 1, SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	release, ok := r.TryAcquireProvider(&domain.Provider{ID: 701, MaxConcurrency: 1})
+	if !ok {
+		t.Fatal("failed to occupy provider slot")
+	}
+	defer release()
+
+	result, err := r.Match(&MatchContext{TenantID: 1, ClientType: domain.ClientTypeCodex, RequestModel: "gpt-test"})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	ids := matchedProviderIDs(result)
+	if len(ids) != 1 || ids[0] != 702 {
+		t.Fatalf("matched provider IDs = %v, want [702]", ids)
+	}
+}
+
+func TestMatch_ResponsesWebSocketSkipsProviderAtConcurrencyLimit(t *testing.T) {
+	r := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 51, TenantID: 1, ProviderID: 501, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+			{ID: 52, TenantID: 1, ProviderID: 502, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: 501, TenantID: 1, Type: wsRouterNativeType, Name: "full", MaxConcurrency: 1, SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			{ID: 502, TenantID: 1, Type: wsRouterNativeType, Name: "available", MaxConcurrency: 1, SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	release, ok := r.TryAcquireProvider(&domain.Provider{ID: 501, MaxConcurrency: 1})
+	if !ok {
+		t.Fatal("failed to occupy provider slot")
+	}
+	defer release()
+
+	result, err := r.Match(&MatchContext{TenantID: 1, ClientType: domain.ClientTypeCodex, RequestModel: "gpt-test", RequireResponsesWebSocket: true})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	ids := matchedProviderIDs(result)
+	if len(ids) != 1 || ids[0] != 502 {
+		t.Fatalf("matched provider IDs = %v, want [502]", ids)
+	}
+}
+
+func TestMatch_ResponsesWebSocketRejectsWhenOnlyProviderIsAtConcurrencyLimit(t *testing.T) {
+	r := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{{ID: 61, TenantID: 1, ProviderID: 601, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1}},
+		[]*domain.Provider{{ID: 601, TenantID: 1, Type: wsRouterNativeType, Name: "full", MaxConcurrency: 1, SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}}},
+	)
+	release, ok := r.TryAcquireProvider(&domain.Provider{ID: 601, MaxConcurrency: 1})
+	if !ok {
+		t.Fatal("failed to occupy provider slot")
+	}
+	defer release()
+
+	_, err := r.Match(&MatchContext{TenantID: 1, ClientType: domain.ClientTypeCodex, RequestModel: "gpt-test", RequireResponsesWebSocket: true})
+	if !errors.Is(err, domain.ErrNoResponsesWebSocketProviders) {
+		t.Fatalf("Match error = %v, want ErrNoResponsesWebSocketProviders", err)
 	}
 }
 

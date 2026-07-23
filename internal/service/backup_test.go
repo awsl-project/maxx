@@ -70,6 +70,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 		},
 		SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI, domain.ClientTypeClaude},
 		SupportModels:        []string{"gpt-4o*", "claude-*"},
+		MaxConcurrency:       7,
 	}
 	if err := providerRepo.Create(provider); err != nil {
 		t.Fatalf("seed provider: %v", err)
@@ -203,6 +204,9 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	if roundtrip.Data.Providers[0].Logo != "https://example.com/logo.png" {
 		t.Fatalf("provider logo = %q, want preserved", roundtrip.Data.Providers[0].Logo)
 	}
+	if roundtrip.Data.Providers[0].MaxConcurrency != 7 {
+		t.Fatalf("provider max concurrency = %d, want 7", roundtrip.Data.Providers[0].MaxConcurrency)
+	}
 
 	if len(roundtrip.Data.ModelPrices) != 1 {
 		t.Fatalf("modelPrices count = %d, want 1", len(roundtrip.Data.ModelPrices))
@@ -230,6 +234,35 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	}
 	if foundCustomMapping != 1 {
 		t.Fatalf("custom model mapping count = %d, want 1", foundCustomMapping)
+	}
+}
+
+func TestBackupService_ImportNormalizesNegativeProviderMaxConcurrency(t *testing.T) {
+	sourceDB := newBackupServiceTestDB(t, "source-negative-concurrency.db")
+	seedBackupRoundtripData(t, sourceDB)
+
+	backup, err := newBackupServiceForTest(t, sourceDB).Export(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("export backup: %v", err)
+	}
+	backup.Data.Providers[0].MaxConcurrency = -3
+
+	targetDB := newBackupServiceTestDB(t, "target-negative-concurrency.db")
+	targetSvc := newBackupServiceForTest(t, targetDB)
+	result, err := targetSvc.Import(domain.DefaultTenantID, backup, domain.ImportOptions{ConflictStrategy: "skip"})
+	if err != nil {
+		t.Fatalf("import backup: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("import result success=false, errors=%v", result.Errors)
+	}
+
+	roundtrip, err := targetSvc.Export(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("re-export backup: %v", err)
+	}
+	if got := roundtrip.Data.Providers[0].MaxConcurrency; got != 0 {
+		t.Fatalf("provider max concurrency = %d, want 0", got)
 	}
 }
 

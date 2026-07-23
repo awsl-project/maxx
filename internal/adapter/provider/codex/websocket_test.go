@@ -87,15 +87,22 @@ func TestExecuteResponsesWebSocket_PreservesOfficialWirePayload(t *testing.T) {
 		httpClient: newUpstreamHTTPClient(),
 	}
 	connectionID := uuid.NewString()
+	var acquiredSlots atomic.Int32
+	var releasedSlots atomic.Int32
+	acquireSlot := func() (func(), bool) {
+		acquiredSlots.Add(1)
+		return func() { releasedSlots.Add(1) }, true
+	}
 	t.Cleanup(func() { adapter.CloseResponsesWebSocketConnection(connectionID) })
 	sink := &recordingWebSocketSink{}
 
 	firstRaw := []byte(`{"type":"response.create","model":"gpt-test","generate":false,"stream":true,"store":true,"background":true,"stream_options":{"include_usage":true},"client_metadata":{"source":"test"},"unknown_field":"preserve","input":[]}`)
 	firstCtx := newCodexWebSocketTestContext(t)
 	firstExchange := &domain.ResponsesWebSocketExchange{
-		ConnectionID: connectionID,
-		Frame:        firstRaw,
-		Sink:         sink,
+		ConnectionID:           connectionID,
+		Frame:                  firstRaw,
+		Sink:                   sink,
+		TryAcquireProviderSlot: acquireSlot,
 	}
 	result, err := adapter.ExecuteResponsesWebSocket(firstCtx, provider, firstExchange)
 	if err != nil {
@@ -113,14 +120,18 @@ func TestExecuteResponsesWebSocket_PreservesOfficialWirePayload(t *testing.T) {
 			t.Fatalf("field %q was removed: %s", field, firstUpstream)
 		}
 	}
+	if acquiredSlots.Load() != 1 || releasedSlots.Load() != 0 {
+		t.Fatalf("slot lifecycle after first turn: acquired=%d released=%d", acquiredSlots.Load(), releasedSlots.Load())
+	}
 
 	secondRaw := []byte(`{"type":"response.create","model":"gpt-test","previous_response_id":"resp_1","generate":true,"input":[{"type":"function_call_output","call_id":"call_1","output":"ok"}]}`)
 	secondExchange := &domain.ResponsesWebSocketExchange{
-		ConnectionID:       connectionID,
-		Frame:              secondRaw,
-		PreviousResponseID: "resp_1",
-		PinnedProviderID:   provider.ID,
-		Sink:               sink,
+		ConnectionID:           connectionID,
+		Frame:                  secondRaw,
+		PreviousResponseID:     "resp_1",
+		PinnedProviderID:       provider.ID,
+		Sink:                   sink,
+		TryAcquireProviderSlot: acquireSlot,
 	}
 	result, err = adapter.ExecuteResponsesWebSocket(newCodexWebSocketTestContext(t), provider, secondExchange)
 	if err != nil {
@@ -138,6 +149,13 @@ func TestExecuteResponsesWebSocket_PreservesOfficialWirePayload(t *testing.T) {
 	}
 	if len(sink.frames) != 2 {
 		t.Fatalf("forwarded frames = %d, want 2", len(sink.frames))
+	}
+	if got := acquiredSlots.Load(); got != 1 {
+		t.Fatalf("acquired provider slots = %d, want 1 for one reused session", got)
+	}
+	adapter.CloseResponsesWebSocketConnection(connectionID)
+	if got := releasedSlots.Load(); got != 1 {
+		t.Fatalf("released provider slots after session close = %d, want 1", got)
 	}
 }
 

@@ -56,9 +56,18 @@ type codexWebSocketSession struct {
 	fingerprint     string
 	lastUsedAt      atomic.Int64
 	activeTurns     atomic.Int32
+	releaseProvider func()
 }
 
-func newCodexWebSocketSession(conn *websocket.Conn, handshakeHeader http.Header, fingerprint string) *codexWebSocketSession {
+func newCodexWebSocketSession(
+	conn *websocket.Conn,
+	handshakeHeader http.Header,
+	fingerprint string,
+	releaseProvider func(),
+) *codexWebSocketSession {
+	if releaseProvider == nil {
+		releaseProvider = func() {}
+	}
 	session := &codexWebSocketSession{
 		conn:            conn,
 		handshakeHeader: handshakeHeader.Clone(),
@@ -66,6 +75,7 @@ func newCodexWebSocketSession(conn *websocket.Conn, handshakeHeader http.Header,
 		done:            make(chan struct{}),
 		maxQueuedBytes:  codexResponsesWebSocketMaxQueuedBytes,
 		fingerprint:     fingerprint,
+		releaseProvider: releaseProvider,
 	}
 	session.touch()
 	conn.SetReadLimit(codexResponsesWebSocketMaxFrameBytes)
@@ -133,6 +143,9 @@ func (s *codexWebSocketSession) close() {
 		close(s.done)
 		if s.conn != nil {
 			_ = s.conn.Close()
+		}
+		if s.releaseProvider != nil {
+			s.releaseProvider()
 		}
 	})
 }
@@ -337,10 +350,25 @@ func (a *CodexAdapter) ExecuteResponsesWebSocket(
 
 	reused := session != nil
 	if session == nil {
-		session, err = a.dialResponsesWebSocketSession(ctx, provider, config, target, headers, fingerprint, accessToken)
+		releaseProvider, acquired := exchange.AcquireProviderSlot()
+		if !acquired {
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, true, "provider concurrency limit reached")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Code = "websocket_transport_unavailable"
+			proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
+			return nil, newCodexWebSocketAttemptError(proxyErr, false)
+		}
+		slotOwnedBySession := false
+		defer func() {
+			if !slotOwnedBySession {
+				releaseProvider()
+			}
+		}()
+		session, err = a.dialResponsesWebSocketSession(ctx, provider, config, target, headers, fingerprint, accessToken, releaseProvider)
 		if err != nil {
 			return nil, err
 		}
+		slotOwnedBySession = true
 		session.activeTurns.Add(1)
 		if !globalCodexWebSocketSessions.put(key, session) {
 			session.activeTurns.Add(-1)
@@ -376,8 +404,9 @@ func (a *CodexAdapter) dialResponsesWebSocketSession(
 	headers http.Header,
 	fingerprint string,
 	accessToken string,
+	releaseProvider func(),
 ) (*codexWebSocketSession, error) {
-	session, response, err := dialCodexWebSocket(ctx, target, headers, fingerprint)
+	session, response, err := dialCodexWebSocket(ctx, target, headers, fingerprint, releaseProvider)
 	if err != nil && response != nil && response.StatusCode == http.StatusUnauthorized && canRefreshCodexAccessToken(config) {
 		body := readCodexWebSocketHandshakeBody(response)
 		_ = body
@@ -388,7 +417,7 @@ func (a *CodexAdapter) dialResponsesWebSocketSession(
 		}
 		headers.Set("Authorization", "Bearer "+refreshed)
 		fingerprint = codexWebSocketFingerprint(provider.ID, target, headers)
-		session, response, err = dialCodexWebSocket(ctx, target, headers, fingerprint)
+		session, response, err = dialCodexWebSocket(ctx, target, headers, fingerprint, releaseProvider)
 	}
 	if err == nil {
 		return session, nil
@@ -728,7 +757,13 @@ func codexWebSocketFingerprint(providerID uint64, target string, headers http.He
 	return fmt.Sprintf("%x", sum[:])
 }
 
-func dialCodexWebSocket(ctx context.Context, target string, headers http.Header, fingerprint string) (*codexWebSocketSession, *http.Response, error) {
+func dialCodexWebSocket(
+	ctx context.Context,
+	target string,
+	headers http.Header,
+	fingerprint string,
+	releaseProvider func(),
+) (*codexWebSocketSession, *http.Response, error) {
 	dialer := &websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  codexResponsesWebSocketHandshake,
@@ -749,7 +784,7 @@ func dialCodexWebSocket(ctx context.Context, target string, headers http.Header,
 			_ = response.Body.Close()
 		}
 	}
-	return newCodexWebSocketSession(conn, responseHeaders, fingerprint), response, nil
+	return newCodexWebSocketSession(conn, responseHeaders, fingerprint, releaseProvider), response, nil
 }
 
 func readCodexWebSocketHandshakeBody(response *http.Response) []byte {

@@ -10,6 +10,10 @@ import { PageHeader } from '@/components/layout/page-header';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import openrouterLogo from '@/assets/icons/openrouter.svg';
 import { OpenRouterModelMappings, OPENROUTER_CLIENT_TYPES } from './openrouter-model-mappings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 export function OpenRouterConfigStep() {
   const { t } = useTranslation();
@@ -29,6 +33,7 @@ export function OpenRouterConfigStep() {
   });
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
+  const [maxConcurrency, setMaxConcurrency] = useState(0);
   const [blackBox, setBlackBox] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -50,6 +55,7 @@ export function OpenRouterConfigStep() {
         type: 'openrouter',
         name: name.trim(),
         logo: openrouterLogo,
+        maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
           openrouter: {
@@ -128,6 +134,11 @@ export function OpenRouterConfigStep() {
                   className="w-full"
                 />
               </div>
+
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+              />
 
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">

@@ -9,6 +9,10 @@ import { Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { OpenRouterModelMappings } from './openrouter-model-mappings';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 export function OllamaConfigStep() {
   const { t } = useTranslation();
@@ -22,6 +26,7 @@ export function OllamaConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
+  const [maxConcurrency, setMaxConcurrency] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -37,6 +42,7 @@ export function OllamaConfigStep() {
       const data: CreateProviderData = {
         type: 'ollama',
         name: name.trim(),
+        maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
           custom: {
@@ -112,6 +118,11 @@ export function OllamaConfigStep() {
                   className="w-full"
                 />
               </div>
+
+              <ProviderMaxConcurrencyField
+                value={maxConcurrency}
+                onChange={setMaxConcurrency}
+              />
 
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">

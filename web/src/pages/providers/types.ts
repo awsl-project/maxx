@@ -365,6 +365,7 @@ export type ProviderFormData = {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  maxConcurrency?: number;
   excludeFromExport?: boolean;
   blackBox?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。

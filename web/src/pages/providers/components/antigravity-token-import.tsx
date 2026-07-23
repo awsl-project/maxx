@@ -23,14 +23,20 @@ import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/layout/page-header';
 import { cn } from '@/lib/utils';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
+import { useProviderForm } from '../context/provider-form-context';
 import { useCreateProvider } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
 import { CLIProxyAPISwitch } from './cliproxyapi-switch';
+import {
+  normalizeMaxConcurrency,
+  ProviderMaxConcurrencyField,
+} from './provider-max-concurrency-field';
 
 type ImportMode = 'oauth' | 'token';
 type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error';
 
 export function AntigravityTokenImport() {
+  const { formData, updateFormData } = useProviderForm();
   const { t } = useTranslation();
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
@@ -174,6 +180,7 @@ export function AntigravityTokenImport() {
       const providerData: CreateProviderData = {
         type: 'antigravity',
         name: finalEmail || 'Antigravity Account',
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           antigravity: {
             email: finalEmail,
@@ -213,6 +220,7 @@ export function AntigravityTokenImport() {
       const providerData: CreateProviderData = {
         type: 'antigravity',
         name: oauthResult.email || 'Antigravity Account',
+        maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
           antigravity: {
             email: oauthResult.email || '',
@@ -261,6 +269,11 @@ export function AntigravityTokenImport() {
 
           {/* CLIProxyAPI Switch */}
           <CLIProxyAPISwitch checked={useCLIProxyAPI} onChange={setUseCLIProxyAPI} />
+
+          <ProviderMaxConcurrencyField
+            value={normalizeMaxConcurrency(formData.maxConcurrency)}
+            onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
+          />
 
           {/* Mode Selector */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
