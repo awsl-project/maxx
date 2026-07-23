@@ -102,7 +102,7 @@ jobs:
           git fetch origin "$BASE_BRANCH"
           git checkout -B "$BRANCH" "origin/$BASE_BRANCH"
 
-          go mod edit -replace=github.com/router-for-me/CLIProxyAPI/v6=github.com/awsl-project/CLIProxyAPI/v6@latest
+          go mod edit -replace=github.com/router-for-me/CLIProxyAPI/v7=github.com/awsl-project/CLIProxyAPI/v7@latest
           go mod tidy
 
           git add go.mod go.sum
@@ -112,7 +112,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "chore: update CLIProxyAPI replace"
+          git commit -m "chore: update CLIProxyAPI v7 replace"
           git push -f origin "$BRANCH"
 
           PR_NUMBER=$(gh pr list \
@@ -130,8 +130,8 @@ jobs:
           if ! gh pr create \
             --base "$BASE_BRANCH" \
             --head "$BRANCH" \
-            --title "chore: update CLIProxyAPI replace" \
-            --body "Automated dependency update by CLIProxyAPI Sync workflow."; then
+            --title "chore: update CLIProxyAPI v7 replace" \
+            --body "Automated CLIProxyAPI v7 dependency update by CLIProxyAPI Sync workflow."; then
             {
               echo "### PR creation skipped"
               echo "- Branch pushed: $BRANCH"
