@@ -962,6 +962,7 @@ const (
 	SettingKeyReasoningPolicy                      = "reasoning_policy"                         // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
 	SettingKeyForceRetryUpstreamErrors             = "force_retry_upstream_errors"              // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
 	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"          // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                  // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
 	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
 	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"          // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
 	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"            // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"

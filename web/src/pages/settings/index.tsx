@@ -37,6 +37,7 @@ import {
   TabsContent,
 } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
+import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { BackendAddressControl } from '@/components/backend-address-control';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
@@ -130,6 +131,7 @@ export function SettingsPage() {
               <MultiTenantUISection />
               <TimezoneSection />
               <DataRetentionSection />
+              <ProxyKillSwitchSection />
               <ForceProjectSection />
               <ProxyRouteExposureSection />
               <AntigravitySection />
@@ -847,6 +849,10 @@ export function RequestDiagnosticsSection() {
       </CardContent>
     </Card>
   );
+}
+
+function ProxyKillSwitchSection() {
+  return <ProxyKillSwitchCard />;
 }
 
 function ProxyRouteExposureSection() {

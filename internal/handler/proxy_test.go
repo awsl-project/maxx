@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -10,7 +11,33 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
+
+type proxyBooleanSettingRepo struct {
+	values []string
+	errs   []error
+	reads  int
+}
+
+func (r *proxyBooleanSettingRepo) Get(key string) (string, error) {
+	r.reads++
+	idx := r.reads - 1
+	if idx < len(r.errs) && r.errs[idx] != nil {
+		return "", r.errs[idx]
+	}
+	if idx < len(r.values) {
+		return r.values[idx], nil
+	}
+	if len(r.values) > 0 {
+		return r.values[len(r.values)-1], nil
+	}
+	return "", nil
+}
+
+func (r *proxyBooleanSettingRepo) Set(key, value string) error              { return nil }
+func (r *proxyBooleanSettingRepo) GetAll() ([]*domain.SystemSetting, error) { return nil, nil }
+func (r *proxyBooleanSettingRepo) Delete(key string) error                  { return nil }
 
 func TestWriteError(t *testing.T) {
 	rec := httptest.NewRecorder()
@@ -121,6 +148,76 @@ func TestWriteStreamErrorPreservesStatusAndRetryAfter(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"type":"error"`) {
 		t.Fatalf("stream body = %q, want error event", rec.Body.String())
+	}
+}
+
+func TestProxyHandlerRejectsRequestsWhenKillSwitchEnabled(t *testing.T) {
+	systemsettingcache.Invalidate(domain.SettingKeyProxyRequestsDisabled)
+	repo := &proxyBooleanSettingRepo{values: []string{"true"}}
+	h := NewProxyHandler(nil, nil, nil, repo, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/v1/chat/completions", strings.NewReader(`{"model":"gpt-5.4","messages":[]}`))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), proxyRequestsDisabledMessage) {
+		t.Fatalf("body = %q, want disabled message", rec.Body.String())
+	}
+}
+
+func TestProxyKillSwitchDefaultsFalse(t *testing.T) {
+	systemsettingcache.Invalidate(domain.SettingKeyProxyRequestsDisabled)
+	repo := &proxyBooleanSettingRepo{}
+	if systemsettingcache.GetBoolean(repo, domain.SettingKeyProxyRequestsDisabled) {
+		t.Fatal("expected missing setting to default to false")
+	}
+}
+
+func TestProxyKillSwitchCachesFreshValue(t *testing.T) {
+	oldTTL := systemsettingcache.BooleanTTL
+	systemsettingcache.BooleanTTL = time.Hour
+	defer func() { systemsettingcache.BooleanTTL = oldTTL }()
+
+	key := domain.SettingKeyProxyRequestsDisabled
+	systemsettingcache.Invalidate(key)
+	repo := &proxyBooleanSettingRepo{values: []string{"true"}}
+
+	if !systemsettingcache.GetBoolean(repo, key) {
+		t.Fatal("expected first read to return true")
+	}
+	if !systemsettingcache.GetBoolean(repo, key) {
+		t.Fatal("expected cached read to return true")
+	}
+	if repo.reads != 1 {
+		t.Fatalf("reads = %d, want 1", repo.reads)
+	}
+}
+
+func TestProxyKillSwitchFallsBackToLastKnownValueOnReadError(t *testing.T) {
+	oldTTL := systemsettingcache.BooleanTTL
+	systemsettingcache.BooleanTTL = time.Nanosecond
+	defer func() { systemsettingcache.BooleanTTL = oldTTL }()
+
+	key := domain.SettingKeyProxyRequestsDisabled
+	systemsettingcache.Invalidate(key)
+	repo := &proxyBooleanSettingRepo{
+		values: []string{"true"},
+		errs:   []error{nil, errors.New("db temporarily unavailable")},
+	}
+
+	if !systemsettingcache.GetBoolean(repo, key) {
+		t.Fatal("expected first read to return true")
+	}
+	time.Sleep(time.Millisecond)
+	if !systemsettingcache.GetBoolean(repo, key) {
+		t.Fatal("expected cached true value on refresh error")
+	}
+	if repo.reads != 2 {
+		t.Fatalf("reads = %d, want 2", repo.reads)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 	"github.com/awsl-project/maxx/internal/version"
 )
 
@@ -1338,6 +1339,7 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	if err := s.settingRepo.Set(key, value); err != nil {
 		return err
 	}
+	systemsettingcache.Invalidate(key)
 
 	// 如果更新的是 pprof 相关设置，触发重载
 	switch key {
@@ -1404,6 +1406,7 @@ func (s *AdminService) DeleteSetting(key string) error {
 	if err := s.settingRepo.Delete(key); err != nil {
 		return err
 	}
+	systemsettingcache.Invalidate(key)
 
 	// 如果删除的是 pprof 相关设置，触发重载
 	switch key {

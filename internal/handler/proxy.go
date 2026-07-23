@@ -19,8 +19,12 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
+
+const proxyRequestsDisabledMessage = "proxy requests are temporarily disabled by admin"
 
 // RequestTracker interface for tracking active requests
 type RequestTracker interface {
@@ -34,6 +38,7 @@ type ProxyHandler struct {
 	clientAdapter *client.Adapter
 	executor      *executor.Executor
 	sessionRepo   *cached.SessionRepository
+	settingRepo   repository.SystemSettingRepository
 	tokenAuth     *TokenAuthMiddleware
 	tracker       RequestTracker
 	trackerMu     sync.RWMutex
@@ -65,12 +70,14 @@ func NewProxyHandler(
 	clientAdapter *client.Adapter,
 	exec *executor.Executor,
 	sessionRepo *cached.SessionRepository,
+	settingRepo repository.SystemSettingRepository,
 	tokenAuth *TokenAuthMiddleware,
 ) *ProxyHandler {
 	h := &ProxyHandler{
 		clientAdapter: clientAdapter,
 		executor:      exec,
 		sessionRepo:   sessionRepo,
+		settingRepo:   settingRepo,
 		tokenAuth:     tokenAuth,
 		engine:        flow.NewEngine(),
 		uploadLimiter: newUploadLimiterFromEnv(),
@@ -158,6 +165,13 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		c.Abort()
+		return
+	}
+
+	if h.isProxyRequestsDisabled() {
+		log.Printf("[Proxy] Rejecting request because proxy kill switch is enabled: %s %s", r.Method, r.URL.Path)
+		writeError(w, http.StatusServiceUnavailable, proxyRequestsDisabledMessage)
 		c.Abort()
 		return
 	}
@@ -426,6 +440,10 @@ func normalizeOpenAIChatCompletionsPayload(body []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return converted, true
+}
+
+func (h *ProxyHandler) isProxyRequestsDisabled() bool {
+	return systemsettingcache.GetBoolean(h.settingRepo, domain.SettingKeyProxyRequestsDisabled)
 }
 
 // Helper functions

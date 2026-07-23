@@ -447,7 +447,7 @@ func InitializeServerComponents(
 
 	log.Printf("[Core] Creating handlers")
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(repos.CachedAPITokenRepo, repos.SettingRepo)
-	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo, tokenAuthMiddleware)
+	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo, repos.SettingRepo, tokenAuthMiddleware)
 	modelsHandler := handler.NewModelsHandler(
 		repos.ResponseModelRepo,
 		repos.CachedProviderRepo,
