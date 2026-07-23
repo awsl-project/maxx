@@ -41,6 +41,9 @@ export const requestKeys = {
     ] as const,
   errorStats: (params?: CursorPaginationParams) =>
     [...requestKeys.all, 'error-stats', params] as const,
+  cleanupFailedCount: (params?: CursorPaginationParams) =>
+    [...requestKeys.all, 'cleanup-failed-count', params] as const,
+  cleanupFailedCounts: () => [...requestKeys.all, 'cleanup-failed-count'] as const,
   details: () => [...requestKeys.all, 'detail'] as const,
   detail: (id: number) => [...requestKeys.details(), id] as const,
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
@@ -236,7 +239,7 @@ export function useCleanupFailedProxyRequestsCount(
   enabled = true,
 ) {
   return useQuery({
-    queryKey: [...requestKeys.all, 'cleanup-failed-count', params] as const,
+    queryKey: requestKeys.cleanupFailedCount(params),
     queryFn: () => getTransport().getCleanupFailedProxyRequestsCount(params),
     enabled,
     staleTime: 5_000,
@@ -455,6 +458,7 @@ export function useProxyRequestUpdates() {
       let invalidateDashboard = false;
       let invalidateProviderStats = false;
       let invalidateCooldowns = false;
+      let refetchCleanupFailedCount = false;
 
       for (const updatedRequest of updates) {
         const requestId = updatedRequest.id;
@@ -713,6 +717,9 @@ export function useProxyRequestUpdates() {
           invalidateProviderStats = true;
           invalidateCooldowns = true;
         }
+        if (isProxyRequestError(updatedRequest)) {
+          refetchCleanupFailedCount = true;
+        }
       }
 
       if (invalidateDashboard) {
@@ -725,6 +732,12 @@ export function useProxyRequestUpdates() {
         queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
       }
       queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'error-stats'] });
+      if (refetchCleanupFailedCount) {
+        void queryClient.refetchQueries({
+          queryKey: requestKeys.cleanupFailedCounts(),
+          type: 'active',
+        });
+      }
 
       flushAttempts();
     };
@@ -779,6 +792,10 @@ export function useProxyRequestUpdates() {
       });
       void queryClient.refetchQueries({ queryKey: requestKeys.details(), type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['requestsCount'], type: 'active' });
+      void queryClient.refetchQueries({
+        queryKey: requestKeys.cleanupFailedCounts(),
+        type: 'active',
+      });
       void queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['providers', 'stats'], type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['cooldowns'], type: 'active' });
