@@ -939,15 +939,41 @@ export function ProvidersPage() {
           </DialogHeader>
 
           <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
-            <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-              <div className="mb-2 font-medium text-foreground">
-                {t('providers.bulkImport.exampleTitle')}
+            <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+              <div>
+                <div className="mb-1 font-medium text-foreground">
+                  {t('providers.bulkImport.exampleSingleClientTitle')}
+                </div>
+                <p className="mb-2">{t('providers.bulkImport.exampleSingleClientDesc')}</p>
+                <code className="block whitespace-pre-wrap break-all rounded-md bg-background/70 p-2 text-foreground">
+                  provider add --name "Mimo Claude" --base-url "https://api.example.com" --api-key
+                  "sk-..." --clients claude --models claude-sonnet-4
+                </code>
               </div>
-              <code className="block whitespace-pre-wrap break-all">
-                provider add --name "Mimo" --base-url "https://api.example.com" --api-key "sk-..."
-                --clients claude,openai --models claude-sonnet-4,gpt-5 --map "*=mimo-v2.5-pro"
-                --response-map "mimo-v2.5-pro=claude-sonnet-4"
-              </code>
+
+              <div>
+                <div className="mb-1 font-medium text-foreground">
+                  {t('providers.bulkImport.exampleMultiClientTitle')}
+                </div>
+                <p className="mb-2">{t('providers.bulkImport.exampleMultiClientDesc')}</p>
+                <code className="block whitespace-pre-wrap break-all rounded-md bg-background/70 p-2 text-foreground">
+                  provider add --name "Mimo Multi" --base-url "https://api.example.com" --api-key
+                  "sk-..." --clients claude,openai,codex --models claude-sonnet-4,gpt-5
+                </code>
+              </div>
+
+              <div>
+                <div className="mb-1 font-medium text-foreground">
+                  {t('providers.bulkImport.exampleMappingTitle')}
+                </div>
+                <p className="mb-2">{t('providers.bulkImport.exampleMappingDesc')}</p>
+                <code className="block whitespace-pre-wrap break-all rounded-md bg-background/70 p-2 text-foreground">
+                  provider add --name "Mimo Mapping" --base-url "https://api.example.com" --api-key
+                  "sk-..." --clients claude,openai --models claude-sonnet-4,gpt-5 --map
+                  "claude-sonnet-4=mimo-v2.5-pro,gpt-5=mimo-gpt-5" --response-map
+                  "mimo-v2.5-pro=claude-sonnet-4"
+                </code>
+              </div>
             </div>
 
             <Textarea
