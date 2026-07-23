@@ -12,6 +12,8 @@ export type BulkCustomProviderCommand = {
   backend?: 'ollama';
   logo?: string;
   disableErrorCooldown: boolean;
+  smartMappingRetryEnabled: boolean;
+  smartMappingRetryLimit?: number;
   excludeFromExport: boolean;
   responsesPassthrough?: boolean;
 };
@@ -41,9 +43,11 @@ const VALUE_FLAGS = new Set([
   'response-map',
   'backend',
   'logo',
+  'smart-mapping-retry-limit',
 ]);
 const BOOLEAN_FLAGS = new Set([
   'disable-error-cooldown',
+  'smart-mapping-retry',
   'exclude-from-export',
   'responses-passthrough',
   'no-responses-passthrough',
@@ -180,6 +184,13 @@ export function buildCustomProviderShareCommand(
   }
   if (provider.config?.disableErrorCooldown) {
     command.push('--disable-error-cooldown');
+    if (provider.config.smartMappingRetryEnabled) {
+      command.push('--smart-mapping-retry');
+      const retryLimit = provider.config.smartMappingRetryLimit;
+      if (retryLimit !== undefined && retryLimit > 0 && retryLimit !== 1) {
+        appendValue('--smart-mapping-retry-limit', String(retryLimit));
+      }
+    }
   }
   if (provider.excludeFromExport) {
     command.push('--exclude-from-export');
@@ -275,6 +286,8 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
     backend: undefined as 'ollama' | undefined,
     logo: undefined as string | undefined,
     disableErrorCooldown: false,
+    smartMappingRetryEnabled: false,
+    smartMappingRetryLimit: undefined as number | undefined,
     excludeFromExport: false,
     responsesPassthrough: undefined as boolean | undefined,
   };
@@ -295,6 +308,7 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
         continue;
       }
       if (flag === 'disable-error-cooldown') parsed.disableErrorCooldown = true;
+      if (flag === 'smart-mapping-retry') parsed.smartMappingRetryEnabled = true;
       if (flag === 'exclude-from-export') parsed.excludeFromExport = true;
       if (flag === 'responses-passthrough') parsed.responsesPassthrough = true;
       if (flag === 'no-responses-passthrough') parsed.responsesPassthrough = false;
@@ -353,6 +367,18 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
       case 'logo':
         parsed.logo = value.trim();
         break;
+      case 'smart-mapping-retry-limit': {
+        const parsedLimit = Number.parseInt(value, 10);
+        if (!Number.isFinite(parsedLimit) || parsedLimit < 1 || parsedLimit > 20) {
+          errors.push({
+            lineNumber,
+            message: 'Smart mapping retry limit must be between 1 and 20',
+          });
+        } else {
+          parsed.smartMappingRetryLimit = parsedLimit;
+        }
+        break;
+      }
     }
   }
 
@@ -363,6 +389,12 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
   }
   if (parsed.clients.length === 0) {
     errors.push({ lineNumber, message: 'At least one client is required' });
+  }
+  if (parsed.smartMappingRetryEnabled && !parsed.disableErrorCooldown) {
+    errors.push({
+      lineNumber,
+      message: 'Smart mapping retry requires --disable-error-cooldown',
+    });
   }
 
   if (errors.length > 0) {
@@ -395,6 +427,8 @@ export function toCreateProviderData(command: BulkCustomProviderCommand): Create
     logo: command.logo,
     config: {
       disableErrorCooldown: command.disableErrorCooldown,
+      smartMappingRetryEnabled: command.disableErrorCooldown && command.smartMappingRetryEnabled,
+      smartMappingRetryLimit: command.smartMappingRetryLimit ?? 1,
       custom: {
         baseURL: command.baseURL,
         backend: command.backend,

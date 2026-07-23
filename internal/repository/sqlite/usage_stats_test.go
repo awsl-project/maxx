@@ -172,13 +172,13 @@ func TestGetProviderStatsIncludesPersistedRawBackfillAfterRestart(t *testing.T) 
 
 	repo := NewUsageStatsRepository(db)
 	now := time.Now().UTC().Truncate(time.Minute)
-	oldHour := now.Add(-3 * time.Hour).Truncate(time.Hour)
 	recent := now.Add(-10 * time.Minute)
+	persistedBucket := repo.rawBackfillStart(1, repo.getConfiguredTimezone(), now).Add(-time.Minute)
 
 	if err := db.gorm.Create(&UsageStats{
 		TenantID:           1,
-		TimeBucket:         toTimestamp(oldHour),
-		Granularity:        string(domain.GranularityHour),
+		TimeBucket:         toTimestamp(persistedBucket),
+		Granularity:        string(domain.GranularityMinute),
 		ProviderID:         10,
 		ClientType:         "openai",
 		ProjectID:          20,
