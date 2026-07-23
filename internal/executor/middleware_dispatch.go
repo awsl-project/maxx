@@ -476,6 +476,9 @@ routeLoop:
 			if useSmartMappingRetry && attempt+1 >= smartMappingRetryLimit {
 				modelCandidateIndex++
 				attempt = 0
+				if modelCandidateIndex >= len(modelCandidates) && shouldSkipErrorCooldown(matchedRoute.Provider) {
+					modelCandidateIndex = 0
+				}
 				if modelCandidateIndex < len(modelCandidates) {
 					log.Printf("[Executor] Smart mapping retry switching provider %d mapped model %q -> %q after %d failed attempts",
 						matchedRoute.Provider.ID, mappedModel, modelCandidates[modelCandidateIndex], smartMappingRetryLimit)
