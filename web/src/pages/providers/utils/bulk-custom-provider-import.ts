@@ -1,4 +1,4 @@
-import type { ClientType, CreateProviderData, ModelMapping, Provider } from '@/lib/transport';
+import type { ClientType, CreateProviderData } from '@/lib/transport';
 
 export type BulkCustomProviderCommand = {
   lineNumber: number;
@@ -27,10 +27,6 @@ export type BulkCustomProviderParseError = {
 export type BulkCustomProviderParseResult = {
   commands: BulkCustomProviderCommand[];
   errors: BulkCustomProviderParseError[];
-};
-
-export type BuildCustomProviderShareCommandOptions = {
-  providerModelMappings?: ModelMapping[];
 };
 
 const CLIENT_TYPES = new Set<ClientType>(['claude', 'codex', 'gemini', 'openai']);
@@ -119,94 +115,6 @@ function splitList(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function quoteCommandValue(value: string): string {
-  if (/^[A-Za-z0-9_./:@%+=,*-]+$/.test(value)) {
-    return value;
-  }
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-function joinCommandList(values: string[]): string {
-  return values.join(',');
-}
-
-function joinCommandMapping(mapping: Record<string, string>): string {
-  return Object.entries(mapping)
-    .map(([source, target]) => `${source}=${target}`)
-    .join(',');
-}
-
-export function buildCustomProviderShareCommand(
-  provider: Provider,
-  options: BuildCustomProviderShareCommandOptions = {},
-): string | null {
-  if (provider.type !== 'custom') return null;
-
-  const custom = provider.config?.custom;
-  const command = ['provider', 'add'];
-  const appendValue = (flag: string, value: string) => {
-    command.push(flag, quoteCommandValue(value));
-  };
-
-  appendValue('--name', provider.name);
-  appendValue('--base-url', custom?.baseURL || '<BASE_URL>');
-  appendValue('--api-key', '<YOUR_API_KEY>');
-
-  if (provider.supportedClientTypes.length > 0) {
-    appendValue('--clients', joinCommandList(provider.supportedClientTypes));
-  }
-
-  if (provider.supportModels && provider.supportModels.length > 0) {
-    appendValue('--models', joinCommandList(provider.supportModels));
-  }
-
-  const requestMapping: Record<string, string> = {
-    ...(custom?.modelMapping ?? {}),
-  };
-  for (const mapping of options.providerModelMappings ?? []) {
-    if (mapping.isEnabled !== false && mapping.pattern && mapping.target) {
-      requestMapping[mapping.pattern] = mapping.target;
-    }
-  }
-  if (Object.keys(requestMapping).length > 0) {
-    appendValue('--map', joinCommandMapping(requestMapping));
-  }
-
-  if (custom?.responseModelMapping && Object.keys(custom.responseModelMapping).length > 0) {
-    appendValue('--response-map', joinCommandMapping(custom.responseModelMapping));
-  }
-
-  if (custom?.backend === 'ollama') {
-    appendValue('--backend', 'ollama');
-  }
-  if (provider.logo) {
-    appendValue('--logo', provider.logo);
-  }
-  if ((provider.maxConcurrency ?? 0) > 0) {
-    appendValue('--max-concurrency', String(provider.maxConcurrency));
-  }
-  if (provider.config?.disableErrorCooldown) {
-    command.push('--disable-error-cooldown');
-    if (provider.config.smartMappingRetryEnabled) {
-      command.push('--smart-mapping-retry');
-      const retryLimit = provider.config.smartMappingRetryLimit;
-      if (retryLimit !== undefined && retryLimit > 0 && retryLimit !== 1) {
-        appendValue('--smart-mapping-retry-limit', String(retryLimit));
-      }
-    }
-  }
-  if (provider.excludeFromExport) {
-    command.push('--exclude-from-export');
-  }
-  if (custom?.responsesPassthrough === true) {
-    command.push('--responses-passthrough');
-  } else if (custom?.responsesPassthrough === false) {
-    command.push('--no-responses-passthrough');
-  }
-
-  return command.join(' ');
 }
 
 function parseClients(value: string): { clients: ClientType[]; errors: string[] } {

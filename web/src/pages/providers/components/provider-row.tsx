@@ -1,18 +1,7 @@
-import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Activity, Ban, Check, Copy, Globe, Mail, Repeat2, Share2, Snowflake } from 'lucide-react';
+import { type KeyboardEvent } from 'react';
+import { Activity, Ban, Globe, Mail, Repeat2, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';
@@ -30,7 +19,6 @@ import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-co
 import { useCodexQuotaFromContext } from '@/contexts/codex-quotas-context';
 import { useKiroQuota } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
-import { buildCustomProviderShareCommand } from '../utils/bulk-custom-provider-import';
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -222,14 +210,11 @@ export function ProviderRow({
   stats,
   statsLoading = false,
   streamingCount,
-  providerModelMappings = [],
   onClick,
   title,
   className,
 }: ProviderRowProps) {
   const { t } = useTranslation();
-  const [shareCommandOpen, setShareCommandOpen] = useState(false);
-  const [shareCommandCopied, setShareCommandCopied] = useState(false);
   // 使用通用配置系统
   const typeConfig = getProviderTypeConfig(provider.type);
   const color = typeConfig.color;
@@ -260,11 +245,6 @@ export function ProviderRow({
   const healthLevel = getProviderHealthLevel(provider.id);
   const worstCooldown = providerCooldowns[0];
   const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
-  const shareCommand = useMemo(
-    () => buildCustomProviderShareCommand(provider, { providerModelMappings }),
-    [provider, providerModelMappings],
-  );
-  const canShareCommand = provider.type === 'custom' && !!shareCommand && !provider.blackBox;
 
   const isInteractive = !!onClick;
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -279,19 +259,6 @@ export function ProviderRow({
       event.preventDefault();
       onClick();
     }
-  };
-
-  const stopRowClick = (event: MouseEvent) => {
-    event.stopPropagation();
-  };
-
-  const handleCopyShareCommand = async () => {
-    if (!shareCommand || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
-      return;
-    }
-    await navigator.clipboard.writeText(shareCommand);
-    setShareCommandCopied(true);
-    window.setTimeout(() => setShareCommandCopied(false), 1200);
   };
 
   return (
@@ -651,61 +618,6 @@ export function ProviderRow({
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Custom Provider Share Command */}
-      {provider.type === 'custom' && (
-        <div className="relative z-10 shrink-0" onClick={stopRowClick} onMouseDown={stopRowClick}>
-          <Dialog open={shareCommandOpen} onOpenChange={setShareCommandOpen}>
-            <DialogTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  disabled={!canShareCommand}
-                  aria-label={t('provider.shareCommand')}
-                  title={
-                    provider.blackBox
-                      ? t('provider.shareCommandBlackBoxDisabled')
-                      : t('provider.shareCommand')
-                  }
-                />
-              }
-            >
-              <Share2 className="h-3.5 w-3.5" />
-            </DialogTrigger>
-            <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>{t('provider.shareCommandTitle')}</DialogTitle>
-                <DialogDescription>{t('provider.shareCommandDesc')}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 min-w-0">
-                {provider.excludeFromExport && (
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                    {t('provider.shareCommandHiddenSecretHint')}
-                  </div>
-                )}
-                <pre className="max-h-64 overflow-auto rounded-lg border bg-muted/50 p-3 text-xs leading-relaxed text-foreground whitespace-pre-wrap break-all">
-                  {shareCommand}
-                </pre>
-                <p className="text-xs text-muted-foreground">
-                  {t('provider.shareCommandApiKeyHint')}
-                </p>
-              </div>
-              <DialogFooter>
-                <Button type="button" className="gap-2" onClick={handleCopyShareCommand}>
-                  {shareCommandCopied ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                  {shareCommandCopied ? t('proxy.copied') : t('provider.copyShareCommand')}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
       )}
 
