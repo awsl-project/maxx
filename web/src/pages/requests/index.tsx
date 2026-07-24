@@ -22,6 +22,8 @@ import {
   useProviders,
   usePublicSettings,
   useProjects,
+  useSettings,
+  useUpdateSetting,
   useVisibleAPITokens,
 } from '@/hooks/queries';
 import {
@@ -42,13 +44,16 @@ import {
   type RequestColumnPrefs,
   MIN_COLUMN_WIDTHS,
   MAX_COLUMN_WIDTH,
+  REQUEST_COLUMNS_SETTING_KEY,
   REQUEST_COLUMNS_STORAGE_KEY,
   columnLabelKey,
   columnShortLabelKey,
   isCenteredColumn,
   migrateColumnPrefs,
+  parseColumnPrefs,
   readColumnPrefs,
   resolveVisibleColumns,
+  serializeColumnPrefs,
   writeColumnPrefs,
 } from './column-prefs';
 import { RequestsColumnSettings } from './column-settings';
@@ -256,6 +261,13 @@ function buildScopedStorageKey(baseKey: string, tenantID?: number, userID?: numb
   return `${baseKey}:tenant-${tenantID}:user-${userID}`;
 }
 
+function buildScopedSettingKey(baseKey: string, tenantID?: number, userID?: number): string {
+  if (!tenantID || !userID) {
+    return `${baseKey}.anonymous`;
+  }
+  return `${baseKey}.tenant-${tenantID}.user-${userID}`;
+}
+
 function buildColumnPrefsLegacyKeys(storageKey: string): string[] {
   return [REQUEST_COLUMNS_STORAGE_KEY, `${REQUEST_COLUMNS_STORAGE_KEY}:anonymous`].filter(
     (key) => key !== storageKey,
@@ -302,11 +314,17 @@ export function RequestsPage() {
     () => buildScopedStorageKey(REQUEST_COLUMNS_STORAGE_KEY, user?.tenantID, user?.id),
     [user?.id, user?.tenantID],
   );
+  const columnPrefsSettingKey = useMemo(
+    () => buildScopedSettingKey(REQUEST_COLUMNS_SETTING_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
 
   const [columnPrefs, setColumnPrefs] = useState<RequestColumnPrefs>(() =>
     readColumnPrefs(columnPrefsStorageKey),
   );
   const skipNextColumnPrefsWriteRef = useRef(false);
+  const lastSavedColumnPrefsRef = useRef<string | null>(null);
+  const hydratedColumnPrefsSettingKeyRef = useRef<string | null>(null);
 
   // 过滤维度（默认令牌）
   const [filterMode, setFilterMode] = useState<RequestFilterMode>(() =>
@@ -349,6 +367,8 @@ export function RequestsPage() {
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
   const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useVisibleAPITokens();
   const { data: settings } = usePublicSettings();
+  const { data: adminSettings, isSuccess: adminSettingsIsSuccess } = useSettings();
+  const { mutate: updateSetting } = useUpdateSetting();
 
   const waitingProviderFilterValidation =
     filterMode === 'provider' && selectedProviderId !== undefined && !providersIsSuccess;
@@ -431,16 +451,69 @@ export function RequestsPage() {
   useEffect(() => {
     migrateColumnPrefs(columnPrefsStorageKey, buildColumnPrefsLegacyKeys(columnPrefsStorageKey));
     skipNextColumnPrefsWriteRef.current = true;
+    lastSavedColumnPrefsRef.current = null;
+    hydratedColumnPrefsSettingKeyRef.current = null;
     setColumnPrefs(readColumnPrefs(columnPrefsStorageKey));
   }, [columnPrefsStorageKey]);
+
+  useEffect(() => {
+    if (
+      !adminSettingsIsSuccess ||
+      hydratedColumnPrefsSettingKeyRef.current === columnPrefsSettingKey
+    ) {
+      return;
+    }
+    hydratedColumnPrefsSettingKeyRef.current = columnPrefsSettingKey;
+
+    const remotePrefs = parseColumnPrefs(adminSettings?.[columnPrefsSettingKey]);
+    if (remotePrefs) {
+      const serialized = serializeColumnPrefs(remotePrefs);
+      lastSavedColumnPrefsRef.current = serialized;
+      writeColumnPrefs(columnPrefsStorageKey, remotePrefs);
+      skipNextColumnPrefsWriteRef.current = true;
+      setColumnPrefs(remotePrefs);
+      return;
+    }
+
+    const localPrefs = readColumnPrefs(columnPrefsStorageKey);
+    const serialized = serializeColumnPrefs(localPrefs);
+    lastSavedColumnPrefsRef.current = serialized;
+    updateSetting({ key: columnPrefsSettingKey, value: serialized });
+  }, [
+    adminSettings,
+    adminSettingsIsSuccess,
+    columnPrefsSettingKey,
+    columnPrefsStorageKey,
+    updateSetting,
+  ]);
 
   useEffect(() => {
     if (skipNextColumnPrefsWriteRef.current) {
       skipNextColumnPrefsWriteRef.current = false;
       return;
     }
+
     writeColumnPrefs(columnPrefsStorageKey, columnPrefs);
-  }, [columnPrefs, columnPrefsStorageKey]);
+
+    if (!adminSettingsIsSuccess) {
+      return;
+    }
+    const serialized = serializeColumnPrefs(columnPrefs);
+    if (lastSavedColumnPrefsRef.current === serialized) {
+      return;
+    }
+    lastSavedColumnPrefsRef.current = serialized;
+    const timeout = window.setTimeout(() => {
+      updateSetting({ key: columnPrefsSettingKey, value: serialized });
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [
+    adminSettingsIsSuccess,
+    columnPrefs,
+    columnPrefsSettingKey,
+    columnPrefsStorageKey,
+    updateSetting,
+  ]);
 
   const handleColumnPrefsChange = useCallback((next: RequestColumnPrefs) => {
     setColumnPrefs(next);

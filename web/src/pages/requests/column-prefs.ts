@@ -110,6 +110,7 @@ export const DEFAULT_COLUMN_VISIBILITY: Readonly<Record<RequestColumnId, boolean
 };
 
 export const REQUEST_COLUMNS_STORAGE_KEY = 'maxx-requests-table-columns';
+export const REQUEST_COLUMNS_SETTING_KEY = 'ui.requests.table.columns';
 
 export type RequestColumnPrefs = {
   order: RequestColumnId[];
@@ -191,19 +192,27 @@ export function normalizeColumnPrefs(raw: unknown): RequestColumnPrefs {
   return { order, widths, visibility };
 }
 
+export function parseColumnPrefs(value: string | null | undefined): RequestColumnPrefs | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return normalizeColumnPrefs(JSON.parse(value));
+  } catch {
+    return undefined;
+  }
+}
+
+export function serializeColumnPrefs(prefs: RequestColumnPrefs): string {
+  return JSON.stringify(normalizeColumnPrefs(prefs));
+}
+
 export function readColumnPrefs(storageKey: string): RequestColumnPrefs {
   if (typeof window === 'undefined') {
     return createDefaultColumnPrefs();
   }
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) {
-      return createDefaultColumnPrefs();
-    }
-    return normalizeColumnPrefs(JSON.parse(raw));
-  } catch {
-    return createDefaultColumnPrefs();
-  }
+  const prefs = parseColumnPrefs(window.localStorage.getItem(storageKey));
+  return prefs ?? createDefaultColumnPrefs();
 }
 
 /**
@@ -231,7 +240,7 @@ export function migrateColumnPrefs(storageKey: string, legacyKeys: readonly stri
     }
     try {
       const prefs = normalizeColumnPrefs(JSON.parse(raw));
-      window.localStorage.setItem(storageKey, JSON.stringify(prefs));
+      window.localStorage.setItem(storageKey, serializeColumnPrefs(prefs));
       window.localStorage.removeItem(legacyKey);
       return;
     } catch {
@@ -244,7 +253,7 @@ export function writeColumnPrefs(storageKey: string, prefs: RequestColumnPrefs):
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.setItem(storageKey, JSON.stringify(normalizeColumnPrefs(prefs)));
+  window.localStorage.setItem(storageKey, serializeColumnPrefs(prefs));
 }
 
 export type ColumnAvailability = {

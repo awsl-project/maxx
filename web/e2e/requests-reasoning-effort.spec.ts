@@ -6,7 +6,10 @@ async function json(route: Route, body: unknown) {
 
 async function installRequestPageMocks(
   page: Page,
-  options: { cleanupFailedCount?: number | (() => number) } = {},
+  options: {
+    cleanupFailedCount?: number | (() => number);
+    adminSettings?: Record<string, string>;
+  } = {},
 ) {
   await page.addInitScript(() => {
     localStorage.setItem('maxx-admin-token', 'mock-token');
@@ -58,6 +61,8 @@ async function installRequestPageMocks(
       user: { id: 1, username: 'admin', tenantID: 1, role: 'admin' },
     }),
   );
+  const adminSettings = options.adminSettings ?? {};
+
   await page.route('**/api/settings', (route) =>
     json(route, {
       api_token_auth_enabled: 'false',
@@ -65,6 +70,16 @@ async function installRequestPageMocks(
       ui_multitenant_enabled: 'false',
     }),
   );
+  await page.route('**/api/admin/settings', (route) => json(route, adminSettings));
+  await page.route(/\/api\/admin\/settings\/[^/]+$/, async (route) => {
+    const key = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '');
+    if (route.request().method() === 'PUT' || route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { value?: string };
+      adminSettings[key] = body.value ?? '';
+      return json(route, { key, value: adminSettings[key] });
+    }
+    return json(route, { key, value: adminSettings[key] ?? '' });
+  });
   await page.route('**/api/providers', (route) => json(route, []));
   await page.route('**/api/projects', (route) => json(route, []));
   await page.route('**/api/api-tokens', (route) => json(route, []));
@@ -125,4 +140,23 @@ test('refresh enables cleanup failed button when failed records already exist wi
   await page.getByRole('button', { name: '刷新' }).click();
 
   await expect(cleanupButton).toBeEnabled();
+});
+
+test('request column visibility survives page restart from backend settings', async ({ page }) => {
+  const adminSettings: Record<string, string> = {};
+  await installRequestPageMocks(page, { adminSettings });
+  await page.goto('/requests');
+
+  await expect(page.getByRole('columnheader', { name: /费用/ })).toBeVisible();
+  await page.getByRole('button', { name: '列显示与排序' }).click();
+  await page.getByRole('checkbox', { name: '费用' }).uncheck();
+  await expect(page.getByRole('columnheader', { name: /费用/ })).toBeHidden();
+  await expect
+    .poll(() => adminSettings['ui.requests.table.columns.tenant-1.user-1'])
+    .toContain('"cost":false');
+
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  await expect(page.getByRole('columnheader', { name: /费用/ })).toBeHidden();
 });
