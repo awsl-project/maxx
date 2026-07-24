@@ -17,6 +17,8 @@ func validateSystemSettingValue(key, value string) error {
 		return validateBooleanSystemSetting(key, value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)
+	case domain.SettingKeyStreamFirstEventTimeoutMS, domain.SettingKeyStreamIdleTimeoutMS:
+		return validateStreamTimeoutMilliseconds(key, value)
 	default:
 		return nil
 	}
@@ -39,6 +41,18 @@ func validateRateLimitCooldownDefaultSeconds(value string) error {
 	seconds, err := strconv.Atoi(trimmed)
 	if err != nil || seconds < 1 || seconds > 86400 {
 		return fmt.Errorf("%w: %s must be an integer between 1 and 86400", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
+	}
+	return nil
+}
+
+func validateStreamTimeoutMilliseconds(key, value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("%w: %s cannot be empty", domain.ErrInvalidInput, key)
+	}
+	milliseconds, err := strconv.Atoi(trimmed)
+	if err != nil || milliseconds < 1000 || milliseconds > 600000 {
+		return fmt.Errorf("%w: %s must be an integer between 1000 and 600000", domain.ErrInvalidInput, key)
 	}
 	return nil
 }

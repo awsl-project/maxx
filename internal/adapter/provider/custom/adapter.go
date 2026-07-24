@@ -576,6 +576,26 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	return nil
 }
 
+func streamTimeoutFromFlow(c *flow.Ctx, key string, fallback time.Duration) time.Duration {
+	if c == nil {
+		return fallback
+	}
+	value, ok := c.Get(key)
+	if !ok {
+		return fallback
+	}
+	duration, ok := value.(time.Duration)
+	if !ok || duration <= 0 {
+		return fallback
+	}
+	return duration
+}
+
+type streamReadResult struct {
+	n   int
+	err error
+}
+
 func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, clientType domain.ClientType, isOAuthToken bool) error {
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
@@ -728,6 +748,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
 	sawTerminalSSEEvent := false
+	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", 20*time.Second)
+	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", 45*time.Second)
 
 	processStreamLine := func(line string) error {
 		processedLine := line
@@ -811,7 +833,41 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 		default:
 		}
 
-		n, err := reader.Read(buf)
+		readTimeout := streamIdleTimeout
+		timeoutErr := domain.ErrStreamIdleTimeout
+		timeoutMessage := "upstream stream idle timeout after response started"
+		if !firstChunkSent {
+			readTimeout = streamFirstEventTimeout
+			timeoutErr = domain.ErrFirstByteTimeout
+			timeoutMessage = "upstream stream idle timeout before response started"
+		}
+
+		readResultCh := make(chan streamReadResult, 1)
+		go func() {
+			n, readErr := reader.Read(buf)
+			readResultCh <- streamReadResult{n: n, err: readErr}
+		}()
+
+		var n int
+		var err error
+		select {
+		case <-ctx.Done():
+			sendFinalEvents()
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
+		case result := <-readResultCh:
+			n = result.n
+			err = result.err
+		case <-time.After(readTimeout):
+			sendFinalEvents()
+			proxyErr := domain.NewProxyErrorWithMessage(timeoutErr, !firstChunkSent, timeoutMessage)
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
+			return proxyErr
+		}
+
 		if n > 0 {
 			lineBuffer.Write(buf[:n])
 
