@@ -255,6 +255,7 @@ export function ClientsConfigSection({
                 </div>
               )}
 
+
               {client.id === 'codex' && onUpdateResponsesWebSocket && (
                 <div className="mt-5 space-y-4">
                   <div className="border-t border-border/60" />

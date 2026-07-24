@@ -16,11 +16,11 @@ const (
 	defaultStreamIdleTimeout       = 45 * time.Second
 )
 
-func (e *Executor) streamTimeoutsEnabled() bool {
+func (e *Executor) openAIChatStreamTimeoutsEnabled() bool {
 	if e == nil || e.settingsRepo == nil {
 		return false
 	}
-	value, err := e.settingsRepo.Get(domain.SettingKeyStreamTimeoutsEnabled)
+	value, err := e.settingsRepo.Get(domain.SettingKeyOpenAIChatStreamTimeoutsEnabled)
 	if err != nil {
 		return false
 	}
@@ -28,11 +28,11 @@ func (e *Executor) streamTimeoutsEnabled() bool {
 }
 
 func (e *Executor) streamFirstEventTimeout() time.Duration {
-	return e.streamTimeoutSetting(domain.SettingKeyStreamFirstEventTimeoutMS, defaultStreamFirstEventTimeout)
+	return e.streamTimeoutSetting(domain.SettingKeyOpenAIChatStreamFirstEventTimeoutMS, defaultStreamFirstEventTimeout)
 }
 
 func (e *Executor) streamIdleTimeout() time.Duration {
-	return e.streamTimeoutSetting(domain.SettingKeyStreamIdleTimeoutMS, defaultStreamIdleTimeout)
+	return e.streamTimeoutSetting(domain.SettingKeyOpenAIChatStreamIdleTimeoutMS, defaultStreamIdleTimeout)
 }
 
 func (e *Executor) streamTimeoutSetting(key string, fallback time.Duration) time.Duration {
@@ -48,4 +48,15 @@ func (e *Executor) streamTimeoutSetting(key string, fallback time.Duration) time
 		return fallback
 	}
 	return time.Duration(milliseconds) * time.Millisecond
+}
+
+func (e *Executor) shouldApplyOpenAIChatStreamTimeouts(originalClientType domain.ClientType, requestURI string) bool {
+	if originalClientType != domain.ClientTypeOpenAI {
+		return false
+	}
+	path := strings.TrimRight(requestURI, "/")
+	if path != "/v1/chat/completions" && !strings.HasSuffix(path, "/v1/chat/completions") {
+		return false
+	}
+	return e.openAIChatStreamTimeoutsEnabled()
 }

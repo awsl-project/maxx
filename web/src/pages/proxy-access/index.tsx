@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import {
   AntigravitySection,
   ForceProjectSection,
+  OpenAIChatStreamTimeoutSection,
   ProxyKillSwitchSection,
   ProxyRouteExposureSection,
 } from '@/pages/settings';
@@ -25,6 +26,7 @@ export function ProxyAccessPage() {
           <ProxyKillSwitchSection />
           <ForceProjectSection />
           <ProxyRouteExposureSection />
+          <OpenAIChatStreamTimeoutSection />
           <AntigravitySection />
         </div>
       </div>
