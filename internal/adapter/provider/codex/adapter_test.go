@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -52,6 +53,28 @@ func (r *scriptedReadCloser) Read(p []byte) (int, error) {
 }
 
 func (r *scriptedReadCloser) Close() error {
+	return nil
+}
+
+type blockingReadCloser struct {
+	done chan struct{}
+}
+
+func newBlockingReadCloser() *blockingReadCloser {
+	return &blockingReadCloser{done: make(chan struct{})}
+}
+
+func (r *blockingReadCloser) Read(p []byte) (int, error) {
+	<-r.done
+	return 0, io.EOF
+}
+
+func (r *blockingReadCloser) Close() error {
+	select {
+	case <-r.done:
+	default:
+		close(r.done)
+	}
 	return nil
 }
 
@@ -315,6 +338,80 @@ func TestHandleStreamResponseReturnsProviderErrorWhenStreamEndsBeforeCompleted(t
 	}
 	if proxyErr.Message != "stream closed before response.completed" {
 		t.Fatalf("expected message %q, got %q", "stream closed before response.completed", proxyErr.Message)
+	}
+}
+
+func TestHandleStreamResponseTimesOutIdleAfterFirstEvent(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set("stream_idle_timeout", 10*time.Millisecond)
+	ctx.Set("stream_first_event_timeout", time.Second)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body: &scriptedReadCloser{
+			chunks: [][]byte{[]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n")},
+			err:    context.DeadlineExceeded,
+		},
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected idle timeout to return error")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if !errors.Is(proxyErr.Err, domain.ErrStreamIdleTimeout) {
+		t.Fatalf("expected ErrStreamIdleTimeout, got %v", proxyErr.Err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Fatalf("expected scope %q, got %q", domain.ScopeProvider, proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Fatalf("expected reason %q, got %q", domain.CooldownReasonNetworkError, proxyErr.Reason)
+	}
+	if proxyErr.HTTPStatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("expected HTTP status 504, got %d", proxyErr.HTTPStatusCode)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("idle timeout after first event must not retry a committed stream")
+	}
+}
+
+func TestHandleStreamResponseTimesOutBeforeFirstEventAsRetryable(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set("stream_first_event_timeout", 10*time.Millisecond)
+	body := newBlockingReadCloser()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       body,
+	}
+	defer body.Close()
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected first event timeout to return error")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if !errors.Is(proxyErr.Err, domain.ErrFirstByteTimeout) {
+		t.Fatalf("expected ErrFirstByteTimeout, got %v", proxyErr.Err)
+	}
+	if !proxyErr.Retryable {
+		t.Fatal("first event timeout should be retryable before the stream is committed")
+	}
+	if proxyErr.HTTPStatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("expected HTTP status 504, got %d", proxyErr.HTTPStatusCode)
 	}
 }
 

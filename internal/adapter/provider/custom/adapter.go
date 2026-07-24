@@ -748,8 +748,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
 	sawTerminalSSEEvent := false
-	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", 0)
-	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", 0)
+	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", 45*time.Second)
+	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", 45*time.Second)
 
 	processStreamLine := func(line string) error {
 		processedLine := line

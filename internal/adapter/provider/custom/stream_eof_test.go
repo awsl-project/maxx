@@ -1,11 +1,13 @@
 package custom
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -25,6 +27,69 @@ func (r *terminalUnexpectedEOFReadCloser) Read(p []byte) (int, error) {
 }
 
 func (r *terminalUnexpectedEOFReadCloser) Close() error { return nil }
+
+type oneChunkThenBlockReadCloser struct {
+	data []byte
+	done bool
+	stop chan struct{}
+}
+
+func (r *oneChunkThenBlockReadCloser) Read(p []byte) (int, error) {
+	if !r.done {
+		r.done = true
+		return copy(p, r.data), nil
+	}
+	<-r.stop
+	return 0, io.EOF
+}
+
+func (r *oneChunkThenBlockReadCloser) Close() error {
+	select {
+	case <-r.stop:
+	default:
+		close(r.stop)
+	}
+	return nil
+}
+
+func TestCustomAdapterStreamTimesOutIdleAfterFirstEvent(t *testing.T) {
+	adapter := newTestCustomAdapter()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+	ctx.Set("stream_idle_timeout", 10*time.Millisecond)
+	ctx.Set("stream_first_event_timeout", time.Second)
+
+	body := &oneChunkThenBlockReadCloser{
+		data: []byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"),
+		stop: make(chan struct{}),
+	}
+	defer body.Close()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       body,
+	}
+
+	err := adapter.handleStreamResponse(ctx, resp, domain.ClientTypeOpenAI, false)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("handleStreamResponse error = %T %v, want *domain.ProxyError", err, err)
+	}
+	if !errors.Is(proxyErr.Err, domain.ErrStreamIdleTimeout) {
+		t.Fatalf("proxyErr.Err = %v, want ErrStreamIdleTimeout", proxyErr.Err)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("idle timeout after first event must not retry a committed stream")
+	}
+	if proxyErr.HTTPStatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("HTTPStatusCode = %d, want 504", proxyErr.HTTPStatusCode)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "content\":\"ok") {
+		t.Fatalf("completed line was not forwarded before timeout: %q", body)
+	}
+}
 
 func TestCustomAdapterStreamDoesNotFailDoneWithoutTrailingNewline(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
