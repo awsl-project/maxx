@@ -1428,13 +1428,15 @@
     "forceRetryUpstreamErrorsDesc": "When enabled, provider/upstream/network/server failures that were classified as non-retryable are still retried according to the matched route retry policy.",
     "forceRetryUpstreamErrorsHint": "Request errors, invalid credentials, canceled request contexts, unsafe committed responses, and exhausted retry budgets are still not retried.",
     "streamTimeouts": "Stream timeouts",
-    "streamTimeoutsDesc": "Control how long Maxx waits for upstream streaming events before retrying or failing over.",
+    "streamTimeoutsDesc": "Optionally control how long Maxx waits for upstream streaming events before retrying or failing over.",
     "streamFirstEventTimeout": "First event timeout",
     "streamFirstEventTimeoutDesc": "Maximum wait for the first upstream streaming event before treating the provider as stalled.",
     "streamIdleTimeout": "Event idle timeout",
     "streamIdleTimeoutDesc": "Maximum gap between upstream streaming events before treating the provider as stalled.",
     "streamTimeoutInvalid": "Timeouts must be integers between 1000 and 600000 ms.",
-    "streamTimeoutsHint": "Keep the idle timeout below client-side stall protection such as the AI SDK 60000 ms watchdog so Maxx can retry first."
+    "streamTimeoutsHint": "Default is off for compatibility. Enable it and keep the idle timeout below client-side stall protection such as the AI SDK 60000 ms watchdog so Maxx can retry first.",
+    "enableStreamTimeouts": "Enable upstream stream timeouts",
+    "enableStreamTimeoutsDesc": "Default off. When disabled, Maxx keeps waiting for upstream streaming data like before."
   },
   "modelMappings": {
     "title": "Model Mappings",

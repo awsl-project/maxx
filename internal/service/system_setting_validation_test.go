@@ -40,6 +40,7 @@ func (r *stubSystemSettingRepo) Delete(key string) error {
 func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 	keys := []string{
 		domain.SettingKeyForceRetryUpstreamErrors,
+		domain.SettingKeyStreamTimeoutsEnabled,
 		domain.SettingKeyRequestFailureDetailsEnabled,
 		domain.SettingKeyProxyRequestsDisabled,
 	}

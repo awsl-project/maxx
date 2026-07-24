@@ -66,6 +66,7 @@ function parseRetentionInteger(value: string): number | null {
 }
 
 const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
+const STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'stream_timeouts_enabled';
 const STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY = 'stream_first_event_timeout_ms';
 const STREAM_IDLE_TIMEOUT_SETTING_KEY = 'stream_idle_timeout_ms';
 const DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS = '20000';
@@ -807,9 +808,12 @@ export function RequestStreamTimeoutSection() {
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
 
-  const firstEventTimeout = settings?.[STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS;
+  const streamTimeoutsEnabled = settings?.[STREAM_TIMEOUTS_ENABLED_SETTING_KEY] === 'true';
+  const firstEventTimeout =
+    settings?.[STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS;
   const idleTimeout = settings?.[STREAM_IDLE_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 
+  const [enabledDraft, setEnabledDraft] = useState(false);
   const [firstEventDraft, setFirstEventDraft] = useState('');
   const [idleDraft, setIdleDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
@@ -817,21 +821,26 @@ export function RequestStreamTimeoutSection() {
 
   useEffect(() => {
     if (!isLoading && !initialized) {
+      setEnabledDraft(streamTimeoutsEnabled);
       setFirstEventDraft(firstEventTimeout);
       setIdleDraft(idleTimeout);
       setInitialized(true);
     }
-  }, [firstEventTimeout, idleTimeout, initialized, isLoading]);
+  }, [firstEventTimeout, idleTimeout, initialized, isLoading, streamTimeoutsEnabled]);
 
   useEffect(() => {
     if (initialized) {
+      setEnabledDraft(streamTimeoutsEnabled);
       setFirstEventDraft(firstEventTimeout);
       setIdleDraft(idleTimeout);
     }
-  }, [firstEventTimeout, idleTimeout, initialized]);
+  }, [firstEventTimeout, idleTimeout, initialized, streamTimeoutsEnabled]);
 
   const hasChanges =
-    initialized && (firstEventDraft !== firstEventTimeout || idleDraft !== idleTimeout);
+    initialized &&
+    (enabledDraft !== streamTimeoutsEnabled ||
+      firstEventDraft !== firstEventTimeout ||
+      idleDraft !== idleTimeout);
 
   const validateTimeout = (value: string) => {
     const parsed = parseInt(value, 10);
@@ -845,6 +854,12 @@ export function RequestStreamTimeoutSection() {
     }
 
     setError('');
+    if (enabledDraft !== streamTimeoutsEnabled) {
+      await updateSetting.mutateAsync({
+        key: STREAM_TIMEOUTS_ENABLED_SETTING_KEY,
+        value: enabledDraft ? 'true' : 'false',
+      });
+    }
     if (firstEventDraft !== firstEventTimeout) {
       await updateSetting.mutateAsync({
         key: STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY,
@@ -880,6 +895,23 @@ export function RequestStreamTimeoutSection() {
         </div>
       </CardHeader>
       <CardContent className="p-6 space-y-4">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
+          <div>
+            <Label className="text-sm font-medium text-foreground">
+              {t('settings.enableStreamTimeouts')}
+            </Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.enableStreamTimeoutsDesc')}
+            </p>
+          </div>
+          <Switch
+            aria-label={t('settings.enableStreamTimeouts')}
+            checked={enabledDraft}
+            onCheckedChange={setEnabledDraft}
+            disabled={updateSetting.isPending}
+          />
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label className="text-sm font-medium text-foreground">
@@ -893,7 +925,7 @@ export function RequestStreamTimeoutSection() {
                 min={1000}
                 max={600000}
                 step={1000}
-                disabled={updateSetting.isPending}
+                disabled={updateSetting.isPending || !enabledDraft}
               />
               <span className="text-xs text-muted-foreground">ms</span>
             </div>
@@ -914,7 +946,7 @@ export function RequestStreamTimeoutSection() {
                 min={1000}
                 max={600000}
                 step={1000}
-                disabled={updateSetting.isPending}
+                disabled={updateSetting.isPending || !enabledDraft}
               />
               <span className="text-xs text-muted-foreground">ms</span>
             </div>

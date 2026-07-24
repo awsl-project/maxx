@@ -16,6 +16,17 @@ const (
 	defaultStreamIdleTimeout       = 45 * time.Second
 )
 
+func (e *Executor) streamTimeoutsEnabled() bool {
+	if e == nil || e.settingsRepo == nil {
+		return false
+	}
+	value, err := e.settingsRepo.Get(domain.SettingKeyStreamTimeoutsEnabled)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(strings.ToLower(value)) == "true"
+}
+
 func (e *Executor) streamFirstEventTimeout() time.Duration {
 	return e.streamTimeoutSetting(domain.SettingKeyStreamFirstEventTimeoutMS, defaultStreamFirstEventTimeout)
 }

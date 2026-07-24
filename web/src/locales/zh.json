@@ -1425,13 +1425,15 @@
     "forceRetryUpstreamErrorsDesc": "开启后，被误分类为不可重试的 provider / 上游 / 网络 / 服务端错误仍会按命中的路由重试策略重试。",
     "forceRetryUpstreamErrorsHint": "请求错误、无效凭据、请求上下文取消、不安全的已提交响应，以及已耗尽的重试预算仍不会被重试。",
     "streamTimeouts": "流式超时",
-    "streamTimeoutsDesc": "控制 Maxx 等待上游流式事件的时间，超时后触发重试或故障转移。",
+    "streamTimeoutsDesc": "可选控制 Maxx 等待上游流式事件的时间，超时后触发重试或故障转移。",
     "streamFirstEventTimeout": "首事件超时",
     "streamFirstEventTimeoutDesc": "等待上游第一个流式事件的最长时间，超过后视为 provider 卡死。",
     "streamIdleTimeout": "事件间空闲超时",
     "streamIdleTimeoutDesc": "上游流式事件之间允许的最长间隔，超过后视为 provider 卡死。",
     "streamTimeoutInvalid": "超时时间必须是 1000 到 600000 ms 之间的整数。",
-    "streamTimeoutsHint": "建议让 idle timeout 小于 AI SDK 60000 ms 这类客户端保护阈值，这样 Maxx 能先触发重试。"
+    "streamTimeoutsHint": "默认关闭以保持兼容。开启后建议让 idle timeout 小于 AI SDK 60000 ms 这类客户端保护阈值，这样 Maxx 能先触发重试。",
+    "enableStreamTimeouts": "启用上游流式超时",
+    "enableStreamTimeoutsDesc": "默认关闭。关闭时 Maxx 保持旧行为，继续相对无限等待上游流式数据。"
   },
   "modelMappings": {
     "title": "模型映射",

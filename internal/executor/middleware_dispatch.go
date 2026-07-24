@@ -234,8 +234,10 @@ routeLoop:
 
 			originalWriter := c.Writer
 			c.Writer = responseWriter
-			c.Set(flowKeyStreamFirstEventTimeout, e.streamFirstEventTimeout())
-			c.Set(flowKeyStreamIdleTimeout, e.streamIdleTimeout())
+			if e.streamTimeoutsEnabled() {
+				c.Set(flowKeyStreamFirstEventTimeout, e.streamFirstEventTimeout())
+				c.Set(flowKeyStreamIdleTimeout, e.streamIdleTimeout())
+			}
 
 			err := executeWithProviderSlot(releaseProvider, func() error {
 				return matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)

@@ -748,8 +748,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
 	sawTerminalSSEEvent := false
-	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", 20*time.Second)
-	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", 45*time.Second)
+	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", 0)
+	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", 0)
 
 	processStreamLine := func(line string) error {
 		processedLine := line
@@ -842,30 +842,34 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			timeoutMessage = "upstream stream idle timeout before response started"
 		}
 
-		readResultCh := make(chan streamReadResult, 1)
-		go func() {
-			n, readErr := reader.Read(buf)
-			readResultCh <- streamReadResult{n: n, err: readErr}
-		}()
-
 		var n int
 		var err error
-		select {
-		case <-ctx.Done():
-			sendFinalEvents()
-			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
-			proxyErr.Scope = domain.ScopeRequest
-			return proxyErr
-		case result := <-readResultCh:
-			n = result.n
-			err = result.err
-		case <-time.After(readTimeout):
-			sendFinalEvents()
-			proxyErr := domain.NewProxyErrorWithMessage(timeoutErr, !firstChunkSent, timeoutMessage)
-			proxyErr.Scope = domain.ScopeProvider
-			proxyErr.Reason = domain.CooldownReasonNetworkError
-			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-			return proxyErr
+		if readTimeout <= 0 {
+			n, err = reader.Read(buf)
+		} else {
+			readResultCh := make(chan streamReadResult, 1)
+			go func() {
+				n, readErr := reader.Read(buf)
+				readResultCh <- streamReadResult{n: n, err: readErr}
+			}()
+
+			select {
+			case <-ctx.Done():
+				sendFinalEvents()
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			case result := <-readResultCh:
+				n = result.n
+				err = result.err
+			case <-time.After(readTimeout):
+				sendFinalEvents()
+				proxyErr := domain.NewProxyErrorWithMessage(timeoutErr, !firstChunkSent, timeoutMessage)
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonNetworkError
+				proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
+				return proxyErr
+			}
 		}
 
 		if n > 0 {

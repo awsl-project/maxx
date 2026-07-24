@@ -13,7 +13,7 @@ func validateSystemSettingValue(key, value string) error {
 	switch key {
 	case domain.SettingKeyReasoningPolicy:
 		return reqpolicy.ValidatePolicyJSON(value)
-	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyProxyRequestsDisabled:
+	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyStreamTimeoutsEnabled, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyProxyRequestsDisabled:
 		return validateBooleanSystemSetting(key, value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)
