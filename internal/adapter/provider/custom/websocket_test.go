@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -134,6 +135,63 @@ func TestExecuteResponsesWebSocket_CustomCodexGateway(t *testing.T) {
 	adapter.CloseResponsesWebSocketConnection(connectionID)
 	if releasedSlots.Load() != 1 {
 		t.Fatalf("released slots after close = %d, want 1", releasedSlots.Load())
+	}
+}
+
+func TestExecuteResponsesWebSocket_PreservesServiceRestart(t *testing.T) {
+	const (
+		providerID = uint64(43)
+		reason     = "upstream requires HTTP replay"
+	)
+	provideradapter.ClearResponsesWebSocketTransportCooldown(providerID)
+	t.Cleanup(func() { provideradapter.ClearResponsesWebSocketTransportCooldown(providerID) })
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Upgrade(w, r, nil, 4096, 4096)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		if _, _, err := conn.ReadMessage(); err != nil {
+			t.Errorf("read: %v", err)
+			return
+		}
+		if err := conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseServiceRestart, reason),
+			time.Now().Add(time.Second),
+		); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	provider := &domain.Provider{
+		ID:                   providerID,
+		Type:                 "custom",
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex},
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL:            upstream.URL + "/v1",
+			APIKey:             "sk-live",
+			ResponsesWebSocket: boolPtr(true),
+		}},
+	}
+	adapter := &CustomAdapter{provider: provider}
+	_, err := adapter.ExecuteResponsesWebSocket(newCustomWSTestContext(t), provider, &domain.ResponsesWebSocketExchange{
+		ConnectionID: uuid.NewString(),
+		Frame:        []byte(`{"type":"response.create","model":"gpt-test","stream":true,"input":[]}`),
+		Sink:         &recordingCustomWSSink{},
+	})
+	var wsErr *domain.ResponsesWebSocketAttemptError
+	if !errors.As(err, &wsErr) {
+		t.Fatalf("error = %#v, want ResponsesWebSocketAttemptError", err)
+	}
+	if wsErr.UpstreamCloseCode != websocket.CloseServiceRestart || wsErr.UpstreamCloseReason != reason {
+		t.Fatalf("upstream close = (%d, %q), want (%d, %q)", wsErr.UpstreamCloseCode, wsErr.UpstreamCloseReason, websocket.CloseServiceRestart, reason)
+	}
+	if provideradapter.ResponsesWebSocketTransportAvailable(providerID) {
+		t.Fatal("provider remained websocket-available after upstream 1012")
 	}
 }
 

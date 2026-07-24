@@ -143,6 +143,7 @@ func (r *Router) RefreshAdapter(p *domain.Provider) error {
 		return err
 	}
 	r.injectProviderUpdate(a, p)
+	provider.ClearResponsesWebSocketTransportCooldown(p.ID)
 	r.mu.Lock()
 	r.adapters[p.ID] = a
 	r.mu.Unlock()
@@ -151,6 +152,7 @@ func (r *Router) RefreshAdapter(p *domain.Provider) error {
 
 // RemoveAdapter removes the adapter for a provider
 func (r *Router) RemoveAdapter(providerID uint64) {
+	provider.ClearResponsesWebSocketTransportCooldown(providerID)
 	r.mu.Lock()
 	delete(r.adapters, providerID)
 	r.mu.Unlock()
@@ -302,6 +304,10 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		// the historical routes.is_native snapshot for WebSocket eligibility.
 		native := domain.RouteIsNative(prov, route)
 		if ctx.RequireResponsesWebSocket {
+			if !provider.ResponsesWebSocketTransportAvailable(prov.ID) {
+				sawTransientSkip = true
+				continue
+			}
 			wsAdapter := adapterSupportsResponsesWebSocket(adp)
 			wsEnabled := domain.ProviderResponsesWebSocketEnabled(prov)
 			if !native || !wsAdapter || !wsEnabled {
@@ -503,6 +509,9 @@ func (r *Router) HasResponsesWebSocketProvider(tenantID, projectID uint64) bool 
 			continue
 		}
 		if !domain.ProviderResponsesWebSocketEnabled(prov) {
+			continue
+		}
+		if !provider.ResponsesWebSocketTransportAvailable(prov.ID) {
 			continue
 		}
 		return true
@@ -748,6 +757,7 @@ func (r *Router) GetCooldowns() ([]*domain.Cooldown, error) {
 // Clears all cooldowns (global + per-client-type) for the provider
 func (r *Router) ClearCooldown(providerID uint64) error {
 	r.cooldownManager.ClearCooldown(providerID, "", "")
+	provider.ClearResponsesWebSocketTransportCooldown(providerID)
 	return nil
 }
 

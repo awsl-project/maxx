@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -202,5 +204,40 @@ func TestResponsesWebSocketErrorAlreadySentRequiresTerminalError(t *testing.T) {
 	}
 	if !responsesWebSocketErrorAlreadySent(terminal) {
 		t.Fatal("forwarded terminal error event was not recognized")
+	}
+}
+
+func TestResponsesWebSocketForwardedClose(t *testing.T) {
+	for _, code := range []int{
+		websocket.CloseMessageTooBig,
+		websocket.CloseServiceRestart,
+		websocket.CloseTryAgainLater,
+	} {
+		err := &domain.ResponsesWebSocketAttemptError{
+			Err:                 errors.New("upstream closed"),
+			UpstreamCloseCode:   code,
+			UpstreamCloseReason: " upstream close reason ",
+		}
+		gotCode, gotReason, ok := responsesWebSocketForwardedClose(err)
+		if !ok || gotCode != code || gotReason != "upstream close reason" {
+			t.Fatalf("forwarded close = (%d, %q, %v), want (%d, %q, true)", gotCode, gotReason, ok, code, "upstream close reason")
+		}
+	}
+	if _, _, ok := responsesWebSocketForwardedClose(&domain.ResponsesWebSocketAttemptError{
+		Err:               errors.New("upstream closed"),
+		UpstreamCloseCode: websocket.CloseInternalServerErr,
+	}); ok {
+		t.Fatal("unsafe upstream close code 1011 was forwarded")
+	}
+}
+
+func TestSanitizeResponsesWebSocketCloseReason(t *testing.T) {
+	reason := "  " + strings.Repeat("中", 100) + string([]byte{0xff}) + "  "
+	got := sanitizeResponsesWebSocketCloseReason(reason)
+	if len(got) > 123 {
+		t.Fatalf("sanitized close reason length = %d, want <= 123", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("sanitized close reason is not valid UTF-8")
 	}
 }

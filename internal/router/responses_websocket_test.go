@@ -289,6 +289,79 @@ func TestHasResponsesWebSocketProvider(t *testing.T) {
 	}
 }
 
+func TestResponsesWebSocketTransportCooldownAffectsOnlyWebSocket(t *testing.T) {
+	const providerID = uint64(501)
+	r := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: providerID, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+		},
+		[]*domain.Provider{
+			{ID: providerID, TenantID: 1, Type: wsRouterNativeType, Name: "ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	provideradapter.MarkResponsesWebSocketTransportUnavailable(providerID)
+	t.Cleanup(func() { provideradapter.ClearResponsesWebSocketTransportCooldown(providerID) })
+
+	if r.HasResponsesWebSocketProvider(1, 0) {
+		t.Fatal("websocket handshake pre-check ignored transport cooldown")
+	}
+	_, err := r.Match(&MatchContext{
+		TenantID:                  1,
+		ClientType:                domain.ClientTypeCodex,
+		RequestModel:              "gpt-test",
+		RequireResponsesWebSocket: true,
+	})
+	if !errors.Is(err, domain.ErrNoResponsesWebSocketProviders) {
+		t.Fatalf("websocket Match error = %v, want ErrNoResponsesWebSocketProviders", err)
+	}
+	result, err := r.Match(&MatchContext{
+		TenantID:     1,
+		ClientType:   domain.ClientTypeCodex,
+		RequestModel: "gpt-test",
+	})
+	if err != nil {
+		t.Fatalf("HTTP/SSE Match: %v", err)
+	}
+	if ids := matchedProviderIDs(result); len(ids) != 1 || ids[0] != providerID {
+		t.Fatalf("HTTP/SSE matched provider IDs = %v, want %d", ids, providerID)
+	}
+}
+
+func TestResponsesWebSocketTransportCooldownKeepsOtherProviderAvailable(t *testing.T) {
+	const (
+		cooledProviderID = uint64(511)
+		readyProviderID  = uint64(512)
+	)
+	r := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: cooledProviderID, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+			{ID: 2, TenantID: 1, ProviderID: readyProviderID, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: cooledProviderID, TenantID: 1, Type: wsRouterNativeType, Name: "cooled", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			{ID: readyProviderID, TenantID: 1, Type: wsRouterNativeType, Name: "ready", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	provideradapter.MarkResponsesWebSocketTransportUnavailable(cooledProviderID)
+	t.Cleanup(func() { provideradapter.ClearResponsesWebSocketTransportCooldown(cooledProviderID) })
+
+	if !r.HasResponsesWebSocketProvider(1, 0) {
+		t.Fatal("ready websocket provider was hidden by another provider's cooldown")
+	}
+	result, err := r.Match(&MatchContext{
+		TenantID:                  1,
+		ClientType:                domain.ClientTypeCodex,
+		RequestModel:              "gpt-test",
+		RequireResponsesWebSocket: true,
+	})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	if ids := matchedProviderIDs(result); len(ids) != 1 || ids[0] != readyProviderID {
+		t.Fatalf("matched provider IDs = %v, want only %d", ids, readyProviderID)
+	}
+}
+
 // Only providers that natively support Codex and whose adapter implements
 // ResponsesWebSocketAdapter are eligible. Stale is_native=false is ignored.
 func TestMatch_ResponsesWebSocketOnlyNativeCapableAdaptersEligible(t *testing.T) {

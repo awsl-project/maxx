@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -75,7 +76,7 @@ func (c *responsesWebSocketClient) close(code int, reason string) {
 	c.closeOnce.Do(func() {
 		close(c.done)
 		if c.conn != nil {
-			_ = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(10*time.Second))
+			_ = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, sanitizeResponsesWebSocketCloseReason(reason)), time.Now().Add(10*time.Second))
 			_ = c.conn.Close()
 		}
 	})
@@ -213,6 +214,10 @@ func (h *ProxyHandler) serveResponsesWebSocket(w http.ResponseWriter, r *http.Re
 			if flowCtx.Err == nil {
 				continue
 			}
+			if code, reason, ok := responsesWebSocketForwardedClose(flowCtx.Err); ok {
+				client.close(code, reason)
+				return
+			}
 			if responsesWebSocketErrorAlreadySent(flowCtx.Err) {
 				continue
 			}
@@ -338,6 +343,31 @@ func (h *ProxyHandler) runResponsesWebSocketTurn(
 func responsesWebSocketErrorAlreadySent(err error) bool {
 	var wsErr *domain.ResponsesWebSocketAttemptError
 	return errors.As(err, &wsErr) && wsErr.TerminalErrorEventSent
+}
+
+func responsesWebSocketForwardedClose(err error) (int, string, bool) {
+	var wsErr *domain.ResponsesWebSocketAttemptError
+	if !errors.As(err, &wsErr) {
+		return 0, "", false
+	}
+	switch wsErr.UpstreamCloseCode {
+	case websocket.CloseMessageTooBig, websocket.CloseServiceRestart, websocket.CloseTryAgainLater:
+		return wsErr.UpstreamCloseCode, sanitizeResponsesWebSocketCloseReason(wsErr.UpstreamCloseReason), true
+	default:
+		return 0, "", false
+	}
+}
+
+func sanitizeResponsesWebSocketCloseReason(reason string) string {
+	reason = strings.ToValidUTF8(strings.TrimSpace(reason), "")
+	if len(reason) <= 123 {
+		return reason
+	}
+	truncated := []byte(reason)[:123]
+	for len(truncated) > 0 && !utf8.Valid(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return string(truncated)
 }
 
 func responsesWebSocketTurnCommitted(err error) bool {
