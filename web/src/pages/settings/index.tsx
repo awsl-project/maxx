@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Fragment, useId } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Settings,
   Monitor,
@@ -39,7 +40,7 @@ import {
 import { PageHeader } from '@/components/layout/page-header';
 import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { BackendAddressControl } from '@/components/backend-address-control';
-import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
+import { settingsKeys, useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
 import { buildPprofUrl } from '@/lib/backend-config';
 import { useTransport } from '@/lib/transport/context';
@@ -805,7 +806,8 @@ export function ForceProjectSection() {
 
 export function RequestStreamTimeoutSection() {
   const { data: settings, isLoading } = useSettings();
-  const updateSetting = useUpdateSetting();
+  const { transport } = useTransport();
+  const queryClient = useQueryClient();
   const { t } = useTranslation();
 
   const streamTimeoutsEnabled = settings?.[STREAM_TIMEOUTS_ENABLED_SETTING_KEY] === 'true';
@@ -818,6 +820,7 @@ export function RequestStreamTimeoutSection() {
   const [idleDraft, setIdleDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const firstEventInputId = useId();
   const idleInputId = useId();
 
@@ -856,23 +859,26 @@ export function RequestStreamTimeoutSection() {
     }
 
     setError('');
-    if (enabledDraft !== streamTimeoutsEnabled) {
-      await updateSetting.mutateAsync({
-        key: STREAM_TIMEOUTS_ENABLED_SETTING_KEY,
-        value: enabledDraft ? 'true' : 'false',
+    setIsSaving(true);
+    try {
+      await transport.updateSetting(
+        STREAM_TIMEOUTS_ENABLED_SETTING_KEY,
+        enabledDraft ? 'true' : 'false',
+      );
+      await transport.updateSetting(STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY, firstEventDraft);
+      await transport.updateSetting(STREAM_IDLE_TIMEOUT_SETTING_KEY, idleDraft);
+      queryClient.setQueryData<Record<string, string>>(settingsKeys.all, {
+        ...(settings || {}),
+        [STREAM_TIMEOUTS_ENABLED_SETTING_KEY]: enabledDraft ? 'true' : 'false',
+        [STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY]: firstEventDraft,
+        [STREAM_IDLE_TIMEOUT_SETTING_KEY]: idleDraft,
       });
-    }
-    if (firstEventDraft !== firstEventTimeout) {
-      await updateSetting.mutateAsync({
-        key: STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY,
-        value: firstEventDraft,
-      });
-    }
-    if (idleDraft !== idleTimeout) {
-      await updateSetting.mutateAsync({
-        key: STREAM_IDLE_TIMEOUT_SETTING_KEY,
-        value: idleDraft,
-      });
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.public });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -889,8 +895,8 @@ export function RequestStreamTimeoutSection() {
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">{t('settings.streamTimeoutsDesc')}</p>
           </div>
-          <Button onClick={handleSave} disabled={!hasChanges || updateSetting.isPending} size="sm">
-            {updateSetting.isPending ? t('common.saving') : t('common.save')}
+          <Button onClick={handleSave} disabled={!hasChanges || isSaving} size="sm">
+            {isSaving ? t('common.saving') : t('common.save')}
           </Button>
         </div>
       </CardHeader>
@@ -908,7 +914,7 @@ export function RequestStreamTimeoutSection() {
             aria-label={t('settings.enableStreamTimeouts')}
             checked={enabledDraft}
             onCheckedChange={setEnabledDraft}
-            disabled={updateSetting.isPending}
+            disabled={isSaving}
           />
         </div>
 
@@ -926,7 +932,7 @@ export function RequestStreamTimeoutSection() {
                 min={1000}
                 max={600000}
                 step={1000}
-                disabled={updateSetting.isPending || !enabledDraft}
+                disabled={isSaving || !enabledDraft}
               />
               <span className="text-xs text-muted-foreground">ms</span>
             </div>
@@ -948,7 +954,7 @@ export function RequestStreamTimeoutSection() {
                 min={1000}
                 max={600000}
                 step={1000}
-                disabled={updateSetting.isPending || !enabledDraft}
+                disabled={isSaving || !enabledDraft}
               />
               <span className="text-xs text-muted-foreground">ms</span>
             </div>

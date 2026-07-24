@@ -41,7 +41,9 @@ test.describe('stream timeout settings', () => {
 
     await firstEventInput.fill('15000');
     await idleInput.fill('55000');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const saveButton = page.getByRole('button', { name: 'Save', exact: true });
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
 
     await expect
       .poll(async () => {
@@ -63,7 +65,7 @@ test.describe('stream timeout settings', () => {
     await expect(idleInput).toHaveValue('55000');
 
     await firstEventInput.fill('999');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await saveButton.click();
     await expect(
       page.getByText('Timeouts must be integers between 1000 and 600000 ms.'),
     ).toBeVisible();
