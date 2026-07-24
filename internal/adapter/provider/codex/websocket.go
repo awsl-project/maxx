@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -548,17 +549,32 @@ func (s *codexWebSocketSession) executeTurn(
 				if readErr == nil {
 					readErr = io.ErrUnexpectedEOF
 				}
-				proxyErr := domain.NewProxyErrorWithMessage(readErr, false, "Codex websocket closed before terminal event")
+				message := "Codex websocket closed before terminal event"
+				var closeErr *websocket.CloseError
+				if errors.As(readErr, &closeErr) {
+					if strings.TrimSpace(closeErr.Text) != "" {
+						message = "Codex websocket closed: " + strings.TrimSpace(closeErr.Text)
+					}
+					if closeErr.Code == websocket.CloseServiceRestart || closeErr.Code == websocket.CloseTryAgainLater {
+						provideradapter.MarkResponsesWebSocketTransportUnavailable(providerID)
+					}
+				}
+				proxyErr := domain.NewProxyErrorWithMessage(readErr, false, message)
 				proxyErr.Scope = domain.ScopeProvider
 				proxyErr.Reason = domain.CooldownReasonNetworkError
 				proxyErr.Code = "upstream_websocket_closed_before_terminal"
 				proxyErr.HTTPStatusCode = http.StatusBadGateway
-				return result, &domain.ResponsesWebSocketAttemptError{
+				attemptErr := &domain.ResponsesWebSocketAttemptError{
 					Err:                         proxyErr,
 					RequestFrameMayHaveBeenSent: true,
 					FirstEventReceived:          result.FirstEventReceived,
 					ClientEventSent:             result.ClientEventSent,
 				}
+				if closeErr != nil {
+					attemptErr.UpstreamCloseCode = closeErr.Code
+					attemptErr.UpstreamCloseReason = strings.TrimSpace(closeErr.Text)
+				}
+				return result, attemptErr
 			}
 			if read.messageType != websocket.TextMessage || !gjson.ValidBytes(read.payload) || !gjson.ParseBytes(read.payload).IsObject() {
 				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrResponsesWebSocketProtocol, false, "invalid Codex websocket application frame")

@@ -53,6 +53,8 @@ type ResponsesWebSocketAttemptError struct {
 	FirstEventReceived          bool
 	ClientEventSent             bool
 	TerminalErrorEventSent      bool
+	UpstreamCloseCode           int
+	UpstreamCloseReason         string
 
 	// CapabilityFailure is used only for cooldown/unsupported cache.
 	// It must never trigger cross-provider fallback.
