@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Fragment, useId } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Settings,
   Monitor,
@@ -39,7 +40,7 @@ import {
 import { PageHeader } from '@/components/layout/page-header';
 import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { BackendAddressControl } from '@/components/backend-address-control';
-import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
+import { settingsKeys, useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
 import { buildPprofUrl } from '@/lib/backend-config';
 import { useTransport } from '@/lib/transport/context';
@@ -66,6 +67,11 @@ function parseRetentionInteger(value: string): number | null {
 }
 
 const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
+const STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'stream_timeouts_enabled';
+const STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY = 'stream_first_event_timeout_ms';
+const STREAM_IDLE_TIMEOUT_SETTING_KEY = 'stream_idle_timeout_ms';
+const DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS = '20000';
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
 type MultiTenantUILayout = 'current' | 'user_panel';
 
@@ -130,6 +136,7 @@ export function SettingsPage() {
             <>
               <MultiTenantUISection />
               <TimezoneSection />
+              <RequestStreamTimeoutSection />
             </>
           )}
         </div>
@@ -792,6 +799,176 @@ export function ForceProjectSection() {
             <span className="text-xs text-muted-foreground">{t('settings.waitTimeoutRange')}</span>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function RequestStreamTimeoutSection() {
+  const { data: settings, isLoading } = useSettings();
+  const { transport } = useTransport();
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  const streamTimeoutsEnabled = settings?.[STREAM_TIMEOUTS_ENABLED_SETTING_KEY] === 'true';
+  const firstEventTimeout =
+    settings?.[STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS;
+  const idleTimeout = settings?.[STREAM_IDLE_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+
+  const [enabledDraft, setEnabledDraft] = useState(false);
+  const [firstEventDraft, setFirstEventDraft] = useState('');
+  const [idleDraft, setIdleDraft] = useState('');
+  const [initialized, setInitialized] = useState(false);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const firstEventInputId = useId();
+  const idleInputId = useId();
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setEnabledDraft(streamTimeoutsEnabled);
+      setFirstEventDraft(firstEventTimeout);
+      setIdleDraft(idleTimeout);
+      setInitialized(true);
+    }
+  }, [firstEventTimeout, idleTimeout, initialized, isLoading, streamTimeoutsEnabled]);
+
+  useEffect(() => {
+    if (initialized) {
+      setEnabledDraft(streamTimeoutsEnabled);
+      setFirstEventDraft(firstEventTimeout);
+      setIdleDraft(idleTimeout);
+    }
+  }, [firstEventTimeout, idleTimeout, initialized, streamTimeoutsEnabled]);
+
+  const hasChanges =
+    initialized &&
+    (enabledDraft !== streamTimeoutsEnabled ||
+      firstEventDraft !== firstEventTimeout ||
+      idleDraft !== idleTimeout);
+
+  const validateTimeout = (value: string) => {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed >= 1000 && parsed <= 600000;
+  };
+
+  const handleSave = async () => {
+    if (!validateTimeout(firstEventDraft) || !validateTimeout(idleDraft)) {
+      setError(t('settings.streamTimeoutInvalid'));
+      return;
+    }
+
+    setError('');
+    setIsSaving(true);
+    try {
+      await transport.updateSetting(
+        STREAM_TIMEOUTS_ENABLED_SETTING_KEY,
+        enabledDraft ? 'true' : 'false',
+      );
+      await transport.updateSetting(STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY, firstEventDraft);
+      await transport.updateSetting(STREAM_IDLE_TIMEOUT_SETTING_KEY, idleDraft);
+      queryClient.setQueryData<Record<string, string>>(settingsKeys.all, {
+        ...(settings || {}),
+        [STREAM_TIMEOUTS_ENABLED_SETTING_KEY]: enabledDraft ? 'true' : 'false',
+        [STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY]: firstEventDraft,
+        [STREAM_IDLE_TIMEOUT_SETTING_KEY]: idleDraft,
+      });
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.public });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              {t('settings.streamTimeouts')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.streamTimeoutsDesc')}</p>
+          </div>
+          <Button onClick={handleSave} disabled={!hasChanges || isSaving} size="sm">
+            {isSaving ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
+          <div>
+            <Label className="text-sm font-medium text-foreground">
+              {t('settings.enableStreamTimeouts')}
+            </Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.enableStreamTimeoutsDesc')}
+            </p>
+          </div>
+          <Switch
+            aria-label={t('settings.enableStreamTimeouts')}
+            checked={enabledDraft}
+            onCheckedChange={setEnabledDraft}
+            disabled={isSaving}
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor={firstEventInputId} className="text-sm font-medium text-foreground">
+              {t('settings.streamFirstEventTimeout')}
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id={firstEventInputId}
+                type="number"
+                value={firstEventDraft}
+                onChange={(event) => setFirstEventDraft(event.target.value)}
+                min={1000}
+                max={600000}
+                step={1000}
+                disabled={isSaving || !enabledDraft}
+              />
+              <span className="text-xs text-muted-foreground">ms</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('settings.streamFirstEventTimeoutDesc')}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor={idleInputId} className="text-sm font-medium text-foreground">
+              {t('settings.streamIdleTimeout')}
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id={idleInputId}
+                type="number"
+                value={idleDraft}
+                onChange={(event) => setIdleDraft(event.target.value)}
+                min={1000}
+                max={600000}
+                step={1000}
+                disabled={isSaving || !enabledDraft}
+              />
+              <span className="text-xs text-muted-foreground">ms</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('settings.streamIdleTimeoutDesc')}</p>
+          </div>
+        </div>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+          <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            {t('settings.streamTimeoutsHint')}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

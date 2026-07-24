@@ -40,6 +40,7 @@ func (r *stubSystemSettingRepo) Delete(key string) error {
 func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 	keys := []string{
 		domain.SettingKeyForceRetryUpstreamErrors,
+		domain.SettingKeyStreamTimeoutsEnabled,
 		domain.SettingKeyRequestFailureDetailsEnabled,
 		domain.SettingKeyProxyRequestsDisabled,
 	}
@@ -112,5 +113,29 @@ func TestAdminServiceDeleteSettingInvalidatesProxyBooleanCache(t *testing.T) {
 	}
 	if systemsettingcache.GetBoolean(repo, domain.SettingKeyProxyRequestsDisabled) {
 		t.Fatal("expected cache invalidation to expose deleted false value")
+	}
+}
+
+func TestValidateStreamTimeoutMilliseconds(t *testing.T) {
+	validKeys := []string{
+		domain.SettingKeyStreamFirstEventTimeoutMS,
+		domain.SettingKeyStreamIdleTimeoutMS,
+	}
+	for _, key := range validKeys {
+		t.Run(key+" valid", func(t *testing.T) {
+			if err := validateSystemSettingValue(key, "45000"); err != nil {
+				t.Fatalf("validateSystemSettingValue() error = %v", err)
+			}
+		})
+		t.Run(key+" too low", func(t *testing.T) {
+			if err := validateSystemSettingValue(key, "999"); err == nil {
+				t.Fatal("validateSystemSettingValue() error = nil, want error")
+			}
+		})
+		t.Run(key+" too high", func(t *testing.T) {
+			if err := validateSystemSettingValue(key, "600001"); err == nil {
+				t.Fatal("validateSystemSettingValue() error = nil, want error")
+			}
+		})
 	}
 }

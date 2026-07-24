@@ -961,6 +961,9 @@ const (
 	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
 	SettingKeyReasoningPolicy                      = "reasoning_policy"                         // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
 	SettingKeyForceRetryUpstreamErrors             = "force_retry_upstream_errors"              // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
+	SettingKeyStreamTimeoutsEnabled                = "stream_timeouts_enabled"                  // 是否启用普通 HTTP/SSE 上游流式超时，"true" 或 "false"，默认 "false"
+	SettingKeyStreamFirstEventTimeoutMS            = "stream_first_event_timeout_ms"            // 普通 HTTP/SSE 上游首事件超时毫秒数，默认 20000，仅启用 stream_timeouts_enabled 时生效
+	SettingKeyStreamIdleTimeoutMS                  = "stream_idle_timeout_ms"                   // 普通 HTTP/SSE 上游事件间 idle 超时毫秒数，默认 45000，仅启用 stream_timeouts_enabled 时生效
 	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"          // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
 	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                  // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
 	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
