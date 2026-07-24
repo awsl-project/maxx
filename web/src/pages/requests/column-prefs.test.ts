@@ -6,8 +6,10 @@ import {
   createDefaultColumnPrefs,
   migrateColumnPrefs,
   normalizeColumnPrefs,
+  parseColumnPrefs,
   readColumnPrefs,
   resolveVisibleColumns,
+  serializeColumnPrefs,
   writeColumnPrefs,
 } from './column-prefs';
 
@@ -78,6 +80,17 @@ describe('column-prefs', () => {
     expect(stored.order.slice(0, 2)).toEqual(['model', 'time']);
     expect(stored.visibility.provider).toBe(false);
     expect(stored.widths.model).toBe(220);
+  });
+
+  it('serializes and parses prefs for backend persistence', () => {
+    const prefs = createDefaultColumnPrefs();
+    prefs.visibility.cost = false;
+    prefs.widths.model = 210;
+
+    const parsed = parseColumnPrefs(serializeColumnPrefs(prefs));
+
+    expect(parsed?.visibility.cost).toBe(false);
+    expect(parsed?.widths.model).toBe(210);
   });
 
   it('migrates anonymous column prefs to the scoped user key', () => {
