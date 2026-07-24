@@ -885,9 +885,7 @@ export function RequestStreamTimeoutSection() {
               <Activity className="h-4 w-4 text-muted-foreground" />
               {t('settings.streamTimeouts')}
             </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('settings.streamTimeoutsDesc')}
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.streamTimeoutsDesc')}</p>
           </div>
           <Button onClick={handleSave} disabled={!hasChanges || updateSetting.isPending} size="sm">
             {updateSetting.isPending ? t('common.saving') : t('common.save')}
@@ -950,9 +948,7 @@ export function RequestStreamTimeoutSection() {
               />
               <span className="text-xs text-muted-foreground">ms</span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t('settings.streamIdleTimeoutDesc')}
-            </p>
+            <p className="text-xs text-muted-foreground">{t('settings.streamIdleTimeoutDesc')}</p>
           </div>
         </div>
 
