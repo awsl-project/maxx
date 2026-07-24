@@ -52,40 +52,6 @@ func (r *oneChunkThenBlockReadCloser) Close() error {
 	return nil
 }
 
-func TestCustomAdapterOpenAIChatStreamTimeoutsDefaultOff(t *testing.T) {
-	adapter := newTestCustomAdapter()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	ctx := flow.NewCtx(httptest.NewRecorder(), req)
-	ctx.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
-	ctx.Set(flow.KeyRequestURI, "/v1/chat/completions")
-
-	if adapter.openAIChatStreamTimeoutsEnabled(ctx, domain.ClientTypeOpenAI) {
-		t.Fatal("OpenAI Chat stream timeouts should be disabled by default")
-	}
-}
-
-func TestCustomAdapterOpenAIChatStreamTimeoutsOnlyOpenAIChat(t *testing.T) {
-	adapter := newTestCustomAdapter()
-	adapter.provider.Config.Custom.OpenAIChatStreamTimeouts = true
-
-	chatReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	chatCtx := flow.NewCtx(httptest.NewRecorder(), chatReq)
-	chatCtx.Set(flow.KeyRequestURI, "/v1/chat/completions")
-	if !adapter.openAIChatStreamTimeoutsEnabled(chatCtx, domain.ClientTypeOpenAI) {
-		t.Fatal("OpenAI Chat request should enable provider stream timeouts when opted in")
-	}
-
-	imageReq := httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
-	imageCtx := flow.NewCtx(httptest.NewRecorder(), imageReq)
-	imageCtx.Set(flow.KeyRequestURI, "/v1/images/generations")
-	if adapter.openAIChatStreamTimeoutsEnabled(imageCtx, domain.ClientTypeOpenAI) {
-		t.Fatal("non-chat OpenAI request must not enable provider stream timeouts")
-	}
-	if adapter.openAIChatStreamTimeoutsEnabled(chatCtx, domain.ClientTypeClaude) {
-		t.Fatal("non-OpenAI client type must not enable provider stream timeouts")
-	}
-}
-
 func TestCustomAdapterStreamTimesOutIdleAfterFirstEvent(t *testing.T) {
 	adapter := newTestCustomAdapter()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)

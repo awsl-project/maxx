@@ -13,11 +13,11 @@ func validateSystemSettingValue(key, value string) error {
 	switch key {
 	case domain.SettingKeyReasoningPolicy:
 		return reqpolicy.ValidatePolicyJSON(value)
-	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyStreamTimeoutsEnabled, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyProxyRequestsDisabled:
+	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyOpenAIChatStreamTimeoutsEnabled, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyProxyRequestsDisabled:
 		return validateBooleanSystemSetting(key, value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)
-	case domain.SettingKeyStreamFirstEventTimeoutMS, domain.SettingKeyStreamIdleTimeoutMS:
+	case domain.SettingKeyOpenAIChatStreamFirstEventTimeoutMS, domain.SettingKeyOpenAIChatStreamIdleTimeoutMS:
 		return validateStreamTimeoutMilliseconds(key, value)
 	default:
 		return nil

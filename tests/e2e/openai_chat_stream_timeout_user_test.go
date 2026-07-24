@@ -56,16 +56,15 @@ func newOpenAIChatSuccessStreamUpstream(t *testing.T, marker string) *httptest.S
 	}))
 }
 
-func createOpenAIChatTimeoutProvider(t *testing.T, env *ProxyTestEnv, name, baseURL string, enabled bool) uint64 {
+func createOpenAIChatTimeoutProvider(t *testing.T, env *ProxyTestEnv, name, baseURL string) uint64 {
 	t.Helper()
 	resp := env.AdminPost("/api/admin/providers", map[string]any{
 		"name": name,
 		"type": "custom",
 		"config": map[string]any{
 			"custom": map[string]any{
-				"baseURL":                  baseURL,
-				"apiKey":                   "sk-mock-test-key",
-				"openAIChatStreamTimeouts": enabled,
+				"baseURL": baseURL,
+				"apiKey":  "sk-mock-test-key",
 			},
 		},
 		"supportedClientTypes": []string{"openai"},
@@ -120,7 +119,7 @@ func TestOpenAIChatStreamTimeoutSwitchDefaultOffFromUserRequest(t *testing.T) {
 	stalled := newOpenAIChatStalledAfterChunkUpstream(t, 2*time.Second)
 	defer stalled.Close()
 
-	providerID := createOpenAIChatTimeoutProvider(t, env, "openai-chat-timeout-default-off", stalled.URL, false)
+	providerID := createOpenAIChatTimeoutProvider(t, env, "openai-chat-timeout-default-off", stalled.URL)
 	createOpenAIRouteAtPosition(t, env, providerID, 1)
 
 	client := &http.Client{Timeout: 500 * time.Millisecond}
@@ -153,15 +152,15 @@ func TestOpenAIChatStreamTimeoutSwitchFailsOverBeforeClientStalls(t *testing.T) 
 	success := newOpenAIChatSuccessStreamUpstream(t, "fallback-ok")
 	defer success.Close()
 
-	resp := env.AdminPut("/api/admin/settings/stream_timeouts_enabled", map[string]any{"value": "true"})
+	resp := env.AdminPut("/api/admin/settings/openai_chat_stream_timeouts_enabled", map[string]any{"value": "true"})
 	AssertStatus(t, resp, http.StatusOK)
-	resp = env.AdminPut("/api/admin/settings/stream_first_event_timeout_ms", map[string]any{"value": "1000"})
+	resp = env.AdminPut("/api/admin/settings/openai_chat_stream_first_event_timeout_ms", map[string]any{"value": "1000"})
 	AssertStatus(t, resp, http.StatusOK)
-	resp = env.AdminPut("/api/admin/settings/stream_idle_timeout_ms", map[string]any{"value": "1000"})
+	resp = env.AdminPut("/api/admin/settings/openai_chat_stream_idle_timeout_ms", map[string]any{"value": "1000"})
 	AssertStatus(t, resp, http.StatusOK)
 
-	stalledProviderID := createOpenAIChatTimeoutProvider(t, env, "openai-chat-timeout-on-stalled", stalled.URL, true)
-	successProviderID := createOpenAIChatTimeoutProvider(t, env, "openai-chat-timeout-on-success", success.URL, false)
+	stalledProviderID := createOpenAIChatTimeoutProvider(t, env, "openai-chat-timeout-on-stalled", stalled.URL)
+	successProviderID := createOpenAIChatTimeoutProvider(t, env, "openai-chat-timeout-on-success", success.URL)
 	createOpenAIRouteAtPosition(t, env, stalledProviderID, 1)
 	createOpenAIRouteAtPosition(t, env, successProviderID, 2)
 

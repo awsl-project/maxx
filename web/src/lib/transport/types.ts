@@ -49,8 +49,6 @@ export interface ProviderConfigCustom {
   responsesPassthrough?: boolean;
   // 是否允许作为 Codex Responses WebSocket 上游（默认 false，需显式开启）。
   responsesWebSocket?: boolean;
-  // OpenAI Chat Completions HTTP/SSE 是否启用 provider 级空闲超时保护（默认 false）。
-  openAIChatStreamTimeouts?: boolean;
 }
 
 export interface ProviderConfigAntigravity {

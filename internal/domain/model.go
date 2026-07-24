@@ -64,11 +64,6 @@ type ProviderConfigCustom struct {
 	// 许多中转站只支持 HTTP/SSE；未显式开启时默认 false（opt-in），避免 WS 路由到
 	// 不支持的上游导致持续失败。
 	ResponsesWebSocket *bool `json:"responsesWebSocket,omitempty"`
-
-	// OpenAIChatStreamTimeouts 为 OpenAI Chat Completions HTTP/SSE 开启提供商级流式空闲超时保护。
-	// 默认 false：保持旧行为，不因上游长时间无事件而主动中断。开启后使用系统流式超时配置，
-	// 未配置时默认首事件 20s、事件间 45s，避免 AI SDK 客户端先在 60s stalled 处断开。
-	OpenAIChatStreamTimeouts bool `json:"openAIChatStreamTimeouts,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching
@@ -951,33 +946,33 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort                            = "proxy_port"                               // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionHours                = "request_retention_hours"                  // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeySessionRetentionHours                = "session_retention_hours"                  // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"         // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
-	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"   // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
-	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success" // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
-	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"  // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
-	SettingKeyTimezone                             = "timezone"                                 // 时区设置，默认 Asia/Shanghai
-	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                   // Antigravity 配额刷新间隔（分钟），0 表示禁用
-	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"      // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
-	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                    // 是否自动排序 Antigravity 路由，"true" 或 "false"
-	SettingKeyAutoSortCodex                        = "auto_sort_codex"                          // 是否自动排序 Codex 路由，"true" 或 "false"
-	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
-	SettingKeyReasoningPolicy                      = "reasoning_policy"                         // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
-	SettingKeyForceRetryUpstreamErrors             = "force_retry_upstream_errors"              // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
-	SettingKeyStreamTimeoutsEnabled                = "stream_timeouts_enabled"                  // 是否启用普通 HTTP/SSE 上游流式超时，"true" 或 "false"，默认 "false"
-	SettingKeyStreamFirstEventTimeoutMS            = "stream_first_event_timeout_ms"            // 普通 HTTP/SSE 上游首事件超时毫秒数，默认 20000，仅启用 stream_timeouts_enabled 时生效
-	SettingKeyStreamIdleTimeoutMS                  = "stream_idle_timeout_ms"                   // 普通 HTTP/SSE 上游事件间 idle 超时毫秒数，默认 45000，仅启用 stream_timeouts_enabled 时生效
-	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"          // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
-	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                  // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
-	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"          // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"            // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"               // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "false"
-	SettingKeyEnablePprof                          = "enable_pprof"                             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
-	SettingKeyPprofPort                            = "pprof_port"                               // pprof 服务端口，默认 6060
-	SettingKeyPprofPassword                        = "pprof_password"                           // pprof 访问密码，为空表示不需要密码
+	SettingKeyProxyPort                            = "proxy_port"                                // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours                = "request_retention_hours"                   // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeySessionRetentionHours                = "session_retention_hours"                   // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"          // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
+	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"    // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
+	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success"  // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
+	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"   // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
+	SettingKeyTimezone                             = "timezone"                                  // 时区设置，默认 Asia/Shanghai
+	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                    // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"       // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
+	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                     // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyAutoSortCodex                        = "auto_sort_codex"                           // 是否自动排序 Codex 路由，"true" 或 "false"
+	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"                // 是否启用 Codex 官方 instructions，"true" 或 "false"
+	SettingKeyReasoningPolicy                      = "reasoning_policy"                          // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
+	SettingKeyForceRetryUpstreamErrors             = "force_retry_upstream_errors"               // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
+	SettingKeyOpenAIChatStreamTimeoutsEnabled      = "openai_chat_stream_timeouts_enabled"       // 是否启用 OpenAI Chat 路由 provider HTTP/SSE 流式超时，"true" 或 "false"，默认 "false"
+	SettingKeyOpenAIChatStreamFirstEventTimeoutMS  = "openai_chat_stream_first_event_timeout_ms" // OpenAI Chat 路由 provider 首事件超时毫秒数，默认 20000，仅启用 openai_chat_stream_timeouts_enabled 时生效
+	SettingKeyOpenAIChatStreamIdleTimeoutMS        = "openai_chat_stream_idle_timeout_ms"        // OpenAI Chat 路由 provider 事件间 idle 超时毫秒数，默认 45000，仅启用 openai_chat_stream_timeouts_enabled 时生效
+	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"           // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                   // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"       // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"           // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"             // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"                // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "false"
+	SettingKeyEnablePprof                          = "enable_pprof"                              // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort                            = "pprof_port"                                // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword                        = "pprof_password"                            // pprof 访问密码，为空表示不需要密码
 )
 
 // ModelPrice 模型价格（每个模型可有多条记录，每条代表一个版本）

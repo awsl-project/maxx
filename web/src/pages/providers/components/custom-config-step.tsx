@@ -150,7 +150,6 @@ export function CustomConfigStep() {
             apiKey: formData.apiKey,
             responsesPassthrough: formData.responsesPassthrough,
             responsesWebSocket: formData.responsesWebSocket === true,
-            openAIChatStreamTimeouts: formData.openAIChatStreamTimeouts === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -341,10 +340,6 @@ export function CustomConfigStep() {
               responsesWebSocket={formData.responsesWebSocket === true}
               onUpdateResponsesWebSocket={(checked) =>
                 updateFormData({ responsesWebSocket: checked })
-              }
-              openAIChatStreamTimeouts={formData.openAIChatStreamTimeouts === true}
-              onUpdateOpenAIChatStreamTimeouts={(checked) =>
-                updateFormData({ openAIChatStreamTimeouts: checked })
               }
             />
           </div>

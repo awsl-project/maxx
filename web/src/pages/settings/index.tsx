@@ -67,9 +67,9 @@ function parseRetentionInteger(value: string): number | null {
 }
 
 const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
-const STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'stream_timeouts_enabled';
-const STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY = 'stream_first_event_timeout_ms';
-const STREAM_IDLE_TIMEOUT_SETTING_KEY = 'stream_idle_timeout_ms';
+const OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'openai_chat_stream_timeouts_enabled';
+const OPENAI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY = 'openai_chat_stream_first_event_timeout_ms';
+const OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY = 'openai_chat_stream_idle_timeout_ms';
 const DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS = '20000';
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
@@ -136,7 +136,6 @@ export function SettingsPage() {
             <>
               <MultiTenantUISection />
               <TimezoneSection />
-              <RequestStreamTimeoutSection />
             </>
           )}
         </div>
@@ -804,16 +803,16 @@ export function ForceProjectSection() {
   );
 }
 
-export function RequestStreamTimeoutSection() {
+export function OpenAIChatStreamTimeoutSection() {
   const { data: settings, isLoading } = useSettings();
   const { transport } = useTransport();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
 
-  const streamTimeoutsEnabled = settings?.[STREAM_TIMEOUTS_ENABLED_SETTING_KEY] === 'true';
+  const streamTimeoutsEnabled = settings?.[OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY] === 'true';
   const firstEventTimeout =
-    settings?.[STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS;
-  const idleTimeout = settings?.[STREAM_IDLE_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+    settings?.[OPENAI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS;
+  const idleTimeout = settings?.[OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY] || DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 
   const [enabledDraft, setEnabledDraft] = useState(false);
   const [firstEventDraft, setFirstEventDraft] = useState('');
@@ -854,7 +853,7 @@ export function RequestStreamTimeoutSection() {
 
   const handleSave = async () => {
     if (!validateTimeout(firstEventDraft) || !validateTimeout(idleDraft)) {
-      setError(t('settings.streamTimeoutInvalid'));
+      setError(t('settings.openAIChatStreamTimeoutInvalid'));
       return;
     }
 
@@ -862,16 +861,16 @@ export function RequestStreamTimeoutSection() {
     setIsSaving(true);
     try {
       await transport.updateSetting(
-        STREAM_TIMEOUTS_ENABLED_SETTING_KEY,
+        OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY,
         enabledDraft ? 'true' : 'false',
       );
-      await transport.updateSetting(STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY, firstEventDraft);
-      await transport.updateSetting(STREAM_IDLE_TIMEOUT_SETTING_KEY, idleDraft);
+      await transport.updateSetting(OPENAI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY, firstEventDraft);
+      await transport.updateSetting(OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY, idleDraft);
       queryClient.setQueryData<Record<string, string>>(settingsKeys.all, {
         ...(settings || {}),
-        [STREAM_TIMEOUTS_ENABLED_SETTING_KEY]: enabledDraft ? 'true' : 'false',
-        [STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY]: firstEventDraft,
-        [STREAM_IDLE_TIMEOUT_SETTING_KEY]: idleDraft,
+        [OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY]: enabledDraft ? 'true' : 'false',
+        [OPENAI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY]: firstEventDraft,
+        [OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY]: idleDraft,
       });
       await queryClient.invalidateQueries({ queryKey: settingsKeys.all });
       await queryClient.invalidateQueries({ queryKey: settingsKeys.public });
@@ -891,9 +890,9 @@ export function RequestStreamTimeoutSection() {
           <div>
             <CardTitle className="text-base font-medium flex items-center gap-2">
               <Activity className="h-4 w-4 text-muted-foreground" />
-              {t('settings.streamTimeouts')}
+              {t('settings.openAIChatStreamTimeouts')}
             </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">{t('settings.streamTimeoutsDesc')}</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.openAIChatStreamTimeoutsDesc')}</p>
           </div>
           <Button onClick={handleSave} disabled={!hasChanges || isSaving} size="sm">
             {isSaving ? t('common.saving') : t('common.save')}
@@ -904,14 +903,14 @@ export function RequestStreamTimeoutSection() {
         <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
           <div>
             <Label className="text-sm font-medium text-foreground">
-              {t('settings.enableStreamTimeouts')}
+              {t('settings.enableOpenAIChatStreamTimeouts')}
             </Label>
             <p className="text-xs text-muted-foreground mt-1">
-              {t('settings.enableStreamTimeoutsDesc')}
+              {t('settings.enableOpenAIChatStreamTimeoutsDesc')}
             </p>
           </div>
           <Switch
-            aria-label={t('settings.enableStreamTimeouts')}
+            aria-label={t('settings.enableOpenAIChatStreamTimeouts')}
             checked={enabledDraft}
             onCheckedChange={setEnabledDraft}
             disabled={isSaving}
@@ -921,7 +920,7 @@ export function RequestStreamTimeoutSection() {
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor={firstEventInputId} className="text-sm font-medium text-foreground">
-              {t('settings.streamFirstEventTimeout')}
+              {t('settings.openAIChatStreamFirstEventTimeout')}
             </Label>
             <div className="flex items-center gap-2">
               <Input
@@ -937,13 +936,13 @@ export function RequestStreamTimeoutSection() {
               <span className="text-xs text-muted-foreground">ms</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              {t('settings.streamFirstEventTimeoutDesc')}
+              {t('settings.openAIChatStreamFirstEventTimeoutDesc')}
             </p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor={idleInputId} className="text-sm font-medium text-foreground">
-              {t('settings.streamIdleTimeout')}
+              {t('settings.openAIChatStreamIdleTimeout')}
             </Label>
             <div className="flex items-center gap-2">
               <Input
@@ -958,7 +957,7 @@ export function RequestStreamTimeoutSection() {
               />
               <span className="text-xs text-muted-foreground">ms</span>
             </div>
-            <p className="text-xs text-muted-foreground">{t('settings.streamIdleTimeoutDesc')}</p>
+            <p className="text-xs text-muted-foreground">{t('settings.openAIChatStreamIdleTimeoutDesc')}</p>
           </div>
         </div>
 
@@ -966,7 +965,7 @@ export function RequestStreamTimeoutSection() {
         <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
           <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
           <p className="text-xs text-blue-600 dark:text-blue-400">
-            {t('settings.streamTimeoutsHint')}
+            {t('settings.openAIChatStreamTimeoutsHint')}
           </p>
         </div>
       </CardContent>

@@ -234,7 +234,7 @@ routeLoop:
 
 			originalWriter := c.Writer
 			c.Writer = responseWriter
-			if e.streamTimeoutsEnabled() {
+			if e.shouldApplyOpenAIChatStreamTimeouts(originalClientType, requestURI) {
 				c.Set(flowKeyStreamFirstEventTimeout, e.streamFirstEventTimeout())
 				c.Set(flowKeyStreamIdleTimeout, e.streamIdleTimeout())
 			}

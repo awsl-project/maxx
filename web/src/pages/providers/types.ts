@@ -371,7 +371,6 @@ export type ProviderFormData = {
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
   responsesWebSocket?: boolean;
-  openAIChatStreamTimeouts?: boolean;
 };
 
 // Create step type

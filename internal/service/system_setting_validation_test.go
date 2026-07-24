@@ -40,7 +40,7 @@ func (r *stubSystemSettingRepo) Delete(key string) error {
 func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 	keys := []string{
 		domain.SettingKeyForceRetryUpstreamErrors,
-		domain.SettingKeyStreamTimeoutsEnabled,
+		domain.SettingKeyOpenAIChatStreamTimeoutsEnabled,
 		domain.SettingKeyRequestFailureDetailsEnabled,
 		domain.SettingKeyProxyRequestsDisabled,
 	}
@@ -118,8 +118,8 @@ func TestAdminServiceDeleteSettingInvalidatesProxyBooleanCache(t *testing.T) {
 
 func TestValidateStreamTimeoutMilliseconds(t *testing.T) {
 	validKeys := []string{
-		domain.SettingKeyStreamFirstEventTimeoutMS,
-		domain.SettingKeyStreamIdleTimeoutMS,
+		domain.SettingKeyOpenAIChatStreamFirstEventTimeoutMS,
+		domain.SettingKeyOpenAIChatStreamIdleTimeoutMS,
 	}
 	for _, key := range validKeys {
 		t.Run(key+" valid", func(t *testing.T) {
