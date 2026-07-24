@@ -818,6 +818,8 @@ export function RequestStreamTimeoutSection() {
   const [idleDraft, setIdleDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState('');
+  const firstEventInputId = useId();
+  const idleInputId = useId();
 
   useEffect(() => {
     if (!isLoading && !initialized) {
@@ -912,11 +914,12 @@ export function RequestStreamTimeoutSection() {
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label className="text-sm font-medium text-foreground">
+            <Label htmlFor={firstEventInputId} className="text-sm font-medium text-foreground">
               {t('settings.streamFirstEventTimeout')}
             </Label>
             <div className="flex items-center gap-2">
               <Input
+                id={firstEventInputId}
                 type="number"
                 value={firstEventDraft}
                 onChange={(event) => setFirstEventDraft(event.target.value)}
@@ -933,11 +936,12 @@ export function RequestStreamTimeoutSection() {
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm font-medium text-foreground">
+            <Label htmlFor={idleInputId} className="text-sm font-medium text-foreground">
               {t('settings.streamIdleTimeout')}
             </Label>
             <div className="flex items-center gap-2">
               <Input
+                id={idleInputId}
                 type="number"
                 value={idleDraft}
                 onChange={(event) => setIdleDraft(event.target.value)}
