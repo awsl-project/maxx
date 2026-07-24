@@ -4,7 +4,10 @@ async function json(route: Route, body: unknown) {
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
-async function installRequestPageMocks(page: Page) {
+async function installRequestPageMocks(
+  page: Page,
+  options: { cleanupFailedCount?: number | (() => number) } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem('maxx-admin-token', 'mock-token');
     localStorage.setItem('maxx-ui-language', 'zh');
@@ -65,9 +68,10 @@ async function installRequestPageMocks(page: Page) {
   await page.route('**/api/providers', (route) => json(route, []));
   await page.route('**/api/projects', (route) => json(route, []));
   await page.route('**/api/api-tokens', (route) => json(route, []));
-  await page.route(/\/api\/admin\/requests\/cleanup-failed-count(?:\?.*)?$/, (route) =>
-    json(route, 0),
-  );
+  await page.route(/\/api\/admin\/requests\/cleanup-failed-count(?:\?.*)?$/, (route) => {
+    const count = options.cleanupFailedCount;
+    return json(route, typeof count === 'function' ? count() : (count ?? 0));
+  });
   await page.route(/\/api\/admin\/requests\/count(?:\?.*)?$/, (route) => json(route, 1));
   await page.route(/\/api\/admin\/requests(?:\?.*)?$/, (route) =>
     json(route, { items: [request], hasMore: false, firstId: 1, lastId: 1 }),
@@ -82,21 +86,43 @@ test('request table shows reasoning effort beside a compact model column', async
   await installRequestPageMocks(page);
   await page.goto('/requests');
 
-  const modelHeader = page.getByRole('columnheader', { name: '模型', exact: true });
-  const reasoningHeader = page.getByRole('columnheader', { name: '思考深度', exact: true });
+  const modelHeader = page.getByRole('columnheader', { name: /模型/ });
+  const protocolHeader = page.getByRole('columnheader', { name: /协议/ });
+  const reasoningHeader = page.getByRole('columnheader', { name: /思考深度/ });
   const row = page.locator('[data-request-row="true"]');
 
   await expect(modelHeader).toBeVisible();
+  await expect(protocolHeader).toBeVisible();
   await expect(reasoningHeader).toBeVisible();
   await expect(row.getByText('gpt-5.6-sol', { exact: true })).toBeVisible();
+  await expect(row.getByText('SSE', { exact: true })).toBeVisible();
   await expect(row.getByText('high', { exact: true })).toBeVisible();
 
   const modelBox = await modelHeader.boundingBox();
+  const protocolBox = await protocolHeader.boundingBox();
   const reasoningBox = await reasoningHeader.boundingBox();
   expect(modelBox).not.toBeNull();
+  expect(protocolBox).not.toBeNull();
   expect(reasoningBox).not.toBeNull();
   expect(modelBox!.width).toBeLessThan(220);
-  expect(Math.abs(reasoningBox!.x - (modelBox!.x + modelBox!.width))).toBeLessThan(2);
+  expect(protocolBox!.x).toBeGreaterThan(modelBox!.x);
+  expect(reasoningBox!.x).toBeGreaterThan(protocolBox!.x);
 
   await page.screenshot({ path: testInfo.outputPath('requests-reasoning-effort.png') });
+});
+
+test('refresh enables cleanup failed button when failed records already exist without new requests', async ({
+  page,
+}) => {
+  let cleanupFailedCount = 0;
+  await installRequestPageMocks(page, { cleanupFailedCount: () => cleanupFailedCount });
+  await page.goto('/requests');
+
+  const cleanupButton = page.getByRole('button', { name: '清理失败记录' });
+  await expect(cleanupButton).toBeDisabled();
+
+  cleanupFailedCount = 2;
+  await page.getByRole('button', { name: '刷新' }).click();
+
+  await expect(cleanupButton).toBeEnabled();
 });
