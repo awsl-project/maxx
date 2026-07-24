@@ -764,6 +764,7 @@ export function RequestsPage() {
     scrollContainerRef.current?.scrollTo({ top: 0 });
     refetch();
     refetchCount();
+    refetchFailedCount();
   };
 
   // 过滤模式变化时重置滚动
