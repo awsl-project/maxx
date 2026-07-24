@@ -64,6 +64,11 @@ type ProviderConfigCustom struct {
 	// 许多中转站只支持 HTTP/SSE；未显式开启时默认 false（opt-in），避免 WS 路由到
 	// 不支持的上游导致持续失败。
 	ResponsesWebSocket *bool `json:"responsesWebSocket,omitempty"`
+
+	// OpenAIChatStreamTimeouts 为 OpenAI Chat Completions HTTP/SSE 开启提供商级流式空闲超时保护。
+	// 默认 false：保持旧行为，不因上游长时间无事件而主动中断。开启后使用系统流式超时配置，
+	// 未配置时默认首事件 20s、事件间 45s，避免 AI SDK 客户端先在 60s stalled 处断开。
+	OpenAIChatStreamTimeouts bool `json:"openAIChatStreamTimeouts,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching

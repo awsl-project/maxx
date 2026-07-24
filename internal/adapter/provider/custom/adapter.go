@@ -576,6 +576,21 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	return nil
 }
 
+func (a *CustomAdapter) openAIChatStreamTimeoutsEnabled(c *flow.Ctx, clientType domain.ClientType) bool {
+	if clientType != domain.ClientTypeOpenAI || !isOpenAIChatCompletionsRequest(c) {
+		return false
+	}
+	if a == nil || a.provider == nil || a.provider.Config == nil || a.provider.Config.Custom == nil {
+		return false
+	}
+	return a.provider.Config.Custom.OpenAIChatStreamTimeouts
+}
+
+func isOpenAIChatCompletionsRequest(c *flow.Ctx) bool {
+	requestURI := strings.TrimRight(flow.GetRequestURI(c), "/")
+	return requestURI == "/v1/chat/completions" || strings.HasSuffix(requestURI, "/chat/completions")
+}
+
 func streamTimeoutFromFlow(c *flow.Ctx, key string, fallback time.Duration) time.Duration {
 	if c == nil {
 		return fallback
@@ -748,8 +763,14 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
 	sawTerminalSSEEvent := false
-	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", 45*time.Second)
-	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", 45*time.Second)
+	streamFirstEventTimeoutFallback := time.Duration(0)
+	streamIdleTimeoutFallback := time.Duration(0)
+	if a.openAIChatStreamTimeoutsEnabled(c, clientType) {
+		streamFirstEventTimeoutFallback = 20 * time.Second
+		streamIdleTimeoutFallback = 45 * time.Second
+	}
+	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", streamFirstEventTimeoutFallback)
+	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", streamIdleTimeoutFallback)
 
 	processStreamLine := func(line string) error {
 		processedLine := line

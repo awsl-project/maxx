@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -556,45 +555,6 @@ func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response)
 	return nil
 }
 
-func codexStreamTimeoutFromFlow(c *flow.Ctx, key string, fallback time.Duration) time.Duration {
-	if c == nil {
-		return fallback
-	}
-	value, ok := c.Get(key)
-	if !ok {
-		return fallback
-	}
-	duration, ok := value.(time.Duration)
-	if !ok || duration <= 0 {
-		return fallback
-	}
-	return duration
-}
-
-type codexStreamReadResult struct {
-	line string
-	err  error
-}
-
-func codexReadStreamLine(ctx context.Context, reader *bufio.Reader, timeout time.Duration) (string, error) {
-	if timeout <= 0 {
-		return reader.ReadString('\n')
-	}
-	resultCh := make(chan codexStreamReadResult, 1)
-	go func() {
-		line, err := reader.ReadString('\n')
-		resultCh <- codexStreamReadResult{line: line, err: err}
-	}()
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case result := <-resultCh:
-		return result.line, result.err
-	case <-time.After(timeout):
-		return "", context.DeadlineExceeded
-	}
-}
-
 func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) error {
 	eventChan := flow.GetEventChan(c)
 	if eventChan != nil {
@@ -625,8 +585,6 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 	reader := bufio.NewReader(resp.Body)
 	firstChunkSent := false
 	responseCompleted := false
-	streamFirstEventTimeout := codexStreamTimeoutFromFlow(c, "stream_first_event_timeout", 45*time.Second)
-	streamIdleTimeout := codexStreamTimeoutFromFlow(c, "stream_idle_timeout", 45*time.Second)
 
 	ctx := context.Background()
 	if c.Request != nil {
@@ -645,24 +603,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 		default:
 		}
 
-		readTimeout := streamIdleTimeout
-		timeoutErr := domain.ErrStreamIdleTimeout
-		timeoutMessage := "upstream codex stream idle timeout after response started"
-		if !firstChunkSent {
-			readTimeout = streamFirstEventTimeout
-			timeoutErr = domain.ErrFirstByteTimeout
-			timeoutMessage = "upstream codex stream idle timeout before response started"
-		}
-
-		line, err := codexReadStreamLine(ctx, reader, readTimeout)
-		if errors.Is(err, context.DeadlineExceeded) {
-			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
-			proxyErr := domain.NewProxyErrorWithMessage(timeoutErr, !firstChunkSent, timeoutMessage)
-			proxyErr.Scope = domain.ScopeProvider
-			proxyErr.Reason = domain.CooldownReasonNetworkError
-			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-			return proxyErr
-		}
+		line, err := reader.ReadString('\n')
 		if line != "" {
 			// Extract metrics and model incrementally per line
 			collector.ProcessSSELine(line)

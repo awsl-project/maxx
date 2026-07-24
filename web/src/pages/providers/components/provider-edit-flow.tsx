@@ -309,6 +309,7 @@ type EditFormData = {
   responsesPassthrough?: boolean;
   // false/undefined = 不启用 Codex Responses WebSocket；true = 允许 WS 上游。
   responsesWebSocket?: boolean;
+  openAIChatStreamTimeouts?: boolean;
 };
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -376,6 +377,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
       responsesWebSocket: provider.config?.custom?.responsesWebSocket === true,
+      openAIChatStreamTimeouts: provider.config?.custom?.openAIChatStreamTimeouts === true,
     };
   });
   const providerConfigIsWriteOnly = !!provider.excludeFromExport;
@@ -488,6 +490,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             apiKey: formData.apiKey.trim() || '',
             responsesPassthrough: formData.responsesPassthrough,
             responsesWebSocket: formData.responsesWebSocket === true,
+            openAIChatStreamTimeouts: formData.openAIChatStreamTimeouts === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -560,6 +563,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
               '',
             responsesPassthrough: formData.responsesPassthrough,
             responsesWebSocket: formData.responsesWebSocket === true,
+            openAIChatStreamTimeouts: formData.openAIChatStreamTimeouts === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -1020,6 +1024,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 responsesWebSocket={formData.responsesWebSocket === true}
                 onUpdateResponsesWebSocket={(checked) =>
                   setFormData((prev) => ({ ...prev, responsesWebSocket: checked }))
+                }
+                openAIChatStreamTimeouts={formData.openAIChatStreamTimeouts === true}
+                onUpdateOpenAIChatStreamTimeouts={(checked) =>
+                  setFormData((prev) => ({ ...prev, openAIChatStreamTimeouts: checked }))
                 }
               />
             </div>

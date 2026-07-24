@@ -1716,6 +1716,8 @@
     "responsesPassthroughDesc": "For Codex Responses requests, forward the client's original path (e.g. /v1/responses) instead of a hardcoded /responses. Turn off only for upstreams that expect /responses, or when the Base URL already ends with /v1.",
     "responsesWebSocket": "Support Responses WebSocket",
     "responsesWebSocketDesc": "Enable only if this custom Codex upstream truly supports Responses WebSocket. Off by default so WebSocket traffic is not routed to HTTP/SSE-only relays.",
+    "openAIChatStreamTimeouts": "OpenAI Chat stream idle timeout",
+    "openAIChatStreamTimeoutsDesc": "Only applies to this provider's OpenAI Chat Completions HTTP/SSE traffic. Off by default; when enabled, Maxx fails or switches before AI SDK's 60s stalled-stream disconnect.",
     "visibilityAndExport": "Visibility and Export",
     "blackBox": "Black-box provider",
     "blackBoxDesc": "When enabled, the saved provider cannot be opened for editing; lists and APIs will not expose URLs, keys, or other config details, and it is automatically excluded from exports/backups.",

@@ -1713,6 +1713,8 @@
     "responsesPassthroughDesc": "Codex Responses 请求按客户端原始路径转发（如 /v1/responses），而不是硬编码 /responses。仅当上游只认 /responses、或 Base URL 已自带 /v1 时才需要关闭。",
     "responsesWebSocket": "支持 Responses WebSocket",
     "responsesWebSocketDesc": "仅当此自定义提供商的 Codex 上游真正支持 Responses WebSocket 时开启。默认关闭，避免把 WebSocket 请求路由到仅支持 HTTP/SSE 的中转站。",
+    "openAIChatStreamTimeouts": "OpenAI Chat 流式空闲超时",
+    "openAIChatStreamTimeoutsDesc": "仅对本提供商的 OpenAI Chat Completions HTTP/SSE 生效。默认关闭；开启后在 AI SDK 60 秒 stalled 前按流式超时策略失败或切换。",
     "visibilityAndExport": "可见性与导出",
     "blackBox": "黑盒提供商",
     "blackBoxDesc": "开启后，保存的提供商不可进入编辑；列表和接口不会暴露 URL、密钥等配置细节，并自动不参与导出/备份。",

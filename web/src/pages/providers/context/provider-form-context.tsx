@@ -48,6 +48,7 @@ const initialFormData: ProviderFormData = {
   maxConcurrency: 0,
   excludeFromExport: false,
   blackBox: false,
+  openAIChatStreamTimeouts: false,
 };
 
 export function ProviderFormProvider({ children }: { children: ReactNode }) {

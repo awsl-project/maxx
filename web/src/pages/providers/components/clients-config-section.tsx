@@ -32,6 +32,9 @@ interface ClientsConfigSectionProps {
   /** Codex client-level: allow Responses WebSocket upstream (custom providers). */
   responsesWebSocket?: boolean;
   onUpdateResponsesWebSocket?: (checked: boolean) => void;
+  /** OpenAI Chat client-level: enable provider-scoped HTTP/SSE stream idle timeouts. */
+  openAIChatStreamTimeouts?: boolean;
+  onUpdateOpenAIChatStreamTimeouts?: (checked: boolean) => void;
 }
 
 // Separate component for multiplier input to manage local state
@@ -87,6 +90,8 @@ export function ClientsConfigSection({
   onUpdateDisguise,
   responsesWebSocket,
   onUpdateResponsesWebSocket,
+  openAIChatStreamTimeouts,
+  onUpdateOpenAIChatStreamTimeouts,
 }: ClientsConfigSectionProps) {
   const { t } = useTranslation();
   return (
@@ -252,6 +257,27 @@ export function ClientsConfigSection({
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {client.id === 'openai' && onUpdateOpenAIChatStreamTimeouts && (
+                <div className="mt-5 space-y-4">
+                  <div className="border-t border-border/60" />
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">
+                        {t('provider.openAIChatStreamTimeouts')}
+                      </label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('provider.openAIChatStreamTimeoutsDesc')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={openAIChatStreamTimeouts === true}
+                      onCheckedChange={(checked) => onUpdateOpenAIChatStreamTimeouts(checked)}
+                      disabled={!client.enabled}
+                    />
+                  </div>
                 </div>
               )}
 
