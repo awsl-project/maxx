@@ -54,6 +54,7 @@ import { isAPITokenExpired } from '@/lib/api-token-expiry';
 import type { APIToken } from '@/lib/transport';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 import { buildAPITokenReactivatePayload, buildAPITokenUpdatePayload } from './form-utils';
+import { formatAPITokenPrefix } from './token-display';
 
 type CodexConfigDialogState = {
   tokenName: string;
@@ -465,8 +466,11 @@ export function APITokensPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <code className="text-xs bg-surface-secondary px-2 py-1 rounded font-mono">
-                              {token.tokenPrefix}
+                            <code
+                              className="inline-block w-32 max-w-32 truncate rounded bg-surface-secondary px-2 py-1 font-mono text-xs"
+                              title={token.tokenPrefix}
+                            >
+                              {formatAPITokenPrefix(token.tokenPrefix)}
                             </code>
                             <Button
                               variant="ghost"
@@ -858,7 +862,9 @@ export function APITokensPage() {
                 {expiredTokens.slice(0, 5).map((token) => (
                   <li key={token.id} className="flex items-center justify-between gap-3">
                     <span className="truncate">{token.name}</span>
-                    <code className="shrink-0 font-mono text-text-muted">{token.tokenPrefix}</code>
+                    <code className="shrink-0 font-mono text-text-muted" title={token.tokenPrefix}>
+                      {formatAPITokenPrefix(token.tokenPrefix)}
+                    </code>
                   </li>
                 ))}
                 {expiredTokenCount > 5 && (
