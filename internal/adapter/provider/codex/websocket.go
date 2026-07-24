@@ -550,14 +550,9 @@ func (s *codexWebSocketSession) executeTurn(
 					readErr = io.ErrUnexpectedEOF
 				}
 				message := "Codex websocket closed before terminal event"
-				var closeErr *websocket.CloseError
-				if errors.As(readErr, &closeErr) {
-					if strings.TrimSpace(closeErr.Text) != "" {
-						message = "Codex websocket closed: " + strings.TrimSpace(closeErr.Text)
-					}
-					if closeErr.Code == websocket.CloseServiceRestart || closeErr.Code == websocket.CloseTryAgainLater {
-						provideradapter.MarkResponsesWebSocketTransportUnavailable(providerID)
-					}
+				closeCode, closeReason, hasClose := provideradapter.ClassifyUpstreamResponsesWebSocketClose(readErr, providerID)
+				if hasClose && closeReason != "" {
+					message = "Codex websocket closed: " + closeReason
 				}
 				proxyErr := domain.NewProxyErrorWithMessage(readErr, false, message)
 				proxyErr.Scope = domain.ScopeProvider
@@ -570,9 +565,9 @@ func (s *codexWebSocketSession) executeTurn(
 					FirstEventReceived:          result.FirstEventReceived,
 					ClientEventSent:             result.ClientEventSent,
 				}
-				if closeErr != nil {
-					attemptErr.UpstreamCloseCode = closeErr.Code
-					attemptErr.UpstreamCloseReason = strings.TrimSpace(closeErr.Text)
+				if hasClose {
+					attemptErr.UpstreamCloseCode = closeCode
+					attemptErr.UpstreamCloseReason = closeReason
 				}
 				return result, attemptErr
 			}
