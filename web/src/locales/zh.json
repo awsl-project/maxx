@@ -507,9 +507,12 @@
     },
     "exposedModels": {
       "title": "对外暴露的模型",
-      "desc": "配置允许出现在模型列表接口中的模型。为空时不限制外显，保持原有展示逻辑。支持通配符，如 claude-* 或 gemini-*。",
-      "empty": "未配置外显白名单。模型列表将保持原有展示逻辑。",
-      "placeholder": "例如：claude-* 或 gemini-2.5-*"
+      "desc": "配置哪些模型可以出现在模型列表 API 中。此列表只在启用外显白名单开关后生效。支持 claude-* 或 gemini-* 这类通配符。",
+      "empty": "未配置外显白名单。开关关闭时，模型列表保持旧行为。",
+      "placeholder": "例如：claude-* 或 gemini-2.5-*",
+      "enable": "启用外显白名单",
+      "enableDesc": "默认关闭。关闭时模型列表接口保持旧行为，并忽略此列表。",
+      "emptyEnabled": "外显白名单已启用但列表为空，因此该 provider 不会向模型列表 API 暴露任何模型。"
     },
     "deleteConfirm": {
       "title": "删除提供商？",

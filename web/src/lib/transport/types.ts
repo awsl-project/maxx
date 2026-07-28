@@ -198,7 +198,8 @@ export interface Provider {
   config: ProviderConfig | null;
   supportedClientTypes: ClientType[];
   supportModels?: string[]; // 支持的模型列表（通配符模式），空数组表示支持所有模型
-  exposedModels?: string[]; // 允许对外暴露的模型列表（通配符模式），空数组表示不限制外显
+  exposedModelsEnabled?: boolean; // 是否启用对外暴露模型白名单，默认关闭
+  exposedModels?: string[]; // 允许对外暴露的模型列表（通配符模式），仅启用后生效
   maxConcurrency?: number; // 最大并发上游会话数，0 表示不限制
   excludeFromExport?: boolean; // 为 true 时不参与导出/备份
   blackBox?: boolean; // 为 true 时不可编辑且不向 UI/API 暴露配置细节
@@ -211,6 +212,7 @@ export type CreateProviderData = Omit<
 > & {
   supportedClientTypes?: ClientType[];
   supportModels?: string[];
+  exposedModelsEnabled?: boolean;
   exposedModels?: string[];
 };
 

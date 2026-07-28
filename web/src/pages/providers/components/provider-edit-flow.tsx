@@ -286,10 +286,14 @@ function ProviderSupportModels({
 
 // Provider Exposed Models Section
 function ProviderExposedModels({
+  enabled,
   exposedModels,
+  onEnabledChange,
   onChange,
 }: {
+  enabled: boolean;
   exposedModels: string[];
+  onEnabledChange: (enabled: boolean) => void;
   onChange: (models: string[]) => void;
 }) {
   const { t } = useTranslation();
@@ -318,8 +322,26 @@ function ProviderExposedModels({
         <span className="text-sm text-muted-foreground">({exposedModels.length})</span>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">{t('providers.exposedModels.desc')}</p>
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
+          <div>
+            <div className="text-sm font-medium text-foreground">
+              {t('providers.exposedModels.enable')}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('providers.exposedModels.enableDesc')}
+            </p>
+          </div>
+          <Switch checked={enabled} onCheckedChange={onEnabledChange} />
+        </div>
+
+        <p className="text-xs text-muted-foreground">{t('providers.exposedModels.desc')}</p>
+
+        {enabled && exposedModels.length === 0 && (
+          <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+            {t('providers.exposedModels.emptyEnabled')}
+          </div>
+        )}
 
         {exposedModels.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
@@ -342,7 +364,7 @@ function ProviderExposedModels({
         )}
 
         {exposedModels.length === 0 && (
-          <div className="text-center py-6 mb-4">
+          <div className="text-center py-6">
             <p className="text-muted-foreground text-sm">{t('providers.exposedModels.empty')}</p>
           </div>
         )}
@@ -376,6 +398,7 @@ type EditFormData = {
   apiKey: string;
   clients: ClientConfig[];
   supportModels: string[];
+  exposedModelsEnabled: boolean;
   exposedModels: string[];
   disguiseType?: 'none' | 'claude-code' | 'bedrock';
   cloakMode?: 'auto' | 'always' | 'never';
@@ -423,6 +446,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const [formData, setFormData] = useState<EditFormData>(() => {
     const supportModels = normalizeProviderArrayField(provider.supportModels);
     const exposedModels = normalizeProviderArrayField(provider.exposedModels);
+    const exposedModelsEnabled = provider.exposedModelsEnabled === true;
     // Read effective claude-code sub-options, preferring the new `disguise`
     // shape but falling back to the legacy `cloak` field so providers saved
     // before the migration continue to display their previous settings.
@@ -447,6 +471,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       apiKey: provider.excludeFromExport ? '' : provider.config?.custom?.apiKey || '',
       clients: initClients(),
       supportModels,
+      exposedModelsEnabled,
       exposedModels,
       disguiseType,
       cloakMode: cc?.mode || 'auto',
@@ -583,6 +608,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        exposedModelsEnabled: formData.exposedModelsEnabled,
         exposedModels: formData.exposedModels.length > 0 ? formData.exposedModels : undefined,
         excludeFromExport: !!provider.excludeFromExport,
       };
@@ -656,6 +682,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        exposedModelsEnabled: formData.exposedModelsEnabled,
         exposedModels: formData.exposedModels.length > 0 ? formData.exposedModels : undefined,
       };
 
@@ -1171,7 +1198,11 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
             {/* Provider Exposed Models Allowlist */}
             <ProviderExposedModels
+              enabled={formData.exposedModelsEnabled}
               exposedModels={formData.exposedModels}
+              onEnabledChange={(enabled) =>
+                setFormData((prev) => ({ ...prev, exposedModelsEnabled: enabled }))
+              }
               onChange={(models) => setFormData((prev) => ({ ...prev, exposedModels: models }))}
             />
 
