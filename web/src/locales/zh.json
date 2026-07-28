@@ -512,7 +512,10 @@
       "placeholder": "例如：claude-* 或 gemini-2.5-*",
       "enable": "启用外显白名单",
       "enableDesc": "默认关闭。关闭时模型列表接口保持旧行为，并忽略此列表。",
-      "emptyEnabled": "外显白名单已启用但列表为空，因此该 provider 不会向模型列表 API 暴露任何模型。"
+      "emptyEnabled": "外显白名单已启用但列表为空，因此该 provider 不会向模型列表 API 暴露任何模型。",
+      "statusOn": "已启用",
+      "statusOff": "默认关闭",
+      "remove": "移除 {{model}}"
     },
     "deleteConfirm": {
       "title": "删除提供商？",

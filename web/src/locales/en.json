@@ -515,7 +515,10 @@
       "placeholder": "e.g. claude-* or gemini-2.5-*",
       "enable": "Enable exposure allowlist",
       "enableDesc": "Default off. When off, model-list APIs keep existing behavior and ignore this list.",
-      "emptyEnabled": "The exposure allowlist is enabled but empty, so model-list APIs will expose no models for this provider."
+      "emptyEnabled": "The exposure allowlist is enabled but empty, so model-list APIs will expose no models for this provider.",
+      "statusOn": "On",
+      "statusOff": "Off by default",
+      "remove": "Remove {{model}}"
     },
     "deleteConfirm": {
       "title": "Delete Provider?",
