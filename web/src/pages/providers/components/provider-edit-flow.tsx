@@ -12,7 +12,6 @@ import {
   Zap,
   Filter,
   Eye,
-  Eye,
   EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';

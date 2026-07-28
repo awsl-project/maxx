@@ -507,7 +507,7 @@
       "desc": "Configure which models this provider supports. If empty, all models are supported. Supports wildcards like claude-* or gemini-*.",
       "empty": "No model filter configured. All models will be supported.",
       "placeholder": "e.g. claude-* or gemini-2.5-*"
-    },,
+    },
     "exposedModels": {
       "title": "Exposed Models",
       "desc": "Configure which models may appear in model-list APIs. If empty, exposure is unrestricted and existing behavior is preserved. Supports wildcards like claude-* or gemini-*.",
