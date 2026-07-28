@@ -123,6 +123,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			Config:               p.Config,
 			SupportedClientTypes: p.SupportedClientTypes,
 			SupportModels:        p.SupportModels,
+			ExposedModelsEnabled: p.ExposedModelsEnabled,
 			ExposedModels:        p.ExposedModels,
 			MaxConcurrency:       p.MaxConcurrency,
 		})
@@ -539,6 +540,7 @@ func (s *BackupService) importProviders(tenantID uint64, providers []domain.Back
 			Config:               bp.Config,
 			SupportedClientTypes: bp.SupportedClientTypes,
 			SupportModels:        bp.SupportModels,
+			ExposedModelsEnabled: bp.ExposedModelsEnabled,
 			ExposedModels:        bp.ExposedModels,
 			MaxConcurrency:       bp.MaxConcurrency,
 		}

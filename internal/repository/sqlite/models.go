@@ -95,6 +95,7 @@ type Provider struct {
 	Config               LongText
 	SupportedClientTypes LongText
 	SupportModels        LongText
+	ExposedModelsEnabled int `gorm:"default:0"`
 	ExposedModels        LongText
 	MaxConcurrency       int `gorm:"default:0"`
 	ExcludeFromExport    int `gorm:"default:0"`

@@ -665,6 +665,7 @@ func cloneProviderForBatch(provider *domain.Provider) *domain.Provider {
 	clone := *provider
 	clone.SupportedClientTypes = append([]domain.ClientType(nil), provider.SupportedClientTypes...)
 	clone.SupportModels = append([]string(nil), provider.SupportModels...)
+	clone.ExposedModels = append([]string(nil), provider.ExposedModels...)
 	if provider.Config != nil {
 		cfg := *provider.Config
 		if provider.Config.Custom != nil {

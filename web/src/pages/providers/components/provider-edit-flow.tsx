@@ -286,10 +286,14 @@ function ProviderSupportModels({
 
 // Provider Exposed Models Section
 function ProviderExposedModels({
+  enabled,
   exposedModels,
+  onEnabledChange,
   onChange,
 }: {
+  enabled: boolean;
   exposedModels: string[];
+  onEnabledChange: (enabled: boolean) => void;
   onChange: (models: string[]) => void;
 }) {
   const { t } = useTranslation();
@@ -318,36 +322,89 @@ function ProviderExposedModels({
         <span className="text-sm text-muted-foreground">({exposedModels.length})</span>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">{t('providers.exposedModels.desc')}</p>
-
-        {exposedModels.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-4">
-            {exposedModels.map((model) => (
-              <div
-                key={model}
-                className="flex items-center gap-1 bg-muted/50 border border-border rounded-lg px-3 py-1.5"
-              >
-                <span className="text-sm">{model}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveModel(model)}
-                  className="text-muted-foreground hover:text-destructive ml-1"
+      <div
+        className={`rounded-xl border bg-card p-4 shadow-sm transition-colors ${
+          enabled ? 'border-emerald-500/40' : 'border-border'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
+          <div className="flex min-w-0 gap-3">
+            <div
+              className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                enabled ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {enabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-sm font-medium text-foreground">
+                  {t('providers.exposedModels.enable')}
+                </div>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    enabled
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                  {enabled
+                    ? t('providers.exposedModels.statusOn')
+                    : t('providers.exposedModels.statusOff')}
+                </span>
               </div>
-            ))}
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {t('providers.exposedModels.enableDesc')}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={onEnabledChange}
+            className="shrink-0 self-center"
+          />
+        </div>
+
+        <div className="mt-4 rounded-lg bg-muted/20 p-3">
+          <p className="text-xs leading-5 text-muted-foreground">
+            {t('providers.exposedModels.desc')}
+          </p>
+        </div>
+
+        {enabled && exposedModels.length === 0 && (
+          <div className="mt-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs leading-5 text-warning">
+            {t('providers.exposedModels.emptyEnabled')}
           </div>
         )}
 
-        {exposedModels.length === 0 && (
-          <div className="text-center py-6 mb-4">
-            <p className="text-muted-foreground text-sm">{t('providers.exposedModels.empty')}</p>
-          </div>
-        )}
+        <div className="mt-4">
+          {exposedModels.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {exposedModels.map((model) => (
+                <div
+                  key={model}
+                  className="group flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm"
+                >
+                  <span className="text-sm text-foreground">{model}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveModel(model)}
+                    className="text-muted-foreground transition-colors hover:text-destructive group-hover:text-foreground"
+                    aria-label={t('providers.exposedModels.remove', { model })}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border py-6 text-center">
+              <p className="text-sm text-muted-foreground">{t('providers.exposedModels.empty')}</p>
+            </div>
+          )}
+        </div>
 
-        <div className="flex items-center gap-2 pt-4 border-t border-border">
+        <div className="mt-4 flex items-center gap-2 border-t border-border pt-4">
           <ModelInput
             value={newModel}
             onChange={setNewModel}
@@ -376,6 +433,7 @@ type EditFormData = {
   apiKey: string;
   clients: ClientConfig[];
   supportModels: string[];
+  exposedModelsEnabled: boolean;
   exposedModels: string[];
   disguiseType?: 'none' | 'claude-code' | 'bedrock';
   cloakMode?: 'auto' | 'always' | 'never';
@@ -423,6 +481,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const [formData, setFormData] = useState<EditFormData>(() => {
     const supportModels = normalizeProviderArrayField(provider.supportModels);
     const exposedModels = normalizeProviderArrayField(provider.exposedModels);
+    const exposedModelsEnabled = provider.exposedModelsEnabled === true;
     // Read effective claude-code sub-options, preferring the new `disguise`
     // shape but falling back to the legacy `cloak` field so providers saved
     // before the migration continue to display their previous settings.
@@ -447,6 +506,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       apiKey: provider.excludeFromExport ? '' : provider.config?.custom?.apiKey || '',
       clients: initClients(),
       supportModels,
+      exposedModelsEnabled,
       exposedModels,
       disguiseType,
       cloakMode: cc?.mode || 'auto',
@@ -583,6 +643,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        exposedModelsEnabled: formData.exposedModelsEnabled,
         exposedModels: formData.exposedModels.length > 0 ? formData.exposedModels : undefined,
         excludeFromExport: !!provider.excludeFromExport,
       };
@@ -656,6 +717,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        exposedModelsEnabled: formData.exposedModelsEnabled,
         exposedModels: formData.exposedModels.length > 0 ? formData.exposedModels : undefined,
       };
 
@@ -1171,7 +1233,11 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
             {/* Provider Exposed Models Allowlist */}
             <ProviderExposedModels
+              enabled={formData.exposedModelsEnabled}
               exposedModels={formData.exposedModels}
+              onEnabledChange={(enabled) =>
+                setFormData((prev) => ({ ...prev, exposedModelsEnabled: enabled }))
+              }
               onChange={(models) => setFormData((prev) => ({ ...prev, exposedModels: models }))}
             />
 

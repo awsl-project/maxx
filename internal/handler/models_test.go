@@ -112,6 +112,27 @@ func TestCollectModelNames(t *testing.T) {
 	}
 }
 
+func TestCollectModelNamesIgnoresDisabledExposureAllowlist(t *testing.T) {
+	providerRepo := &fakeProviderRepo{
+		providers: []*domain.Provider{
+			{SupportModels: []string{"gpt-supported"}, ExposedModels: []string{"gpt-hidden"}},
+			{ExposedModelsEnabled: true, ExposedModels: []string{"gpt-visible"}},
+		},
+	}
+
+	handler := NewModelsHandler(nil, providerRepo, nil)
+	names, err := handler.collectModelNames(0)
+	if err != nil {
+		t.Fatalf("collectModelNames error: %v", err)
+	}
+	if containsModel(names, "gpt-hidden") {
+		t.Fatalf("names = %v, disabled exposure allowlist must not add candidate models", names)
+	}
+	if !containsModel(names, "gpt-supported") || !containsModel(names, "gpt-visible") {
+		t.Fatalf("names = %v, want supported and enabled exposed models", names)
+	}
+}
+
 func TestModelsHandlerFormats(t *testing.T) {
 	responseRepo := &fakeResponseModelRepo{names: []string{"gpt-1"}}
 	handler := NewModelsHandler(responseRepo, nil, nil)
@@ -280,5 +301,25 @@ func TestShouldIncludePricingModelForUserAgentOpenAIOSeriesMatching(t *testing.T
 	}
 	if shouldIncludePricingModelForUserAgent("ollama-foo", "codex_cli_rs/0.98.0") {
 		t.Fatalf("did not expect ollama-foo to be included")
+	}
+}
+
+func TestProviderModelExposureRequiresExplicitEnable(t *testing.T) {
+	provider := &domain.Provider{ExposedModels: []string{"gpt-public"}}
+	if !isProviderModelExposed(provider, "gpt-private") {
+		t.Fatal("disabled exposure allowlist must keep existing unrestricted model-list behavior")
+	}
+
+	provider.ExposedModelsEnabled = true
+	if isProviderModelExposed(provider, "gpt-private") {
+		t.Fatal("enabled exposure allowlist must filter non-matching models")
+	}
+	if !isProviderModelExposed(provider, "gpt-public") {
+		t.Fatal("enabled exposure allowlist must allow matching models")
+	}
+
+	provider.ExposedModels = nil
+	if isProviderModelExposed(provider, "gpt-public") {
+		t.Fatal("enabled empty exposure allowlist must expose no provider models")
 	}
 }

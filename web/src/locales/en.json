@@ -510,9 +510,15 @@
     },
     "exposedModels": {
       "title": "Exposed Models",
-      "desc": "Configure which models may appear in model-list APIs. If empty, exposure is unrestricted and existing behavior is preserved. Supports wildcards like claude-* or gemini-*.",
-      "empty": "No exposure allowlist configured. Model lists keep the existing behavior.",
-      "placeholder": "e.g. claude-* or gemini-2.5-*"
+      "desc": "Configure which models may appear in model-list APIs. This list only applies when the exposure allowlist switch is enabled. Supports wildcards like claude-* or gemini-*.",
+      "empty": "No exposure allowlist configured. With the switch off, model lists keep the existing behavior.",
+      "placeholder": "e.g. claude-* or gemini-2.5-*",
+      "enable": "Enable exposure allowlist",
+      "enableDesc": "Default off. When off, model-list APIs keep existing behavior and ignore this list.",
+      "emptyEnabled": "The exposure allowlist is enabled but empty, so model-list APIs will expose no models for this provider.",
+      "statusOn": "On",
+      "statusOff": "Off by default",
+      "remove": "Remove {{model}}"
     },
     "deleteConfirm": {
       "title": "Delete Provider?",

@@ -40,6 +40,7 @@ type BackupProvider struct {
 	Config               *ProviderConfig `json:"config,omitempty"`
 	SupportedClientTypes []ClientType    `json:"supportedClientTypes,omitempty"`
 	SupportModels        []string        `json:"supportModels,omitempty"`
+	ExposedModelsEnabled bool            `json:"exposedModelsEnabled,omitempty"`
 	ExposedModels        []string        `json:"exposedModels,omitempty"`
 	MaxConcurrency       int             `json:"maxConcurrency,omitempty"`
 }

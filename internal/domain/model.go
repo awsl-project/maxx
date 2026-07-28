@@ -450,8 +450,11 @@ type Provider struct {
 	// 空数组表示支持所有模型
 	SupportModels []string `json:"supportModels,omitempty"`
 
-	// 对外暴露的模型列表（通配符模式）。仅影响 /v1/models、/v1beta/models 等模型列表接口；
-	// 空数组表示不限制外显，保持旧行为。不要用于路由阻断。
+	// 是否启用对外暴露模型白名单。默认 false，保持旧行为；
+	// 只有启用后 ExposedModels 才会过滤 /v1/models、/v1beta/models 等模型列表接口。
+	ExposedModelsEnabled bool `json:"exposedModelsEnabled,omitempty"`
+
+	// 对外暴露的模型列表（通配符模式）。仅影响模型列表接口，不用于路由阻断。
 	ExposedModels []string `json:"exposedModels,omitempty"`
 
 	// Maximum number of upstream sessions allowed at once. Zero means unlimited.
