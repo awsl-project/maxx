@@ -327,7 +327,7 @@ function ProviderExposedModels({
           enabled ? 'border-emerald-500/40' : 'border-border'
         }`}
       >
-        <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
           <div className="flex min-w-0 gap-3">
             <div
               className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
@@ -358,7 +358,11 @@ function ProviderExposedModels({
               </p>
             </div>
           </div>
-          <Switch checked={enabled} onCheckedChange={onEnabledChange} />
+          <Switch
+            checked={enabled}
+            onCheckedChange={onEnabledChange}
+            className="shrink-0 self-center"
+          />
         </div>
 
         <div className="mt-4 rounded-lg bg-muted/20 p-3">
