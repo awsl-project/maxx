@@ -210,7 +210,6 @@ function ProviderSupportModels({
   onChange,
 }: {
   supportModels: string[];
-  exposedModels: string[];
   onChange: (models: string[]) => void;
 }) {
   const { t } = useTranslation();
@@ -377,6 +376,7 @@ type EditFormData = {
   apiKey: string;
   clients: ClientConfig[];
   supportModels: string[];
+  exposedModels: string[];
   disguiseType?: 'none' | 'claude-code' | 'bedrock';
   cloakMode?: 'auto' | 'always' | 'never';
   cloakStrictMode?: boolean;
