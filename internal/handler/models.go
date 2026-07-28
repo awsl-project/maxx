@@ -140,6 +140,9 @@ func (h *ModelsHandler) collectCandidateModelNames(tenantID uint64, userAgent st
 			for _, name := range provider.SupportModels {
 				addModelName(result, name)
 			}
+			for _, name := range provider.ExposedModels {
+				addModelName(result, name)
+			}
 		}
 	}
 
@@ -176,7 +179,22 @@ func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.Clie
 		if matched == nil || matched.Provider == nil {
 			continue
 		}
-		if providerID == 0 || matched.Provider.ID == providerID {
+		if providerID != 0 && matched.Provider.ID != providerID {
+			continue
+		}
+		if isProviderModelExposed(matched.Provider, model) {
+			return true
+		}
+	}
+	return false
+}
+
+func isProviderModelExposed(provider *domain.Provider, model string) bool {
+	if provider == nil || len(provider.ExposedModels) == 0 {
+		return true
+	}
+	for _, pattern := range provider.ExposedModels {
+		if domain.MatchWildcard(pattern, model) {
 			return true
 		}
 	}
