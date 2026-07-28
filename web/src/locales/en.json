@@ -508,6 +508,12 @@
       "empty": "No model filter configured. All models will be supported.",
       "placeholder": "e.g. claude-* or gemini-2.5-*"
     },
+    "exposedModels": {
+      "title": "Exposed Models",
+      "desc": "Configure which models may appear in model-list APIs. If empty, exposure is unrestricted and existing behavior is preserved. Supports wildcards like claude-* or gemini-*.",
+      "empty": "No exposure allowlist configured. Model lists keep the existing behavior.",
+      "placeholder": "e.g. claude-* or gemini-2.5-*"
+    },
     "deleteConfirm": {
       "title": "Delete Provider?",
       "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone."

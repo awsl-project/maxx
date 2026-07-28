@@ -505,6 +505,12 @@
       "empty": "未配置模型过滤器。将支持所有模型。",
       "placeholder": "例如：claude-* 或 gemini-2.5-*"
     },
+    "exposedModels": {
+      "title": "对外暴露的模型",
+      "desc": "配置允许出现在模型列表接口中的模型。为空时不限制外显，保持原有展示逻辑。支持通配符，如 claude-* 或 gemini-*。",
+      "empty": "未配置外显白名单。模型列表将保持原有展示逻辑。",
+      "placeholder": "例如：claude-* 或 gemini-2.5-*"
+    },
     "deleteConfirm": {
       "title": "删除提供商？",
       "description": "确定要删除「{{name}}」吗？此操作无法撤销。"
