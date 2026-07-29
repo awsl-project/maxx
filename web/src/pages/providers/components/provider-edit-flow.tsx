@@ -444,6 +444,8 @@ type EditFormData = {
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
   maxConcurrency: number;
+  excludeFromExport: boolean;
+  blackBox: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
   // false/undefined = 不启用 Codex Responses WebSocket；true = 允许 WS 上游。
@@ -517,11 +519,16 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       smartMappingRetryEnabled: provider.config?.smartMappingRetryEnabled ?? false,
       smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
       maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
+      excludeFromExport: !!provider.excludeFromExport || !!provider.blackBox,
+      blackBox: !!provider.blackBox,
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
       responsesWebSocket: provider.config?.custom?.responsesWebSocket === true,
     };
   });
   const providerConfigIsWriteOnly = !!provider.excludeFromExport;
+  const excludeFromExportLocked = providerConfigIsWriteOnly;
+  const effectiveExcludeFromExport =
+    excludeFromExportLocked || !!formData.blackBox || !!formData.excludeFromExport;
   const runtimeModelsPreview = useMemo<ProviderRuntimeModelsPreviewRequest | undefined>(() => {
     const clientBaseURL: Partial<Record<ClientType, string>> = {};
     formData.clients.forEach((client) => {
@@ -645,7 +652,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
         exposedModelsEnabled: formData.exposedModelsEnabled,
         exposedModels: formData.exposedModels.length > 0 ? formData.exposedModels : undefined,
-        excludeFromExport: !!provider.excludeFromExport,
+        excludeFromExport: effectiveExcludeFromExport,
+        blackBox: !!formData.blackBox,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -719,6 +727,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
         exposedModelsEnabled: formData.exposedModelsEnabled,
         exposedModels: formData.exposedModels.length > 0 ? formData.exposedModels : undefined,
+        excludeFromExport: effectiveExcludeFromExport,
+        blackBox: !!formData.blackBox,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -1137,6 +1147,54 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.visibilityAndExport')}
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.blackBox')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('provider.blackBoxDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!formData.blackBox}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        blackBox: checked,
+                        excludeFromExport: checked ? true : prev.excludeFromExport,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.excludeFromExport')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {excludeFromExportLocked
+                        ? t('provider.excludeFromExportLockedDesc')
+                        : t('provider.excludeFromExportDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={effectiveExcludeFromExport}
+                    disabled={excludeFromExportLocked || !!formData.blackBox}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
+                    }
+                  />
                 </div>
               </div>
             </div>
