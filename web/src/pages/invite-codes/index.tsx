@@ -339,12 +339,11 @@ export function InviteCodesPage() {
       <Dialog open={!!usageDialogCode} onOpenChange={() => setUsageDialogCode(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{t('inviteCodes.usagesTitle')}</DialogTitle>
-            <DialogDescription>
+            <DialogTitle>
               {usageDialogCode
-                ? `${t('inviteCodes.codePrefix')}: ${usageDialogCode.codePrefix}`
-                : ''}
-            </DialogDescription>
+                ? t('inviteCodes.usagesTitleWithCode', { codePrefix: usageDialogCode.codePrefix })
+                : t('inviteCodes.usagesTitle')}
+            </DialogTitle>
           </DialogHeader>
           <div className="max-h-80 overflow-auto">
             {usagesLoading ? (

@@ -1141,6 +1141,7 @@
     "createdDescription": "请立即复制，邀请码仅显示一次。",
     "copyAll": "复制全部",
     "usagesTitle": "邀请码使用记录",
+    "usagesTitleWithCode": "邀请码 {{codePrefix}} 的使用记录",
     "usageUser": "用户",
     "usageTime": "使用时间",
     "usageIP": "IP 地址"
