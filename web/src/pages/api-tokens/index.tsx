@@ -90,6 +90,8 @@ export function APITokensPage() {
   const [deletingToken, setDeletingToken] = useState<APIToken | null>(null);
   const [cleanupExpiredDialogOpen, setCleanupExpiredDialogOpen] = useState(false);
   const [lastCleanupCount, setLastCleanupCount] = useState<number | null>(null);
+  const [lastReactivatedCount, setLastReactivatedCount] = useState<number | null>(null);
+  const [isReactivatingExpired, setIsReactivatingExpired] = useState(false);
   const [newTokenDialog, setNewTokenDialog] = useState<{
     token: string;
     name: string;
@@ -204,6 +206,25 @@ export function APITokensPage() {
       id: token.id,
       data: buildAPITokenReactivatePayload(),
     });
+  };
+
+  const handleReactivateExpiredTokens = async () => {
+    if (expiredTokens.length === 0) return;
+
+    setIsReactivatingExpired(true);
+    try {
+      await Promise.all(
+        expiredTokens.map((token) =>
+          updateToken.mutateAsync({
+            id: token.id,
+            data: buildAPITokenReactivatePayload(),
+          }),
+        ),
+      );
+      setLastReactivatedCount(expiredTokens.length);
+    } finally {
+      setIsReactivatingExpired(false);
+    }
   };
 
   const handleDelete = () => {
@@ -424,21 +445,45 @@ export function APITokensPage() {
                         {t('apiTokens.cleanupExpired.lastResult', { count: lastCleanupCount })}
                       </p>
                     )}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCleanupExpiredDialogOpen(true)}
-                    disabled={expiredTokenCount === 0 || cleanupExpiredTokens.isPending}
-                    className="self-start text-destructive hover:text-destructive sm:self-auto"
-                  >
-                    {cleanupExpiredTokens.isPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="mr-2 h-4 w-4" />
+                    {lastReactivatedCount !== null && (
+                      <p className="text-xs text-text-muted">
+                        {t('apiTokens.reactivateExpired.lastResult', {
+                          count: lastReactivatedCount,
+                        })}
+                      </p>
                     )}
-                    {t('apiTokens.cleanupExpired.button', { count: expiredTokenCount })}
-                  </Button>
+                  </div>
+                  <div className="flex flex-col gap-2 self-start sm:self-auto md:flex-row">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleReactivateExpiredTokens}
+                      disabled={
+                        expiredTokenCount === 0 || updateToken.isPending || isReactivatingExpired
+                      }
+                    >
+                      {isReactivatingExpired ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="mr-2 h-4 w-4" />
+                      )}
+                      {t('apiTokens.reactivateExpired.button', { count: expiredTokenCount })}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCleanupExpiredDialogOpen(true)}
+                      disabled={expiredTokenCount === 0 || cleanupExpiredTokens.isPending}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      {cleanupExpiredTokens.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="mr-2 h-4 w-4" />
+                      )}
+                      {t('apiTokens.cleanupExpired.button', { count: expiredTokenCount })}
+                    </Button>
+                  </div>
                 </div>
                 <Table>
                   <TableHeader>
@@ -567,7 +612,7 @@ export function APITokensPage() {
                                 size="sm"
                                 aria-label={t('apiTokens.reactivateToken')}
                                 title={t('apiTokens.reactivateToken')}
-                                disabled={updateToken.isPending}
+                                disabled={updateToken.isPending || isReactivatingExpired}
                                 onClick={() => handleReactivateToken(token)}
                               >
                                 <RotateCcw className="h-4 w-4" />

@@ -1568,6 +1568,10 @@
       "more": "and {{count}} more token(s)",
       "lastResult": "Last cleanup removed {{count}} expired token(s)."
     },
+    "reactivateExpired": {
+      "button": "Reset validity ({{count}})",
+      "lastResult": "Last reset restored {{count}} expired token(s)."
+    },
     "newTokenDialog": {
       "title": "Token Created Successfully",
       "description": "Copy your new API token now. ",
