@@ -1153,54 +1153,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-                {t('provider.visibilityAndExport')}
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
-                  <div className="pr-4">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('provider.blackBox')}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t('provider.blackBoxDesc')}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={!!formData.blackBox}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        blackBox: checked,
-                        excludeFromExport: checked ? true : prev.excludeFromExport,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
-                  <div className="pr-4">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('provider.excludeFromExport')}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {excludeFromExportLocked
-                        ? t('provider.excludeFromExportLockedDesc')
-                        : t('provider.excludeFromExportDesc')}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={effectiveExcludeFromExport}
-                    disabled={excludeFromExportLocked || !!formData.blackBox}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
                 {t('provider.clientConfig')}
               </h3>
               <ClientsConfigSection
@@ -1280,6 +1232,54 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
                   }
                 />
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.visibilityAndExport')}
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.blackBox')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('provider.blackBoxDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!formData.blackBox}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        blackBox: checked,
+                        excludeFromExport: checked ? true : prev.excludeFromExport,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.excludeFromExport')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {excludeFromExportLocked
+                        ? t('provider.excludeFromExportLockedDesc')
+                        : t('provider.excludeFromExportDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={effectiveExcludeFromExport}
+                    disabled={excludeFromExportLocked || !!formData.blackBox}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
+                    }
+                  />
+                </div>
               </div>
             </div>
 
