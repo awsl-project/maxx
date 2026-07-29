@@ -1144,6 +1144,7 @@
     "createdDescription": "Copy these codes now. They will only be shown once.",
     "copyAll": "Copy All Codes",
     "usagesTitle": "Invite Code Usages",
+    "usagesTitleWithCode": "Invite code {{codePrefix}} usages",
     "usageUser": "User",
     "usageTime": "Used At",
     "usageIP": "IP Address"
