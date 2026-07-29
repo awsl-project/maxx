@@ -564,9 +564,11 @@ func main() {
 	}
 	loggedMux := handler.CORSMiddleware(corsConfig, handler.LoggingMiddleware(mux))
 
+	serverAddr := core.ResolveServerBindAddress(*addr, settingRepo, flagPassed("addr"))
+
 	// Create HTTP server
 	server := &http.Server{
-		Addr:    *addr,
+		Addr:    serverAddr,
 		Handler: loggedMux,
 	}
 
@@ -658,7 +660,7 @@ func main() {
 	adminHandler.SetRestartFunc(restartServer)
 
 	// Start server in goroutine
-	log.Printf("Starting Maxx server %s on %s", version.Info(), *addr)
+	log.Printf("Starting Maxx server %s on %s", version.Info(), serverAddr)
 	log.Printf("Data directory: %s", dataDirPath)
 	log.Printf("  Database: %s", dbPath)
 	log.Printf("  Log file: %s", logPath)

@@ -70,6 +70,7 @@ const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
 const OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'openai_chat_stream_timeouts_enabled';
 const OPENAI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY = 'openai_chat_stream_first_event_timeout_ms';
 const OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY = 'openai_chat_stream_idle_timeout_ms';
+const LAN_ACCESS_ENABLED_SETTING_KEY = 'lan_access_enabled';
 const DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS = '20000';
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
@@ -131,7 +132,7 @@ export function SettingsPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="space-y-6">
           <GeneralSection />
-          <BackendAddressSection />
+          <BackendAddressSection canManageLocalService={isAdmin} />
           {isAdmin && (
             <>
               <MultiTenantUISection />
@@ -285,8 +286,42 @@ function GeneralSection() {
   );
 }
 
-function BackendAddressSection() {
+function BackendAddressSection({ canManageLocalService }: { canManageLocalService: boolean }) {
   const { t } = useTranslation();
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { transport } = useTransport();
+  const [restartRequired, setRestartRequired] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+
+  const lanAccessEnabled = settings?.[LAN_ACCESS_ENABLED_SETTING_KEY] !== 'false';
+
+  const handleLANAccessChange = async (enabled: boolean) => {
+    await updateSetting.mutateAsync({
+      key: LAN_ACCESS_ENABLED_SETTING_KEY,
+      value: enabled ? 'true' : 'false',
+    });
+    setRestartRequired(true);
+  };
+
+  const handleRestartServer = async () => {
+    setIsRestarting(true);
+    try {
+      const launcher = (
+        window as unknown as {
+          go?: { desktop?: { LauncherApp?: { RestartServer?: () => Promise<void> } } };
+        }
+      ).go?.desktop?.LauncherApp;
+      if (launcher?.RestartServer) {
+        await launcher.RestartServer();
+      } else {
+        await transport.restartServer();
+      }
+      setRestartRequired(false);
+    } finally {
+      setIsRestarting(false);
+    }
+  };
 
   return (
     <Card className="border-border bg-card">
@@ -296,7 +331,46 @@ function BackendAddressSection() {
           {t('backendAddress.title')}
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {canManageLocalService && !isLoading && (
+          <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/25 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label className="text-sm font-medium">{t('backendAddress.lanService')}</Label>
+                <p className="text-muted-foreground mt-1 text-xs leading-5">
+                  {t('backendAddress.lanServiceDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={lanAccessEnabled}
+                onCheckedChange={handleLANAccessChange}
+                disabled={updateSetting.isPending || isRestarting}
+                aria-label={t('backendAddress.lanService')}
+              />
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {lanAccessEnabled
+                ? t('backendAddress.lanServiceOnHint')
+                : t('backendAddress.lanServiceOffHint')}
+            </p>
+            {restartRequired && (
+              <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  {t('backendAddress.restartRequired')}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleRestartServer}
+                  disabled={isRestarting}
+                >
+                  {isRestarting ? t('backendAddress.restarting') : t('backendAddress.restartNow')}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         <BackendAddressControl alwaysOpen />
       </CardContent>
     </Card>

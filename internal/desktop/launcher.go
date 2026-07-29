@@ -237,8 +237,9 @@ func (a *LauncherApp) startServerAsync() {
 	}
 
 	// 创建并启动服务器（启用静态文件服务）
+	serverBindAddr := core.ResolveServerBindAddress(a.serverPort, dbRepos.SettingRepo, false)
 	serverConfig := &core.ServerConfig{
-		Addr:        a.serverPort,
+		Addr:        serverBindAddr,
 		DataDir:     a.dataDir,
 		InstanceID:  a.instanceID,
 		Components:  components,
@@ -270,7 +271,7 @@ func (a *LauncherApp) startServerAsync() {
 	a.starting = false
 	a.mu.Unlock()
 
-	log.Printf("[Launcher] HTTP server started successfully on %s", a.serverPort)
+	log.Printf("[Launcher] HTTP server started successfully on %s", serverBindAddr)
 	log.Println("[Launcher] ========== Server Ready ==========")
 }
 
