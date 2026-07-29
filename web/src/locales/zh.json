@@ -1565,6 +1565,10 @@
       "more": "以及另外 {{count}} 个令牌",
       "lastResult": "上次已清理 {{count}} 个已过期令牌。"
     },
+    "reactivateExpired": {
+      "button": "一键恢复有效 ({{count}})",
+      "lastResult": "上次已恢复 {{count}} 个已过期令牌。"
+    },
     "newTokenDialog": {
       "title": "令牌创建成功",
       "description": "请立即复制您的新 API 令牌。",
