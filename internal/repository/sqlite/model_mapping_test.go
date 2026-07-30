@@ -49,6 +49,62 @@ func TestModelMappingRepositoryReorderUpdatesPrioritiesAtomically(t *testing.T) 
 	}
 }
 
+func TestModelMappingRepositoryReorderRejectsIncompleteProviderOrder(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("NewDBWithDSN() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewModelMappingRepository(db)
+	mappings := []*domain.ModelMapping{
+		{TenantID: 1, Scope: domain.ModelMappingScopeProvider, ProviderID: 101, Pattern: "a", Target: "target-a", Priority: 0},
+		{TenantID: 1, Scope: domain.ModelMappingScopeProvider, ProviderID: 101, Pattern: "b", Target: "target-b", Priority: 10},
+	}
+	for _, mapping := range mappings {
+		if err := repo.Create(mapping); err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+	}
+
+	if err := repo.Reorder(1, domain.ModelMappingReorderRequest{
+		Scope:      domain.ModelMappingScopeProvider,
+		ProviderID: 101,
+		OrderedIDs: []uint64{mappings[1].ID},
+	}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("Reorder() incomplete order error = %v, want ErrInvalidInput", err)
+	}
+
+	got, err := repo.ListByQuery(1, &domain.ModelMappingQuery{ProviderID: 101})
+	if err != nil {
+		t.Fatalf("ListByQuery() error = %v", err)
+	}
+	if got[0].ID != mappings[0].ID || got[0].Priority != 0 || got[1].ID != mappings[1].ID || got[1].Priority != 10 {
+		t.Fatalf("incomplete reorder should not mutate priorities: %#v", got)
+	}
+}
+
+func TestModelMappingRepositoryReorderRejectsMissingProviderID(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("NewDBWithDSN() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewModelMappingRepository(db)
+	mapping := &domain.ModelMapping{TenantID: 1, Scope: domain.ModelMappingScopeProvider, ProviderID: 101, Pattern: "a", Target: "target-a", Priority: 0}
+	if err := repo.Create(mapping); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if err := repo.Reorder(1, domain.ModelMappingReorderRequest{
+		Scope:      domain.ModelMappingScopeProvider,
+		OrderedIDs: []uint64{mapping.ID},
+	}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("Reorder() missing providerID error = %v, want ErrInvalidInput", err)
+	}
+}
+
 func TestModelMappingRepositoryReorderRejectsScopeOrProviderMismatch(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
