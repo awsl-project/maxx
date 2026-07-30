@@ -1830,6 +1830,11 @@ func (s *AdminService) UpdateModelMapping(tenantID uint64, mapping *domain.Model
 	return s.modelMappingRepo.Update(mapping)
 }
 
+// ReorderModelMappings updates priorities for mappings inside one sortable scope.
+func (s *AdminService) ReorderModelMappings(tenantID uint64, req domain.ModelMappingReorderRequest) error {
+	return s.modelMappingRepo.Reorder(tenantID, req)
+}
+
 // DeleteModelMapping deletes a model mapping by ID
 func (s *AdminService) DeleteModelMapping(tenantID uint64, id uint64) error {
 	return s.modelMappingRepo.Delete(tenantID, id)

@@ -1941,6 +1941,11 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 		h.handleResetModelMappingsToDefaults(w, r)
 		return
 	}
+	// Check for reorder endpoint: /admin/model-mappings/reorder
+	if strings.HasSuffix(path, "/reorder") {
+		h.handleReorderModelMappings(w, r)
+		return
+	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 
@@ -2041,6 +2046,40 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 }
 
 // handleClearAllModelMappings handles DELETE /admin/model-mappings/clear-all
+func (h *AdminHandler) handleReorderModelMappings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req domain.ModelMappingReorderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(req.OrderedIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "orderedIDs is required"})
+		return
+	}
+	tenantID := maxxctx.GetTenantID(r.Context())
+	if err := h.svc.ReorderModelMappings(tenantID, req); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrInvalidInput) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, domain.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	mappings, err := h.svc.GetModelMappings(tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, mappings)
+}
+
 func (h *AdminHandler) handleClearAllModelMappings(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})

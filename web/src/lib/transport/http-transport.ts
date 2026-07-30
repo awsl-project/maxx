@@ -42,6 +42,7 @@ import type {
   ProviderRuntimeModelsPreviewRequest,
   ModelMapping,
   ModelMappingInput,
+  ModelMappingReorderInput,
   ImportResult,
   Cooldown,
   KiroTokenValidationResult,
@@ -780,6 +781,11 @@ export class HttpTransport implements Transport {
   async updateModelMapping(id: number, input: ModelMappingInput): Promise<ModelMapping> {
     const { data } = await this.client.put<ModelMapping>(`/model-mappings/${id}`, input);
     return data;
+  }
+
+  async reorderModelMappings(input: ModelMappingReorderInput): Promise<ModelMapping[]> {
+    const { data } = await this.client.post<ModelMapping[]>('/model-mappings/reorder', input);
+    return this.expectArray<ModelMapping>(data, '/model-mappings/reorder');
   }
 
   async deleteModelMapping(id: number): Promise<void> {

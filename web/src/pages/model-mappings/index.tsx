@@ -33,6 +33,7 @@ import {
   useModelMappings,
   useCreateModelMapping,
   useUpdateModelMapping,
+  useReorderModelMappings,
   useDeleteModelMapping,
   useClearAllModelMappings,
   useResetModelMappingsToDefaults,
@@ -134,6 +135,7 @@ export function ModelMappingsPage() {
   const { data: mappings, isLoading } = useModelMappings();
   const createMapping = useCreateModelMapping();
   const updateMapping = useUpdateModelMapping();
+  const reorderMappings = useReorderModelMappings();
   const deleteMapping = useDeleteModelMapping();
   const clearAllMappings = useClearAllModelMappings();
   const resetToDefaults = useResetModelMappingsToDefaults();
@@ -166,21 +168,10 @@ export function ModelMappingsPage() {
 
     if (oldIndex !== -1 && newIndex !== -1) {
       const reordered = arrayMove(rules, oldIndex, newIndex);
-      for (let i = 0; i < reordered.length; i++) {
-        const rule = reordered[i];
-        if (rule.priority !== i * 10) {
-          await updateMapping.mutateAsync({
-            id: rule.id,
-            data: {
-              pattern: rule.pattern,
-              target: rule.target,
-              scope: 'global',
-              priority: i * 10,
-              isEnabled: rule.isEnabled,
-            },
-          });
-        }
-      }
+      await reorderMappings.mutateAsync({
+        scope: 'global',
+        orderedIDs: reordered.map((rule) => rule.id),
+      });
     }
   };
 
@@ -252,6 +243,7 @@ export function ModelMappingsPage() {
   const isPending =
     createMapping.isPending ||
     updateMapping.isPending ||
+    reorderMappings.isPending ||
     deleteMapping.isPending ||
     resetToDefaults.isPending ||
     clearAllMappings.isPending;

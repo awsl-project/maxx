@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -108,6 +109,67 @@ func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType do
 		return nil, err
 	}
 	return r.toDomainList(models), nil
+}
+
+func (r *ModelMappingRepository) Reorder(tenantID uint64, req domain.ModelMappingReorderRequest) error {
+	if req.Scope == "" {
+		req.Scope = domain.ModelMappingScopeGlobal
+	}
+	if req.Scope != domain.ModelMappingScopeGlobal && req.Scope != domain.ModelMappingScopeProvider && req.Scope != domain.ModelMappingScopeRoute {
+		return fmt.Errorf("%w: unsupported mapping scope %q", domain.ErrInvalidInput, req.Scope)
+	}
+	if req.Scope == domain.ModelMappingScopeProvider && req.ProviderID == 0 {
+		return fmt.Errorf("%w: providerID is required for provider mappings", domain.ErrInvalidInput)
+	}
+	if len(req.OrderedIDs) == 0 {
+		return fmt.Errorf("%w: orderedIDs is required", domain.ErrInvalidInput)
+	}
+	seen := make(map[uint64]struct{}, len(req.OrderedIDs))
+	for _, id := range req.OrderedIDs {
+		if id == 0 {
+			return fmt.Errorf("%w: orderedIDs must not contain zero", domain.ErrInvalidInput)
+		}
+		if _, exists := seen[id]; exists {
+			return fmt.Errorf("%w: duplicate mapping id %d", domain.ErrInvalidInput, id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		query := tenantScope(tx, tenantID).Where("deleted_at = 0 AND scope = ?", req.Scope)
+		if req.Scope == domain.ModelMappingScopeProvider {
+			query = query.Where("provider_id = ?", req.ProviderID)
+		}
+
+		var models []ModelMapping
+		if err := query.Find(&models).Error; err != nil {
+			return err
+		}
+		if len(models) != len(req.OrderedIDs) {
+			return fmt.Errorf("%w: orderedIDs must include every mapping in the requested scope", domain.ErrInvalidInput)
+		}
+		for _, model := range models {
+			if _, exists := seen[model.ID]; !exists {
+				return fmt.Errorf("%w: orderedIDs missing mapping id %d", domain.ErrInvalidInput, model.ID)
+			}
+		}
+
+		now := time.Now().UnixMilli()
+		for i, id := range req.OrderedIDs {
+			update := tenantScope(tx.Model(&ModelMapping{}), tenantID).
+				Where("id = ? AND deleted_at = 0 AND scope = ?", id, req.Scope)
+			if req.Scope == domain.ModelMappingScopeProvider {
+				update = update.Where("provider_id = ?", req.ProviderID)
+			}
+			if err := update.Updates(map[string]any{
+				"priority":   i * 10,
+				"updated_at": now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *ModelMappingRepository) Count(tenantID uint64) (int, error) {

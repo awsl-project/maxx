@@ -66,6 +66,9 @@ func (f *fakeModelMappingRepo) ListByClientType(tenantID uint64, clientType doma
 func (f *fakeModelMappingRepo) ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
 	return f.List(tenantID)
 }
+func (f *fakeModelMappingRepo) Reorder(uint64, domain.ModelMappingReorderRequest) error {
+	return nil
+}
 func (f *fakeModelMappingRepo) Count(tenantID uint64) (int, error) { return len(f.mappings), f.err }
 func (f *fakeModelMappingRepo) DeleteAll(tenantID uint64) error    { return nil }
 func (f *fakeModelMappingRepo) ClearAll(tenantID uint64) error     { return nil }

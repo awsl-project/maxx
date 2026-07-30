@@ -185,6 +185,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleClearAllModelMappings(w, r)
 		case len(parts) == 3 && parts[2] == "reset-defaults":
 			h.handleResetModelMappingsToDefaults(w, r)
+		case len(parts) == 3 && parts[2] == "reorder":
+			h.handleReorderModelMappings(w, r)
 		case len(parts) == 3:
 			id, ok := parseSelfServiceID(w, "model mapping", parts[2])
 			if !ok {
@@ -995,6 +997,44 @@ func (h *SelfServiceHandler) handleModelMappings(w http.ResponseWriter, r *http.
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (h *SelfServiceHandler) handleReorderModelMappings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var req domain.ModelMappingReorderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(req.OrderedIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "orderedIDs is required"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	if err := h.svc.ReorderModelMappings(tenantID, req); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrInvalidInput) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, domain.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	mappings, err := h.svc.GetModelMappings(tenantID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetModelMappings failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mappings)
 }
 
 func (h *SelfServiceHandler) handleClearAllModelMappings(w http.ResponseWriter, r *http.Request) {

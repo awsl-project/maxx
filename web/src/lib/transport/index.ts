@@ -79,6 +79,7 @@ export type {
   // Model Mapping
   ModelMapping,
   ModelMappingInput,
+  ModelMappingReorderInput,
   // Kiro
   KiroTokenValidationResult,
   KiroQuotaData,

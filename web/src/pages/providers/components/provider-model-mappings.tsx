@@ -1,5 +1,22 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, Plus, Trash2, Zap } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { ArrowRight, GripVertical, Plus, Trash2, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   useModelMappings,
@@ -7,6 +24,7 @@ import {
   useProviderRuntimeModelsPreview,
   useCreateModelMapping,
   useUpdateModelMapping,
+  useReorderModelMappings,
   useDeleteModelMapping,
 } from '@/hooks/queries';
 import type {
@@ -45,6 +63,72 @@ export function buildProviderRuntimeModelOptions(
   return options;
 }
 
+interface SortableProviderMappingRowProps {
+  mapping: ModelMapping;
+  index: number;
+  disabled: boolean;
+  extraModels: ReturnType<typeof buildProviderRuntimeModelOptions>;
+  onUpdate: (mapping: ModelMapping, data: Partial<ModelMappingInput>) => void;
+  onDelete: (id: number) => void;
+}
+
+function SortableProviderMappingRow({
+  mapping,
+  index,
+  disabled,
+  extraModels,
+  onUpdate,
+  onDelete,
+}: SortableProviderMappingRowProps) {
+  const { t } = useTranslation();
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `mapping-${mapping.id}`,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-2 ${isDragging ? 'opacity-50' : ''}`}
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded shrink-0"
+        disabled={disabled}
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground" />
+      </button>
+      <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
+      <ModelInput
+        value={mapping.pattern}
+        onChange={(pattern) => onUpdate(mapping, { pattern })}
+        placeholder={t('modelMappings.matchPattern')}
+        disabled={disabled}
+        className="flex-1 min-w-0 h-8 text-sm"
+      />
+      <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+      <ModelInput
+        value={mapping.target}
+        onChange={(target) => onUpdate(mapping, { target })}
+        placeholder={t('modelMappings.targetModel')}
+        disabled={disabled}
+        extraModels={extraModels}
+        openSearchValue=""
+        className="flex-1 min-w-0 h-8 text-sm"
+      />
+      <Button variant="ghost" size="sm" onClick={() => onDelete(mapping.id)} disabled={disabled}>
+        <Trash2 className="h-4 w-4 text-destructive" />
+      </Button>
+    </div>
+  );
+}
+
 export function ProviderModelMappings({
   provider,
   runtimeModelsPreview,
@@ -56,6 +140,7 @@ export function ProviderModelMappings({
   const { data: allMappings } = useModelMappings();
   const createMapping = useCreateModelMapping();
   const updateMapping = useUpdateModelMapping();
+  const reorderMappings = useReorderModelMappings();
   const deleteMapping = useDeleteModelMapping();
   const hasPreviewConfig = !!runtimeModelsPreview;
   const { data: savedRuntimeModels } = useProviderRuntimeModels(provider.id, !hasPreviewConfig);
@@ -74,7 +159,18 @@ export function ProviderModelMappings({
     );
   }, [allMappings, provider.id]);
 
-  const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const isPending =
+    createMapping.isPending ||
+    updateMapping.isPending ||
+    reorderMappings.isPending ||
+    deleteMapping.isPending;
   const providerRuntimeModelOptions = useMemo(
     () =>
       buildProviderRuntimeModelOptions(
@@ -84,6 +180,27 @@ export function ProviderModelMappings({
       ),
     [provider.supportModels, runtimeModels?.models, t],
   );
+
+  const handleDragStart = () => {
+    document.body.classList.add('is-dragging');
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    document.body.classList.remove('is-dragging');
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = providerMappings.findIndex((m) => `mapping-${m.id}` === active.id);
+    const newIndex = providerMappings.findIndex((m) => `mapping-${m.id}` === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(providerMappings, oldIndex, newIndex);
+    await reorderMappings.mutateAsync({
+      scope: 'provider',
+      providerID: provider.id,
+      orderedIDs: reordered.map((mapping) => mapping.id),
+    });
+  };
 
   const handleAddMapping = async () => {
     if (!newPattern.trim() || !newTarget.trim()) return;
@@ -133,38 +250,31 @@ export function ProviderModelMappings({
         <p className="text-xs text-muted-foreground mb-4">{t('modelMappings.pageDesc')}</p>
 
         {providerMappings.length > 0 && (
-          <div className="space-y-2 mb-4">
-            {providerMappings.map((mapping, index) => (
-              <div key={mapping.id} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
-                <ModelInput
-                  value={mapping.pattern}
-                  onChange={(pattern) => handleUpdateMapping(mapping, { pattern })}
-                  placeholder={t('modelMappings.matchPattern')}
-                  disabled={isPending}
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                <ModelInput
-                  value={mapping.target}
-                  onChange={(target) => handleUpdateMapping(mapping, { target })}
-                  placeholder={t('modelMappings.targetModel')}
-                  disabled={isPending}
-                  extraModels={providerRuntimeModelOptions}
-                  openSearchValue=""
-                  className="flex-1 min-w-0 h-8 text-sm"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDeleteMapping(mapping.id)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={providerMappings.map((mapping) => `mapping-${mapping.id}`)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-2 mb-4">
+                {providerMappings.map((mapping, index) => (
+                  <SortableProviderMappingRow
+                    key={mapping.id}
+                    mapping={mapping}
+                    index={index}
+                    disabled={isPending}
+                    extraModels={providerRuntimeModelOptions}
+                    onUpdate={handleUpdateMapping}
+                    onDelete={handleDeleteMapping}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
         )}
 
         {providerMappings.length === 0 && (
