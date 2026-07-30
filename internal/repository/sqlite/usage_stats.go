@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -294,8 +295,13 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 		})
 	}
 
-	// 2d. 查询 raw backfill 窗口内的实时数据
+	// 2d. 查询 raw backfill 窗口内的实时数据。
+	// 非分钟粒度已经通过 hour/day 预聚合覆盖了已完成的历史桶；raw 只补当前小时，
+	// 避免把 overlap 窗口内的上一小时数据再次聚合进当前桶。
 	rawStart := realtimeStart
+	if filter.Granularity != domain.GranularityMinute && currentHour.After(rawStart) {
+		rawStart = currentHour
+	}
 	if filter.StartTime != nil && filter.StartTime.After(rawStart) {
 		rawStart = *filter.StartTime
 	}
@@ -1003,20 +1009,55 @@ func (r *UsageStatsRepository) queryAllWithRealtime(tenantID uint64, filter repo
 	return allStats, nil
 }
 
+func (r *UsageStatsRepository) scanEarliestTimestamp(query *gorm.DB) (*time.Time, error) {
+	var earliest sql.NullInt64
+	if err := query.Scan(&earliest).Error; err != nil {
+		return nil, err
+	}
+	if !earliest.Valid {
+		return nil, nil
+	}
+
+	t := fromTimestamp(earliest.Int64)
+	return &t, nil
+}
+
+func (r *UsageStatsRepository) getEarliestCompletedAttemptTime(tenantID uint64) (*time.Time, error) {
+	query := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
+		Select("MIN(end_time)").
+		Where("status IN ?", []string{"COMPLETED", "FAILED", "CANCELLED"})
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+	return r.scanEarliestTimestamp(query)
+}
+
+func (r *UsageStatsRepository) getEarliestStatsBucket(tenantID uint64, granularity domain.Granularity) (*time.Time, error) {
+	query := r.db.gorm.Model(&UsageStats{}).
+		Select("MIN(time_bucket)").
+		Where("granularity = ?", granularity)
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+	return r.scanEarliestTimestamp(query)
+}
+
 // aggregateMinute 从原始数据聚合到分钟级别（内部方法）
 // 返回：聚合数量、开始时间、结束时间、错误
 func (r *UsageStatsRepository) aggregateMinute(tenantID uint64) (count int, startTime, endTime time.Time, err error) {
 	now := time.Now().UTC()
 	endTime = now.Truncate(time.Minute)
 
-	// 获取最新的聚合分钟
+	// 获取最新的聚合分钟。已有聚合历史时只 overlap 2 分钟，确保补齐延迟数据。
+	// 首次聚合或 usage_stats 被清空时必须从最早 raw attempt 开始，否则已有历史 raw
+	// 会永久落在 2 小时窗口之外，导致“本月”等长时间范围统计只显示最近数据。
 	latestMinute, e := r.GetLatestTimeBucket(tenantID, domain.GranularityMinute)
-	if e != nil || latestMinute == nil {
-		// 如果没有历史数据，从 2 小时前开始
-		startTime = now.Add(-2 * time.Hour).Truncate(time.Minute)
-	} else {
-		// 从最新记录前 2 分钟开始，确保补齐延迟数据
+	if e == nil && latestMinute != nil {
 		startTime = latestMinute.Add(-2 * time.Minute)
+	} else if earliestAttempt, e := r.getEarliestCompletedAttemptTime(tenantID); e == nil && earliestAttempt != nil {
+		startTime = earliestAttempt.In(time.UTC).Truncate(time.Minute)
+	} else {
+		startTime = now.Add(-2 * time.Hour).Truncate(time.Minute)
 	}
 
 	// 查询在时间范围内已完成的 proxy_upstream_attempts
@@ -1195,20 +1236,14 @@ func (r *UsageStatsRepository) rollUp(tenantID uint64, from, to domain.Granulari
 
 	// 获取目标粒度的最新时间桶
 	latestBucket, _ := r.GetLatestTimeBucket(tenantID, to)
-	if latestBucket == nil {
-		// 如果没有历史数据，根据源粒度的保留时间决定
-		switch from {
-		case domain.GranularityMinute:
-			startTime = now.Add(-2 * time.Hour)
-		case domain.GranularityHour:
-			startTime = now.Add(-7 * 24 * time.Hour)
-		case domain.GranularityDay:
-			startTime = now.Add(-90 * 24 * time.Hour)
-		default:
-			startTime = now.AddDate(0, 0, -30)
-		}
-	} else {
+	if latestBucket != nil {
 		startTime = *latestBucket
+	} else if earliestSourceBucket, e := r.getEarliestStatsBucket(tenantID, from); e == nil && earliestSourceBucket != nil {
+		// 首次上卷必须从源粒度最早桶开始。否则首次 minute 聚合出的历史数据会被
+		// 固定窗口裁掉，hour/day/month 统计仍然缺昨天/前天等历史桶。
+		startTime = earliestSourceBucket.In(loc)
+	} else {
+		startTime = endTime
 	}
 
 	// 查询源粒度数据

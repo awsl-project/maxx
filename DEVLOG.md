@@ -1,5 +1,12 @@
 # DEVLOG
 
+## 2026-07-30
+
+- Fixed usage stats initial aggregation so missing/empty `usage_stats` backfills historical raw attempts instead of only scanning the last 2 hours.
+- Fixed realtime raw backfill overlap for non-minute queries so completed historical hour/day buckets are not double-counted into the current bucket.
+- Added repository and admin API regressions proving “this month” diverges from “last 24 hours” when older raw attempts exist.
+- Captured local UI/mock screenshots for month vs. last-24h stats evidence.
+
 ## 2026-07-16
 
 - Implemented available-only model list semantics for maxx model-list endpoints.
