@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTransport } from '@/lib/transport';
-import type { ModelMappingInput } from '@/lib/transport';
+import type { ModelMappingInput, ModelMappingReorderInput } from '@/lib/transport';
 
 export const settingsKeys = {
   all: ['settings'] as const,
@@ -129,6 +129,17 @@ export function useUpdateModelMapping() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: ModelMappingInput }) =>
       getTransport().updateModelMapping(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: settingsKeys.modelMappings });
+    },
+  });
+}
+
+export function useReorderModelMappings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: ModelMappingReorderInput) => getTransport().reorderModelMappings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.modelMappings });
     },

@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -108,6 +109,56 @@ func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType do
 		return nil, err
 	}
 	return r.toDomainList(models), nil
+}
+
+func (r *ModelMappingRepository) Reorder(tenantID uint64, req domain.ModelMappingReorderRequest) error {
+	if req.Scope == "" {
+		req.Scope = domain.ModelMappingScopeGlobal
+	}
+	if len(req.OrderedIDs) == 0 {
+		return fmt.Errorf("%w: orderedIDs is required", domain.ErrInvalidInput)
+	}
+	seen := make(map[uint64]struct{}, len(req.OrderedIDs))
+	for _, id := range req.OrderedIDs {
+		if id == 0 {
+			return fmt.Errorf("%w: orderedIDs must not contain zero", domain.ErrInvalidInput)
+		}
+		if _, exists := seen[id]; exists {
+			return fmt.Errorf("%w: duplicate mapping id %d", domain.ErrInvalidInput, id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		var models []ModelMapping
+		if err := tenantScope(tx, tenantID).Where("deleted_at = 0 AND id IN ?", req.OrderedIDs).Find(&models).Error; err != nil {
+			return err
+		}
+		if len(models) != len(req.OrderedIDs) {
+			return fmt.Errorf("%w: one or more mappings not found", domain.ErrNotFound)
+		}
+		for _, model := range models {
+			if domain.ModelMappingScope(model.Scope) != req.Scope {
+				return fmt.Errorf("%w: mapping %d scope mismatch", domain.ErrInvalidInput, model.ID)
+			}
+			if req.Scope == domain.ModelMappingScopeProvider && model.ProviderID != req.ProviderID {
+				return fmt.Errorf("%w: mapping %d provider mismatch", domain.ErrInvalidInput, model.ID)
+			}
+		}
+
+		now := time.Now().UnixMilli()
+		for i, id := range req.OrderedIDs {
+			if err := tenantScope(tx.Model(&ModelMapping{}), tenantID).
+				Where("id = ? AND deleted_at = 0", id).
+				Updates(map[string]any{
+					"priority":   i * 10,
+					"updated_at": now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *ModelMappingRepository) Count(tenantID uint64) (int, error) {

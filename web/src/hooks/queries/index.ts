@@ -104,6 +104,7 @@ export {
   useModelMappings,
   useCreateModelMapping,
   useUpdateModelMapping,
+  useReorderModelMappings,
   useDeleteModelMapping,
   useClearAllModelMappings,
   useResetModelMappingsToDefaults,

@@ -39,6 +39,7 @@ import type {
   ProviderRuntimeModelsPreviewRequest,
   ModelMapping,
   ModelMappingInput,
+  ModelMappingReorderInput,
   ImportResult,
   Cooldown,
   KiroTokenValidationResult,
@@ -230,6 +231,7 @@ export interface Transport {
   getModelMappings(): Promise<ModelMapping[]>;
   createModelMapping(data: ModelMappingInput): Promise<ModelMapping>;
   updateModelMapping(id: number, data: ModelMappingInput): Promise<ModelMapping>;
+  reorderModelMappings(data: ModelMappingReorderInput): Promise<ModelMapping[]>;
   deleteModelMapping(id: number): Promise<void>;
   clearAllModelMappings(): Promise<void>;
   resetModelMappingsToDefaults(): Promise<void>;

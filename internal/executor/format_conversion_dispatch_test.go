@@ -369,6 +369,9 @@ type staticModelMappingRepo struct {
 func (r *staticModelMappingRepo) ListByQuery(uint64, *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
 	return r.mappings, nil
 }
+func (r *staticModelMappingRepo) Reorder(uint64, domain.ModelMappingReorderRequest) error {
+	return nil
+}
 
 func newOpenAIClaudeConversionTestExecutor(proxyRepo *recordingProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
 	return &Executor{

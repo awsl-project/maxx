@@ -358,6 +358,7 @@ type ModelMappingRepository interface {
 	ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error)
 	ListByClientType(tenantID uint64, clientType domain.ClientType) ([]*domain.ModelMapping, error)
 	ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error)
+	Reorder(tenantID uint64, req domain.ModelMappingReorderRequest) error
 	Count(tenantID uint64) (int, error)
 	DeleteAll(tenantID uint64) error
 	ClearAll(tenantID uint64) error     // Delete all mappings

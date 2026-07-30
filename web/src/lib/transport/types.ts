@@ -808,6 +808,12 @@ export interface ModelMappingInput {
   isEnabled?: boolean;
 }
 
+export interface ModelMappingReorderInput {
+  scope: ModelMappingScope;
+  providerID?: number;
+  orderedIDs: number[];
+}
+
 // ===== Kiro 类型 =====
 
 export interface KiroTokenValidationResult {

@@ -356,6 +356,9 @@ func (r *selfServiceModelMappingRepo) ListByClientType(tenantID uint64, clientTy
 func (r *selfServiceModelMappingRepo) ListByQuery(tenantID uint64, _ *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
 	return r.List(tenantID)
 }
+func (r *selfServiceModelMappingRepo) Reorder(uint64, domain.ModelMappingReorderRequest) error {
+	return nil
+}
 
 func (r *selfServiceModelMappingRepo) Count(tenantID uint64) (int, error) {
 	list, err := r.List(tenantID)

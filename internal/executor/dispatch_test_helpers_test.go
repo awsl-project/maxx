@@ -147,6 +147,9 @@ func (r *stubModelMappingRepo) ListByClientType(uint64, domain.ClientType) ([]*d
 func (r *stubModelMappingRepo) ListByQuery(uint64, *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
 	return r.mappings, nil
 }
+func (r *stubModelMappingRepo) Reorder(uint64, domain.ModelMappingReorderRequest) error {
+	return nil
+}
 func (r *stubModelMappingRepo) Count(uint64) (int, error) { return 0, nil }
 func (r *stubModelMappingRepo) DeleteAll(uint64) error    { return nil }
 func (r *stubModelMappingRepo) ClearAll(uint64) error     { return nil }

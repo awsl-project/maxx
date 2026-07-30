@@ -201,6 +201,17 @@ func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.Mode
 	return result, nil
 }
 
+func (r *ModelMappingRepository) Reorder(tenantID uint64, req domain.ModelMappingReorderRequest) error {
+	if err := r.repo.Reorder(tenantID, req); err != nil {
+		return err
+	}
+	if err := r.Load(); err != nil {
+		return err
+	}
+	r.bc.publish(OpReload, 0)
+	return nil
+}
+
 func (r *ModelMappingRepository) Count(tenantID uint64) (int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

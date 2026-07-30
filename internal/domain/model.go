@@ -1329,6 +1329,13 @@ type ModelMappingQuery struct {
 	APITokenID   uint64
 }
 
+// ModelMappingReorderRequest reorders mappings inside one sortable scope.
+type ModelMappingReorderRequest struct {
+	Scope      ModelMappingScope `json:"scope"`
+	ProviderID uint64            `json:"providerID,omitempty"`
+	OrderedIDs []uint64          `json:"orderedIDs"`
+}
+
 // ResponseModel 记录所有出现过的 response model
 // 用于快速查询可选的模型列表，避免每次 DISTINCT 查询
 type ResponseModel struct {
