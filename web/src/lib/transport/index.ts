@@ -10,6 +10,7 @@ export type {
   ProviderRuntimeModelsResult,
   ProviderRuntimeModelsPreviewRequest,
   ProviderConfig,
+  ReasoningPolicy,
   ProviderConfigCustom,
   ProviderConfigCustomDisguise,
   DisguiseClaudeCodeOptions,

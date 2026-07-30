@@ -50,6 +50,7 @@ import { OllamaProviderView } from './ollama-provider-view';
 import { GrokProviderView } from './grok-provider-view';
 import { ProviderModelMappings } from './provider-model-mappings';
 import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
+import { ReasoningPolicySettings } from './reasoning-policy-settings';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -443,6 +444,7 @@ type EditFormData = {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  reasoning?: NonNullable<Provider['config']>['reasoning'];
   maxConcurrency: number;
   excludeFromExport: boolean;
   blackBox: boolean;
@@ -518,6 +520,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
       smartMappingRetryEnabled: provider.config?.smartMappingRetryEnabled ?? false,
       smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
+      reasoning: provider.config?.reasoning,
       maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
       excludeFromExport: !!provider.excludeFromExport || !!provider.blackBox,
       blackBox: !!provider.blackBox,
@@ -632,6 +635,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
+          reasoning: formData.reasoning,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -704,6 +708,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
+          reasoning: formData.reasoning,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -1216,6 +1221,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 onRetryLimitChange={(limit) =>
                   setFormData((prev) => ({ ...prev, smartMappingRetryLimit: limit }))
                 }
+              />
+              <ReasoningPolicySettings
+                value={formData.reasoning}
+                onChange={(reasoning) => setFormData((prev) => ({ ...prev, reasoning }))}
               />
               <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
                 <div className="pr-4">

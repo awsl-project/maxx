@@ -34,6 +34,11 @@ export interface ProviderConfigCustomDisguise {
   claudeCode?: DisguiseClaudeCodeOptions;
 }
 
+export interface ReasoningPolicy {
+  maxEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
+  defaultEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
+}
+
 export interface ProviderConfigCustom {
   baseURL: string;
   backend?: 'ollama';
@@ -178,6 +183,7 @@ export interface ProviderConfig {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  reasoning?: ReasoningPolicy;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
   bedrock?: ProviderConfigBedrock;

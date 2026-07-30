@@ -105,12 +105,48 @@ func TestApply_GeminiUpperCaseWire(t *testing.T) {
 	}
 }
 
+func TestApply_ClaudeDefaultWritesThinkingBudget(t *testing.T) {
+	eff := Resolve(nil, mustPolicy("", "medium"), "")
+	out := Apply([]byte(`{"model":"claude-sonnet","max_tokens":4096}`), domain.ClientTypeClaude, eff)
+	if got := gjson.GetBytes(out, "thinking.type").String(); got != "enabled" {
+		t.Fatalf("thinking.type = %q, want enabled; body=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "thinking.budget_tokens").Int(); got != 8192 {
+		t.Fatalf("thinking.budget_tokens = %d, want 8192; body=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "max_tokens").Int(); got != 8193 {
+		t.Fatalf("max_tokens = %d, want bumped above thinking budget; body=%s", got, out)
+	}
+}
+
+func TestApply_ClaudeClampsExistingThinkingBudget(t *testing.T) {
+	eff := Resolve(nil, mustPolicy("low", ""), "")
+	out := Apply([]byte(`{"thinking":{"type":"enabled","budget_tokens":20000},"max_tokens":30000}`), domain.ClientTypeClaude, eff)
+	if got := gjson.GetBytes(out, "thinking.budget_tokens").Int(); got != 1024 {
+		t.Fatalf("thinking.budget_tokens = %d, want 1024; body=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "max_tokens").Int(); got != 30000 {
+		t.Fatalf("max_tokens = %d, want unchanged above budget; body=%s", got, out)
+	}
+}
+
+func TestApply_ClaudeNoneDisablesThinking(t *testing.T) {
+	eff := Resolve(nil, mustPolicy("none", ""), "")
+	out := Apply([]byte(`{"thinking":{"type":"enabled","budget_tokens":2048}}`), domain.ClientTypeClaude, eff)
+	if got := gjson.GetBytes(out, "thinking.type").String(); got != "disabled" {
+		t.Fatalf("thinking.type = %q, want disabled; body=%s", got, out)
+	}
+	if gjson.GetBytes(out, "thinking.budget_tokens").Exists() {
+		t.Fatalf("thinking.budget_tokens should be removed; body=%s", out)
+	}
+}
+
 func TestApply_UnsupportedProtocolNoOp(t *testing.T) {
 	eff := Resolve(nil, mustPolicy("low", "low"), "")
-	in := []byte(`{"thinking":{"type":"enabled","budget_tokens":20000}}`)
-	out := Apply(in, domain.ClientTypeClaude, eff)
+	in := []byte(`{"reasoning_effort":"high"}`)
+	out := Apply(in, domain.ClientType("future"), eff)
 	if string(out) != string(in) {
-		t.Fatalf("claude body mutated: %s", out)
+		t.Fatalf("unsupported protocol mutated body: %s", out)
 	}
 }
 

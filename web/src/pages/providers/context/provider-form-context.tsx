@@ -45,6 +45,7 @@ const initialFormData: ProviderFormData = {
   disableErrorCooldown: false,
   smartMappingRetryEnabled: false,
   smartMappingRetryLimit: 1,
+  reasoning: undefined,
   maxConcurrency: 0,
   excludeFromExport: false,
   blackBox: false,
