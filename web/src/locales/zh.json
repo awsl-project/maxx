@@ -1742,7 +1742,21 @@
     "excludeFromExport": "不导出此提供商配置",
     "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中；保存后的 API 端点和提供商密钥也不会在编辑页回显，只能重新输入轮换。",
     "cloneExcludeFromExportDesc": "仅用于新克隆出的提供商。开启后，克隆出的提供商不会被导出，且保存后的 API 端点和提供商密钥不会在编辑页回显。",
-    "excludeFromExportLockedDesc": "该提供商已进入密钥隐藏模式。为了避免通过关闭开关读回旧密钥，当前开关不可直接关闭。"
+    "excludeFromExportLockedDesc": "该提供商已进入密钥隐藏模式。为了避免通过关闭开关读回旧密钥，当前开关不可直接关闭。",
+    "reasoningPolicy": "思考程度策略",
+    "reasoningPolicyDesc": "控制该提供商出站请求的 reasoning / thinking 程度。默认值只在客户端未指定时填充；最大值会钳制超过上限的请求。",
+    "reasoningDefaultEffort": "默认思考程度",
+    "reasoningDefaultEffortDesc": "仅当客户端请求没有指定 reasoning 或 thinking 程度时生效。",
+    "reasoningMaxEffort": "最大思考程度",
+    "reasoningMaxEffortDesc": "限制客户端请求中超过该级别的思考程度；留空表示不限制。",
+    "reasoningUnset": "不设置",
+    "reasoningEffort": {
+      "none": "关闭",
+      "minimal": "极低",
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    }
   },
   "cooldown": {
     "title": "冷却保护中",

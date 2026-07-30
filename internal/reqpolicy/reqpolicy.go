@@ -80,9 +80,9 @@ type codec struct {
 
 func identity(s string) string { return s }
 
-// codecFor returns the effort codec for an outbound protocol, or nil when the
-// protocol has no simple string effort field this phase handles (e.g. Claude,
-// whose depth is a thinking-token budget).
+// codecFor returns the effort codec for outbound protocols that expose a simple
+// string effort field. Claude is handled separately because its thinking depth
+// is represented as a token budget.
 func codecFor(protocol domain.ClientType) *codec {
 	switch protocol {
 	case domain.ClientTypeOpenAI:
@@ -125,6 +125,126 @@ func (c *codec) write(body []byte, rank int) []byte {
 		return body
 	}
 	return out
+}
+
+func rankForClaudeThinkingBudget(budget int64) (int, bool) {
+	switch {
+	case budget < 0:
+		return 0, false
+	case budget == 0:
+		return rankNone, true
+	case budget <= 1024:
+		return rankLow, true
+	case budget <= 8192:
+		return rankMedium, true
+	default:
+		return rankHigh, true
+	}
+}
+
+func claudeThinkingBudgetForRank(rank int) int64 {
+	switch rank {
+	case rankMinimal, rankLow:
+		return 1024
+	case rankMedium:
+		return 8192
+	case rankHigh:
+		return 16000
+	default:
+		return 0
+	}
+}
+
+func readClaudeEffort(body []byte) effortValue {
+	if v := gjson.GetBytes(body, "output_config.effort"); v.Type == gjson.String {
+		s := v.String()
+		if strings.TrimSpace(s) == "" {
+			return effortValue{}
+		}
+		if isAuto(s) {
+			return effortValue{present: true, auto: true}
+		}
+		if rank, ok := parseRank(s); ok {
+			return effortValue{present: true, hasRank: true, rank: rank}
+		}
+		return effortValue{present: true}
+	}
+
+	thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))
+	switch thinkingType {
+	case "disabled":
+		return effortValue{present: true, hasRank: true, rank: rankNone}
+	case "adaptive":
+		return effortValue{present: true, auto: true}
+	case "enabled":
+		budget := gjson.GetBytes(body, "thinking.budget_tokens")
+		if !budget.Exists() {
+			return effortValue{present: true, auto: true}
+		}
+		if budget.Type != gjson.Number {
+			return effortValue{present: true}
+		}
+		if rank, ok := rankForClaudeThinkingBudget(budget.Int()); ok {
+			return effortValue{present: true, hasRank: true, rank: rank}
+		}
+		return effortValue{present: true}
+	default:
+		return effortValue{}
+	}
+}
+
+func writeClaudeEffort(body []byte, rank int) []byte {
+	if rank == rankNone {
+		out, err := sjson.SetBytes(body, "thinking.type", "disabled")
+		if err != nil {
+			return body
+		}
+		if out, err = sjson.DeleteBytes(out, "thinking.budget_tokens"); err == nil {
+			return out
+		}
+		return body
+	}
+
+	budget := claudeThinkingBudgetForRank(rank)
+	if budget <= 0 {
+		return body
+	}
+	out, err := sjson.SetBytes(body, "thinking.type", "enabled")
+	if err != nil {
+		return body
+	}
+	out, err = sjson.SetBytes(out, "thinking.budget_tokens", budget)
+	if err != nil {
+		return body
+	}
+	return ensureClaudeMaxTokensExceedsThinkingBudget(out, budget)
+}
+
+func ensureClaudeMaxTokensExceedsThinkingBudget(body []byte, budget int64) []byte {
+	maxTokens := gjson.GetBytes(body, "max_tokens")
+	if !maxTokens.Exists() || maxTokens.Type != gjson.Number || maxTokens.Int() > budget {
+		return body
+	}
+	out, err := sjson.SetBytes(body, "max_tokens", budget+1)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+func applyClaude(body []byte, eff Effective) []byte {
+	v := readClaudeEffort(body)
+	if !v.present && eff.hasDefault {
+		body = writeClaudeEffort(body, eff.defaultRank)
+		v = effortValue{present: true, hasRank: true, rank: eff.defaultRank}
+	}
+	if eff.hasMax && v.present {
+		exceeds := v.auto || !v.hasRank || v.rank > eff.maxRank
+		if exceeds {
+			body = writeClaudeEffort(body, eff.maxRank)
+		}
+	}
+	return body
 }
 
 // Effective is a resolved policy: the composed ceiling and default a single
@@ -190,6 +310,9 @@ func globDefault(p *domain.ReasoningPolicy) string {
 func Apply(body []byte, protocol domain.ClientType, eff Effective) []byte {
 	if eff.IsZero() {
 		return body
+	}
+	if protocol == domain.ClientTypeClaude {
+		return applyClaude(body, eff)
 	}
 	c := codecFor(protocol)
 	if c == nil {

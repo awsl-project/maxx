@@ -39,6 +39,7 @@ import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { buildDisguisePayload } from '../utils/disguise';
 import { buildProviderRuntimeModelOptions } from './provider-model-mappings';
 import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
+import { ReasoningPolicySettings } from './reasoning-policy-settings';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -144,6 +145,7 @@ export function CustomConfigStep() {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
+          reasoning: formData.reasoning,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -374,6 +376,10 @@ export function CustomConfigStep() {
               mappingTargetCount={mappingTargetCount}
               onEnabledChange={(checked) => updateFormData({ smartMappingRetryEnabled: checked })}
               onRetryLimitChange={(limit) => updateFormData({ smartMappingRetryLimit: limit })}
+            />
+            <ReasoningPolicySettings
+              value={formData.reasoning}
+              onChange={(reasoning) => updateFormData({ reasoning })}
             />
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">

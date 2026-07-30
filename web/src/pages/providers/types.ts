@@ -1,4 +1,4 @@
-import type { ClientType, DisguiseType, Provider } from '@/lib/transport';
+import type { ClientType, DisguiseType, Provider, ReasoningPolicy } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -365,6 +365,7 @@ export type ProviderFormData = {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  reasoning?: ReasoningPolicy;
   maxConcurrency?: number;
   excludeFromExport?: boolean;
   blackBox?: boolean;
