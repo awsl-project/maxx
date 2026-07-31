@@ -19,7 +19,7 @@ import (
 // OpenRouter/custom shape) whose sole provider carries the given reasoning
 // policy, so the outbound body the adapter observes reflects the executor's
 // authoritative param stage.
-func paramPolicyDispatchCtx(t *testing.T, requestBody string, policy *domain.ReasoningPolicy, adapter *openAIOnlyConversionAdapter) (*flow.Ctx, *Executor) {
+func paramPolicyDispatchCtx(t *testing.T, requestBody string, policy *domain.ReasoningPolicy, adapter *openAIOnlyConversionAdapter) (*flow.Ctx, *Executor, *recordingProxyRequestRepo) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody)).WithContext(context.Background())
@@ -53,14 +53,15 @@ func paramPolicyDispatchCtx(t *testing.T, requestBody string, policy *domain.Rea
 		},
 	}
 	c.Set(flow.KeyExecutorState, state)
+	proxyRepo := &recordingProxyRequestRepo{}
 	e := &Executor{
-		proxyRequestRepo: &recordingProxyRequestRepo{},
+		proxyRequestRepo: proxyRepo,
 		attemptRepo:      &recordingAttemptRepo{},
 		modelMappingRepo: &staticModelMappingRepo{},
 		settingsRepo:     &stubExecutorSettingsRepo{},
 		converter:        converter.GetGlobalRegistry(),
 	}
-	return c, e
+	return c, e, proxyRepo
 }
 
 // A provider MaxEffort ceiling clamps the outbound reasoning_effort even though
@@ -68,7 +69,7 @@ func paramPolicyDispatchCtx(t *testing.T, requestBody string, policy *domain.Rea
 // stage, not the adapter, is authoritative and covers the passthrough path.
 func TestDispatchClampsReasoningEffortCeiling(t *testing.T) {
 	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
-	c, e := paramPolicyDispatchCtx(t,
+	c, e, proxyRepo := paramPolicyDispatchCtx(t,
 		`{"model":"gpt-4o","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}],"stream":false}`,
 		&domain.ReasoningPolicy{MaxEffort: "medium"}, adapter)
 
@@ -83,12 +84,18 @@ func TestDispatchClampsReasoningEffortCeiling(t *testing.T) {
 	if got := gjson.GetBytes(adapter.seenRequestBody, "reasoning_effort").String(); got != "medium" {
 		t.Fatalf("outbound reasoning_effort = %q, want clamped to medium; body=%s", got, adapter.seenRequestBody)
 	}
+	if len(proxyRepo.updated) == 0 {
+		t.Fatal("proxy request was not updated")
+	}
+	if got := proxyRepo.updated[len(proxyRepo.updated)-1].ReasoningEffort; got != "medium" {
+		t.Fatalf("recorded reasoning effort = %q, want medium", got)
+	}
 }
 
 // DefaultEffort fills an absent effort; a below-ceiling explicit value is kept.
 func TestDispatchFillsDefaultEffortWhenAbsent(t *testing.T) {
 	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
-	c, e := paramPolicyDispatchCtx(t,
+	c, e, proxyRepo := paramPolicyDispatchCtx(t,
 		`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":false}`,
 		&domain.ReasoningPolicy{MaxEffort: "high", DefaultEffort: "low"}, adapter)
 
@@ -99,5 +106,11 @@ func TestDispatchFillsDefaultEffortWhenAbsent(t *testing.T) {
 	}
 	if got := gjson.GetBytes(adapter.seenRequestBody, "reasoning_effort").String(); got != "low" {
 		t.Fatalf("outbound reasoning_effort = %q, want default low; body=%s", got, adapter.seenRequestBody)
+	}
+	if len(proxyRepo.updated) == 0 {
+		t.Fatal("proxy request was not updated")
+	}
+	if got := proxyRepo.updated[len(proxyRepo.updated)-1].ReasoningEffort; got != "low" {
+		t.Fatalf("recorded reasoning effort = %q, want low", got)
 	}
 }

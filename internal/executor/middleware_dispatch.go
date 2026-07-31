@@ -14,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/requestmeta"
 	"github.com/awsl-project/maxx/internal/sticky"
 )
 
@@ -199,6 +200,9 @@ routeLoop:
 			// final converted body, before it reaches the adapter. Idempotent, so
 			// re-running on retry is safe.
 			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, mappedModel, matchedRoute.Provider)
+			if effort := requestmeta.ReasoningEffort(requestBody); effort != "" {
+				proxyReq.ReasoningEffort = effort
+			}
 
 			eventChan := domain.NewAdapterEventChan()
 			c.Set(flow.KeyClientType, currentClientType)
