@@ -200,8 +200,14 @@ routeLoop:
 			// final converted body, before it reaches the adapter. Idempotent, so
 			// re-running on retry is safe.
 			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, mappedModel, matchedRoute.Provider)
-			if effort := requestmeta.ReasoningEffort(requestBody); effort != "" {
+			if effort := requestmeta.ReasoningEffort(requestBody); effort != "" && effort != proxyReq.ReasoningEffort {
 				proxyReq.ReasoningEffort = effort
+				if err := e.proxyRequestRepo.Update(proxyReq); err != nil {
+					log.Printf("[Executor] Failed to update proxy request reasoning effort: %v", err)
+				}
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastProxyRequest(proxyReq)
+				}
 			}
 
 			eventChan := domain.NewAdapterEventChan()

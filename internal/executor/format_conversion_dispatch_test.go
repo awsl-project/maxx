@@ -23,6 +23,7 @@ type openAIOnlyConversionAdapter struct {
 	responseBody     string
 	responseStatus   int
 	responseStreamed bool
+	onExecute        func()
 }
 
 func (a *openAIOnlyConversionAdapter) SupportedClientTypes() []domain.ClientType {
@@ -31,6 +32,9 @@ func (a *openAIOnlyConversionAdapter) SupportedClientTypes() []domain.ClientType
 
 func (a *openAIOnlyConversionAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
 	a.calls++
+	if a.onExecute != nil {
+		a.onExecute()
+	}
 	a.seenClientType = flow.GetClientType(c)
 	a.seenRequestURI = flow.GetRequestURI(c)
 	a.seenRequestBody = append([]byte(nil), flow.GetRequestBody(c)...)

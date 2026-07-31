@@ -92,6 +92,31 @@ func TestDispatchClampsReasoningEffortCeiling(t *testing.T) {
 	}
 }
 
+func TestDispatchBroadcastsPolicyReasoningBeforeAdapterExecute(t *testing.T) {
+	var updatesBeforeAdapter int
+	adapter := &openAIOnlyConversionAdapter{
+		responseBody: `{"id":"x","object":"chat.completion","choices":[]}`,
+	}
+	c, e, proxyRepo := paramPolicyDispatchCtx(t,
+		`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":false}`,
+		&domain.ReasoningPolicy{DefaultEffort: "low"}, adapter)
+	adapter.onExecute = func() {
+		updatesBeforeAdapter = len(proxyRepo.updated)
+	}
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if updatesBeforeAdapter == 0 {
+		t.Fatal("reasoning effort was not persisted before adapter execution")
+	}
+	if got := proxyRepo.updated[updatesBeforeAdapter-1].ReasoningEffort; got != "low" {
+		t.Fatalf("pre-adapter reasoning effort = %q, want low", got)
+	}
+}
+
 // DefaultEffort fills an absent effort; a below-ceiling explicit value is kept.
 func TestDispatchFillsDefaultEffortWhenAbsent(t *testing.T) {
 	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
