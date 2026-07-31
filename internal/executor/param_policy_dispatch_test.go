@@ -92,14 +92,10 @@ func TestDispatchClampsReasoningEffortCeiling(t *testing.T) {
 	}
 }
 
-// DefaultEffort fills an absent effort; a below-ceiling explicit value is kept.
 func TestDispatchBroadcastsPolicyReasoningBeforeAdapterExecute(t *testing.T) {
 	var updatesBeforeAdapter int
 	adapter := &openAIOnlyConversionAdapter{
 		responseBody: `{"id":"x","object":"chat.completion","choices":[]}`,
-		onExecute: func() {
-			updatesBeforeAdapter = 0
-		},
 	}
 	c, e, proxyRepo := paramPolicyDispatchCtx(t,
 		`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":false}`,
@@ -121,6 +117,7 @@ func TestDispatchBroadcastsPolicyReasoningBeforeAdapterExecute(t *testing.T) {
 	}
 }
 
+// DefaultEffort fills an absent effort; a below-ceiling explicit value is kept.
 func TestDispatchFillsDefaultEffortWhenAbsent(t *testing.T) {
 	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
 	c, e, proxyRepo := paramPolicyDispatchCtx(t,
