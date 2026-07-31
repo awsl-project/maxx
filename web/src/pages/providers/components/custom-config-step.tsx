@@ -94,9 +94,10 @@ export function CustomConfigStep() {
       buildProviderRuntimeModelOptions(
         runtimeModels?.models,
         undefined,
+        formData.modelMappings?.map((mapping) => mapping.target),
         t('modelInput.currentProviderModels'),
       ),
-    [runtimeModels?.models, t],
+    [formData.modelMappings, runtimeModels?.models, t],
   );
   const mappingTargetCount = useMemo(
     () =>
