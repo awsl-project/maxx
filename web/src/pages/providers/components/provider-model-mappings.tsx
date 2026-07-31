@@ -201,7 +201,16 @@ export function ProviderModelMappings({
     [provider.supportModels, providerMappings, runtimeModels?.models, t],
   );
 
-  const availableCheckModels = providerRuntimeModelOptions;
+  const availableCheckModels = useMemo(
+    () =>
+      buildProviderRuntimeModelOptions(
+        runtimeModels?.available ? runtimeModels.models : [],
+        undefined,
+        undefined,
+        t('modelInput.currentProviderModels'),
+      ),
+    [runtimeModels?.available, runtimeModels?.models, t],
+  );
   const selectedCheckModelAvailable = availableCheckModels.some(
     (model) => model.id === selectedCheckModel,
   );
@@ -220,7 +229,9 @@ export function ProviderModelMappings({
       ? 100
       : 0;
   const canRunModelCheck =
-    (provider.type === 'custom' || provider.type === 'newapi') && checkModel.length > 0;
+    (provider.type === 'custom' || provider.type === 'newapi') &&
+    runtimeModels?.available === true &&
+    checkModel.length > 0;
 
   useEffect(() => {
     if (modelCheck.isPending) return;
@@ -385,9 +396,14 @@ export function ProviderModelMappings({
                   )}
                 </select>
                 <span>
-                  来自 provider 配置、运行时模型和映射目标，共 {availableCheckModels.length} 个
+                  来自 provider 配置实际获取的模型列表，共 {availableCheckModels.length} 个
                 </span>
               </div>
+              {runtimeModels && !runtimeModels.available && runtimeModels.error && (
+                <div className="text-xs text-amber-600">
+                  获取模型列表失败：{runtimeModels.error}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-1">
                   <span>次数</span>
