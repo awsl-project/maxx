@@ -40,6 +40,8 @@ import type {
   BedrockDiscoveredModelsResult,
   ProviderRuntimeModelsResult,
   ProviderRuntimeModelsPreviewRequest,
+  ProviderModelCheckRequest,
+  ProviderModelCheckResponse,
   ModelMapping,
   ModelMappingInput,
   ModelMappingReorderInput,
@@ -274,6 +276,20 @@ export class HttpTransport implements Transport {
     return this.expectObject<ProviderRuntimeModelsResult>(
       data,
       '/admin/providers/runtime-models/preview',
+    );
+  }
+
+  async checkProviderModel(
+    providerId: number,
+    payload: ProviderModelCheckRequest,
+  ): Promise<ProviderModelCheckResponse> {
+    const { data } = await this.client.post<ProviderModelCheckResponse>(
+      `/admin/providers/${providerId}/model-check`,
+      payload,
+    );
+    return this.expectObject<ProviderModelCheckResponse>(
+      data,
+      `/admin/providers/${providerId}/model-check`,
     );
   }
 
