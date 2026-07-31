@@ -114,6 +114,7 @@ export interface Transport {
   checkProviderModel(
     providerId: number,
     payload: ProviderModelCheckRequest,
+    signal?: AbortSignal,
   ): Promise<ProviderModelCheckResponse>;
   createProvider(data: CreateProviderData): Promise<Provider>;
   updateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
