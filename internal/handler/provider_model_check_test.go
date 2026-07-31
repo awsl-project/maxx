@@ -112,6 +112,43 @@ func TestRunProviderModelCheckCancelsWithoutDeadlock(t *testing.T) {
 	}
 }
 
+func TestRunProviderModelCheckRequiresHalfSuccessForAvailability(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := calls.Add(1)
+		if call <= 4 {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"7"}}]}`))
+			return
+		}
+		http.Error(w, "boom", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{
+		ID:   9,
+		Name: "mostly-broken-custom",
+		Type: "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: server.URL,
+			APIKey:  "sk-test",
+		}},
+	}
+	resp, err := runProviderModelCheck(context.Background(), provider, ProviderModelCheckRequest{
+		ClientType:  domain.ClientTypeOpenAI,
+		Model:       "test-model",
+		Iterations:  10,
+		Concurrency: 1,
+		TimeoutMS:   1000,
+	})
+	if err != nil {
+		t.Fatalf("runProviderModelCheck: %v", err)
+	}
+	if resp.Available || resp.SuccessCount != 4 || resp.ErrorCount != 6 {
+		t.Fatalf("availability/counts = %v success %d error %d", resp.Available, resp.SuccessCount, resp.ErrorCount)
+	}
+}
+
 func TestRunProviderModelCheckRejectsUnsupportedProvider(t *testing.T) {
 	_, err := runProviderModelCheck(context.Background(), &domain.Provider{Type: "openrouter", Config: &domain.ProviderConfig{}}, ProviderModelCheckRequest{Model: "x", Iterations: 40})
 	if err == nil {

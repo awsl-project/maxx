@@ -22,7 +22,6 @@ import {
   useModelMappings,
   useProviderRuntimeModels,
   useProviderRuntimeModelsPreview,
-  useProviderModelCheck,
   useCreateModelMapping,
   useUpdateModelMapping,
   useReorderModelMappings,
@@ -33,7 +32,9 @@ import type {
   ModelMapping,
   ModelMappingInput,
   ProviderRuntimeModelsPreviewRequest,
+  ProviderModelCheckResponse,
 } from '@/lib/transport';
+import { getTransport } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { ModelInput } from '@/components/ui/model-input';
 import { Progress } from '@/components/ui/progress';
@@ -70,10 +71,20 @@ export function buildProviderRuntimeModelOptions(
   return options;
 }
 
-function formatModelCheckScore(value: number | undefined) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return '-';
-  return `${(value * 100).toFixed(1)}%`;
-}
+type ModelAvailabilityScanResult = {
+  model: string;
+  successCount: number;
+  errorCount: number;
+  durationMs: number;
+};
+
+type ModelAvailabilityScanState = {
+  status: 'idle' | 'running' | 'done' | 'cancelled';
+  checked: number;
+  total: number;
+  currentModel: string;
+  available: ModelAvailabilityScanResult[];
+};
 
 interface SortableProviderMappingRowProps {
   mapping: ModelMapping;
@@ -163,13 +174,19 @@ export function ProviderModelMappings({
   const runtimeModels = previewRuntimeModels ?? savedRuntimeModels;
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
-  const [selectedCheckModel, setSelectedCheckModel] = useState('');
-  const [checkIterations, setCheckIterations] = useState(50);
-  const [checkConcurrency, setCheckConcurrency] = useState(4);
+  const [checkIterations, setCheckIterations] = useState(10);
+  const [checkSuccessThreshold, setCheckSuccessThreshold] = useState(5);
+  const [checkConcurrency, setCheckConcurrency] = useState(2);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [checkElapsedSeconds, setCheckElapsedSeconds] = useState(0);
   const modelCheckAbortRef = useRef<AbortController | null>(null);
-  const modelCheck = useProviderModelCheck(provider.id);
+  const [availabilityScan, setAvailabilityScan] = useState<ModelAvailabilityScanState>({
+    status: 'idle',
+    checked: 0,
+    total: 0,
+    currentModel: '',
+    available: [],
+  });
 
   // Filter mappings for this provider
   const providerMappings = useMemo(() => {
@@ -211,66 +228,104 @@ export function ProviderModelMappings({
       ),
     [runtimeModels?.available, runtimeModels?.models, t],
   );
-  const selectedCheckModelAvailable = availableCheckModels.some(
-    (model) => model.id === selectedCheckModel,
+  const sanitizedCheckIterations = Math.max(10, Math.min(500, checkIterations || 10));
+  const sanitizedCheckSuccessThreshold = Math.max(
+    1,
+    Math.min(sanitizedCheckIterations, checkSuccessThreshold || 5),
   );
-  const checkModel = selectedCheckModelAvailable
-    ? selectedCheckModel
-    : (availableCheckModels[0]?.id ?? '');
-  const sanitizedCheckIterations = Math.max(40, Math.min(500, checkIterations || 50));
   const sanitizedCheckConcurrency = Math.max(1, Math.min(10, checkConcurrency || 4));
   const estimatedCheckSeconds = Math.max(
     8,
-    Math.ceil(sanitizedCheckIterations / sanitizedCheckConcurrency) * 2,
+    Math.ceil(
+      (availableCheckModels.length * sanitizedCheckIterations) / sanitizedCheckConcurrency,
+    ) * 2,
   );
-  const checkProgressValue = modelCheck.isPending
-    ? Math.min(95, Math.max(5, Math.round((checkElapsedSeconds / estimatedCheckSeconds) * 90)))
-    : modelCheck.data
+  const isModelCheckRunning = availabilityScan.status === 'running';
+  const checkProgressValue = isModelCheckRunning
+    ? availabilityScan.total > 0
+      ? Math.min(95, Math.round((availabilityScan.checked / availabilityScan.total) * 100))
+      : Math.min(95, Math.max(5, Math.round((checkElapsedSeconds / estimatedCheckSeconds) * 90)))
+    : availabilityScan.status === 'done' || availabilityScan.status === 'cancelled'
       ? 100
       : 0;
   const canRunModelCheck =
     (provider.type === 'custom' || provider.type === 'newapi') &&
     runtimeModels?.available === true &&
-    checkModel.length > 0;
+    availableCheckModels.length > 0;
 
   useEffect(() => {
-    if (modelCheck.isPending) return;
-    if (selectedCheckModelAvailable || !checkModel) return;
-    setSelectedCheckModel(checkModel);
-  }, [checkModel, modelCheck.isPending, selectedCheckModelAvailable]);
-
-  useEffect(() => {
-    if (!modelCheck.isPending) return;
+    if (!isModelCheckRunning) return;
     setCheckElapsedSeconds(0);
     const timer = window.setInterval(() => {
       setCheckElapsedSeconds((seconds) => seconds + 1);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [modelCheck.isPending]);
+  }, [isModelCheckRunning]);
 
   const handleRunModelCheck = async () => {
-    if (!canRunModelCheck || modelCheck.isPending) return;
+    if (!canRunModelCheck || isModelCheckRunning) return;
     modelCheckAbortRef.current?.abort();
     const controller = new AbortController();
     modelCheckAbortRef.current = controller;
     setCheckError(null);
+    const candidates = availableCheckModels.map((model) => model.id);
+    setAvailabilityScan({
+      status: 'running',
+      checked: 0,
+      total: candidates.length,
+      currentModel: candidates[0] ?? '',
+      available: [],
+    });
+
     try {
-      await modelCheck.mutateAsync({
-        payload: {
-          clientType: 'openai',
-          model: checkModel,
-          iterations: sanitizedCheckIterations,
-          concurrency: sanitizedCheckConcurrency,
-        },
-        signal: controller.signal,
-      });
+      const successfulModels: ModelAvailabilityScanResult[] = [];
+      for (let index = 0; index < candidates.length; index++) {
+        const model = candidates[index];
+        if (controller.signal.aborted) break;
+        setAvailabilityScan((prev) => ({ ...prev, currentModel: model }));
+        const result: ProviderModelCheckResponse = await getTransport().checkProviderModel(
+          provider.id,
+          {
+            clientType: 'openai',
+            model,
+            iterations: sanitizedCheckIterations,
+            concurrency: sanitizedCheckConcurrency,
+          },
+          controller.signal,
+        );
+        if (result.successCount >= sanitizedCheckSuccessThreshold) {
+          successfulModels.push({
+            model,
+            successCount: result.successCount,
+            errorCount: result.errorCount,
+            durationMs: result.durationMs,
+          });
+        }
+        setAvailabilityScan({
+          status: 'running',
+          checked: index + 1,
+          total: candidates.length,
+          currentModel: candidates[index + 1] ?? '',
+          available: successfulModels,
+        });
+      }
+      setAvailabilityScan((prev) => ({
+        ...prev,
+        status: controller.signal.aborted ? 'cancelled' : 'done',
+        currentModel: '',
+      }));
     } catch (error) {
+      setAvailabilityScan((prev) => ({
+        ...prev,
+        status: controller.signal.aborted ? 'cancelled' : prev.status,
+        currentModel: '',
+      }));
       setCheckError(
         controller.signal.aborted
-          ? '已取消检验'
+          ? '已取消扫描'
           : error instanceof Error
             ? error.message
-            : '模型检验失败',
+            : '可用模型扫描失败',
       );
     } finally {
       if (modelCheckAbortRef.current === controller) {
@@ -281,7 +336,7 @@ export function ProviderModelMappings({
 
   const handleCancelModelCheck = () => {
     modelCheckAbortRef.current?.abort();
-    setCheckError('正在取消检验...');
+    setCheckError('正在取消扫描...');
   };
 
   const handleDragStart = () => {
@@ -356,13 +411,13 @@ export function ProviderModelMappings({
           <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-foreground">模型检验</div>
+                <div className="text-sm font-medium text-foreground">扫描真实可用模型</div>
                 <div className="text-xs text-muted-foreground">
-                  对当前自定义提供商发起随机数指纹测试；结果只作概率参考，不自动改映射。
+                  先从 provider 配置获取候选模型，再逐个真实请求；成功达到阈值才显示。
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {modelCheck.isPending && (
+                {isModelCheckRunning && (
                   <Button size="sm" variant="outline" onClick={handleCancelModelCheck}>
                     取消
                   </Button>
@@ -370,55 +425,53 @@ export function ProviderModelMappings({
                 <Button
                   size="sm"
                   onClick={handleRunModelCheck}
-                  disabled={!canRunModelCheck || modelCheck.isPending}
+                  disabled={!canRunModelCheck || isModelCheckRunning}
                 >
-                  {modelCheck.isPending ? '检验中...' : '开始检验'}
+                  {isModelCheckRunning ? '扫描中...' : '扫描可用模型'}
                 </Button>
               </div>
             </div>
             <div className="space-y-2 text-xs text-muted-foreground">
-              <div className="flex flex-wrap items-center gap-2">
-                <span>可测试模型</span>
-                <select
-                  value={checkModel}
-                  onChange={(event) => setSelectedCheckModel(event.target.value)}
-                  disabled={modelCheck.isPending || availableCheckModels.length === 0}
-                  className="h-8 min-w-64 max-w-full rounded-md border border-input bg-background px-2 font-mono text-sm text-foreground disabled:opacity-60"
-                >
-                  {availableCheckModels.length === 0 ? (
-                    <option value="">暂无可用模型</option>
-                  ) : (
-                    availableCheckModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.id}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <span>
-                  来自 provider 配置实际获取的模型列表，共 {availableCheckModels.length} 个
-                </span>
-              </div>
-              {runtimeModels && !runtimeModels.available && runtimeModels.error && (
-                <div className="text-xs text-amber-600">
-                  获取模型列表失败：{runtimeModels.error}
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-1">
-                  <span>次数</span>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex min-w-64 flex-1 flex-col gap-1">
+                  <span>候选模型来源</span>
+                  <select
+                    value="runtime"
+                    disabled
+                    className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-80"
+                  >
+                    <option value="runtime">
+                      provider 配置获取 · {availableCheckModels.length} 个候选
+                    </option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span>每模型请求</span>
                   <input
                     type="number"
-                    min={40}
+                    min={10}
                     max={500}
                     value={checkIterations}
                     onChange={(event) => setCheckIterations(Number(event.target.value))}
-                    disabled={modelCheck.isPending}
+                    disabled={isModelCheckRunning}
                     className="h-8 w-24 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
-                    title="测试次数"
+                    title="每个候选模型真实请求次数"
                   />
                 </label>
-                <label className="flex items-center gap-1">
+                <label className="flex flex-col gap-1">
+                  <span>成功阈值</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={sanitizedCheckIterations}
+                    value={checkSuccessThreshold}
+                    onChange={(event) => setCheckSuccessThreshold(Number(event.target.value))}
+                    disabled={isModelCheckRunning}
+                    className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
+                    title="达到该成功次数才显示为可用"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
                   <span>并发</span>
                   <input
                     type="number"
@@ -426,67 +479,53 @@ export function ProviderModelMappings({
                     max={10}
                     value={checkConcurrency}
                     onChange={(event) => setCheckConcurrency(Number(event.target.value))}
-                    disabled={modelCheck.isPending}
+                    disabled={isModelCheckRunning}
                     className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
-                    title="并发"
+                    title="单个模型内部请求并发"
                   />
                 </label>
+                <span className="pb-2 text-muted-foreground">
+                  默认 {sanitizedCheckSuccessThreshold}/{sanitizedCheckIterations} 成功才显示
+                </span>
               </div>
+              {runtimeModels && !runtimeModels.available && runtimeModels.error && (
+                <div className="text-xs text-amber-600">
+                  获取模型列表失败：{runtimeModels.error}
+                </div>
+              )}
             </div>
-            {(modelCheck.isPending || modelCheck.data) && (
+            {(isModelCheckRunning || availabilityScan.status !== 'idle') && (
               <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
-                  <span>{modelCheck.isPending ? '检验进行中' : '检验完成'}</span>
                   <span>
-                    {modelCheck.isPending
-                      ? `已等待 ${checkElapsedSeconds}s · ${sanitizedCheckIterations} 次 / 并发 ${sanitizedCheckConcurrency}`
-                      : `耗时 ${(modelCheck.data.durationMs / 1000).toFixed(1)}s`}
+                    {isModelCheckRunning
+                      ? `正在检查 ${availabilityScan.currentModel || '候选模型'}`
+                      : availabilityScan.status === 'cancelled'
+                        ? '扫描已取消'
+                        : '扫描完成'}
+                  </span>
+                  <span>
+                    已检查 {availabilityScan.checked}/{availabilityScan.total} · 可用{' '}
+                    {availabilityScan.available.length}
                   </span>
                 </div>
                 <Progress value={checkProgressValue} />
               </div>
             )}
             {checkError && <div className="text-xs text-destructive">{checkError}</div>}
-            {modelCheck.data && (
+            {availabilityScan.available.length > 0 && (
               <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
-                  <span>模型 {modelCheck.data.model}</span>
-                  <span>成功 {modelCheck.data.successCount}</span>
-                  <span>失败 {modelCheck.data.errorCount}</span>
-                  <span>有效样本 {modelCheck.data.validCount}</span>
-                  <span>耗时 {(modelCheck.data.durationMs / 1000).toFixed(1)}s</span>
-                  <span className={modelCheck.data.reliable ? 'text-green-600' : 'text-amber-600'}>
-                    {modelCheck.data.reliable ? '样本可靠' : '样本不足，仅供参考'}
-                  </span>
+                <div className="font-medium text-foreground">真实可用模型</div>
+                <div className="flex flex-wrap gap-2">
+                  {availabilityScan.available.map((result) => (
+                    <span
+                      key={result.model}
+                      className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-1 font-mono text-green-700 dark:text-green-300"
+                    >
+                      {result.model} · {result.successCount}/{sanitizedCheckIterations}
+                    </span>
+                  ))}
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  <span>众数：{modelCheck.data.stats.mode || '-'}</span>
-                  <span>
-                    均值：{modelCheck.data.stats.mean ? modelCheck.data.stats.mean.toFixed(1) : '-'}
-                  </span>
-                  <span>唯一值：{modelCheck.data.stats.unique || '-'}</span>
-                </div>
-                {modelCheck.data.matches && modelCheck.data.matches.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="font-medium">匹配排名</div>
-                    {modelCheck.data.matches.slice(0, 3).map((match, index) => (
-                      <div
-                        key={`${match.baseline.name}-${index}`}
-                        className="flex flex-wrap gap-x-3 text-muted-foreground"
-                      >
-                        <span>
-                          #{index + 1} {match.baseline.name}
-                        </span>
-                        <span>{match.baseline.model}</span>
-                        <span>综合 {formatModelCheckScore(match.overallScore)}</span>
-                        <span>众数{match.modeMatch ? '匹配' : '不匹配'}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {modelCheck.data.errors && modelCheck.data.errors.length > 0 && (
-                  <div className="text-muted-foreground">错误样例：{modelCheck.data.errors[0]}</div>
-                )}
               </div>
             )}
           </div>

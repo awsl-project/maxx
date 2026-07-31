@@ -26,7 +26,7 @@ const (
 	modelCheckMaxCount        = 500
 	modelCheckMaxConcurrency  = 10
 	modelCheckDefaultTimeout  = 30 * time.Second
-	modelCheckMinValidSamples = 40
+	modelCheckMinValidSamples = 10
 )
 
 var modelCheckNumberRE = regexp.MustCompile(`\d+`)
@@ -230,7 +230,7 @@ func runProviderModelCheck(ctx context.Context, provider *domain.Provider, req P
 		SuccessCount: successCount,
 		ErrorCount:   errorCount,
 		ValidCount:   len(results),
-		Available:    successCount > 0,
+		Available:    successCount >= max(1, (req.Iterations+1)/2),
 		Reliable:     len(results) >= modelCheckMinValidSamples,
 		Distribution: distribution,
 		Stats:        stats,
