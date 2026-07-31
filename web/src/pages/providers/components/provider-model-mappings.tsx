@@ -408,15 +408,79 @@ export function ProviderModelMappings({
         <p className="text-xs text-muted-foreground mb-4">{t('modelMappings.pageDesc')}</p>
 
         {(provider.type === 'custom' || provider.type === 'newapi') && (
-          <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium text-foreground">扫描真实可用模型</div>
-                <div className="text-xs text-muted-foreground">
-                  先从 provider 配置获取候选模型，再逐个真实请求；成功达到阈值才显示。
+          <div className="mb-4 rounded-lg border border-border bg-muted/30 p-2.5 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="shrink-0 text-sm font-medium text-foreground">扫描真实可用模型</span>
+              <select
+                value="runtime"
+                disabled
+                className="h-8 min-w-52 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-80"
+                title="先从 provider 配置获取候选模型，再逐个真实请求；成功达到阈值才显示"
+              >
+                <option value="runtime">
+                  provider 配置 · {availableCheckModels.length} 个候选
+                </option>
+              </select>
+              <label className="flex items-center gap-1">
+                <span>每模型</span>
+                <input
+                  type="number"
+                  min={10}
+                  max={500}
+                  value={checkIterations}
+                  onChange={(event) => setCheckIterations(Number(event.target.value))}
+                  disabled={isModelCheckRunning}
+                  className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
+                  title="每个候选模型真实请求次数"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                <span>阈值</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={sanitizedCheckIterations}
+                  value={checkSuccessThreshold}
+                  onChange={(event) => setCheckSuccessThreshold(Number(event.target.value))}
+                  disabled={isModelCheckRunning}
+                  className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
+                  title="达到该成功次数才显示为可用"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                <span>并发</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={checkConcurrency}
+                  onChange={(event) => setCheckConcurrency(Number(event.target.value))}
+                  disabled={isModelCheckRunning}
+                  className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
+                  title="单个模型内部请求并发"
+                />
+              </label>
+              <span className="shrink-0 text-muted-foreground">
+                ≥{sanitizedCheckSuccessThreshold}/{sanitizedCheckIterations} 显示
+              </span>
+              {(isModelCheckRunning || availabilityScan.status !== 'idle') && (
+                <div className="flex min-w-44 flex-1 items-center gap-2">
+                  <Progress value={checkProgressValue} />
+                  <span className="shrink-0">
+                    {availabilityScan.checked}/{availabilityScan.total} · 可用{' '}
+                    {availabilityScan.available.length}
+                  </span>
+                  {isModelCheckRunning && availabilityScan.currentModel && (
+                    <span
+                      className="max-w-48 truncate font-mono"
+                      title={availabilityScan.currentModel}
+                    >
+                      {availabilityScan.currentModel}
+                    </span>
+                  )}
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
+              )}
+              <div className="ml-auto flex items-center gap-2">
                 {isModelCheckRunning && (
                   <Button size="sm" variant="outline" onClick={handleCancelModelCheck}>
                     取消
@@ -430,102 +494,23 @@ export function ProviderModelMappings({
                   {isModelCheckRunning ? '扫描中...' : '扫描可用模型'}
                 </Button>
               </div>
-            </div>
-            <div className="space-y-2 text-xs text-muted-foreground">
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="flex min-w-64 flex-1 flex-col gap-1">
-                  <span>候选模型来源</span>
-                  <select
-                    value="runtime"
-                    disabled
-                    className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-80"
-                  >
-                    <option value="runtime">
-                      provider 配置获取 · {availableCheckModels.length} 个候选
-                    </option>
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span>每模型请求</span>
-                  <input
-                    type="number"
-                    min={10}
-                    max={500}
-                    value={checkIterations}
-                    onChange={(event) => setCheckIterations(Number(event.target.value))}
-                    disabled={isModelCheckRunning}
-                    className="h-8 w-24 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
-                    title="每个候选模型真实请求次数"
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span>成功阈值</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={sanitizedCheckIterations}
-                    value={checkSuccessThreshold}
-                    onChange={(event) => setCheckSuccessThreshold(Number(event.target.value))}
-                    disabled={isModelCheckRunning}
-                    className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
-                    title="达到该成功次数才显示为可用"
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span>并发</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={checkConcurrency}
-                    onChange={(event) => setCheckConcurrency(Number(event.target.value))}
-                    disabled={isModelCheckRunning}
-                    className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
-                    title="单个模型内部请求并发"
-                  />
-                </label>
-                <span className="pb-2 text-muted-foreground">
-                  默认 {sanitizedCheckSuccessThreshold}/{sanitizedCheckIterations} 成功才显示
-                </span>
-              </div>
               {runtimeModels && !runtimeModels.available && runtimeModels.error && (
-                <div className="text-xs text-amber-600">
+                <div className="basis-full text-xs text-amber-600">
                   获取模型列表失败：{runtimeModels.error}
                 </div>
               )}
             </div>
-            {(isModelCheckRunning || availabilityScan.status !== 'idle') && (
-              <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
-                  <span>
-                    {isModelCheckRunning
-                      ? `正在检查 ${availabilityScan.currentModel || '候选模型'}`
-                      : availabilityScan.status === 'cancelled'
-                        ? '扫描已取消'
-                        : '扫描完成'}
-                  </span>
-                  <span>
-                    已检查 {availabilityScan.checked}/{availabilityScan.total} · 可用{' '}
-                    {availabilityScan.available.length}
-                  </span>
-                </div>
-                <Progress value={checkProgressValue} />
-              </div>
-            )}
             {checkError && <div className="text-xs text-destructive">{checkError}</div>}
             {availabilityScan.available.length > 0 && (
-              <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
-                <div className="font-medium text-foreground">真实可用模型</div>
-                <div className="flex flex-wrap gap-2">
-                  {availabilityScan.available.map((result) => (
-                    <span
-                      key={result.model}
-                      className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-1 font-mono text-green-700 dark:text-green-300"
-                    >
-                      {result.model} · {result.successCount}/{sanitizedCheckIterations}
-                    </span>
-                  ))}
-                </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {availabilityScan.available.map((result) => (
+                  <span
+                    key={result.model}
+                    className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-1 font-mono text-green-700 dark:text-green-300"
+                  >
+                    {result.model} · {result.successCount}/{sanitizedCheckIterations}
+                  </span>
+                ))}
               </div>
             )}
           </div>
