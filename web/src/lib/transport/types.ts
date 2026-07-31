@@ -179,6 +179,62 @@ export interface ProviderRuntimeModelsPreviewRequest {
   config: ProviderConfig;
 }
 
+export interface ProviderModelCheckStats {
+  mean: number;
+  median: number;
+  stdDev: number;
+  min: number;
+  max: number;
+  unique: number;
+  mode: number;
+  modeCount: number;
+}
+
+export interface ProviderModelCheckBaseline {
+  name: string;
+  model: string;
+  distribution: number[];
+  stats: ProviderModelCheckStats;
+  iterations?: number;
+}
+
+export interface ProviderModelCheckRequest {
+  clientType?: ClientType;
+  model: string;
+  iterations?: number;
+  concurrency?: number;
+  timeoutMs?: number;
+  baselines?: ProviderModelCheckBaseline[];
+}
+
+export interface ProviderModelCheckMatch {
+  baseline: ProviderModelCheckBaseline;
+  cosineSimilarity: number;
+  jsDivergence: number;
+  modeScore: number;
+  overallScore: number;
+  modeMatch: boolean;
+}
+
+export interface ProviderModelCheckResponse {
+  providerID: number;
+  providerName: string;
+  clientType: ClientType;
+  model: string;
+  iterations: number;
+  concurrency: number;
+  successCount: number;
+  errorCount: number;
+  validCount: number;
+  available: boolean;
+  reliable: boolean;
+  distribution: number[];
+  stats: ProviderModelCheckStats;
+  matches?: ProviderModelCheckMatch[];
+  errors?: string[];
+  durationMs: number;
+}
+
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;

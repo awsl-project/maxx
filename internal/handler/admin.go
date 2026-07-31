@@ -196,6 +196,10 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		h.handleProviderRuntimeModels(w, r, id)
 		return
 	}
+	if id > 0 && strings.HasSuffix(path, "/model-check") {
+		h.handleProviderModelCheck(w, r, id)
+		return
+	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 

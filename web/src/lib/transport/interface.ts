@@ -37,6 +37,8 @@ import type {
   BedrockDiscoveredModelsResult,
   ProviderRuntimeModelsResult,
   ProviderRuntimeModelsPreviewRequest,
+  ProviderModelCheckRequest,
+  ProviderModelCheckResponse,
   ModelMapping,
   ModelMappingInput,
   ModelMappingReorderInput,
@@ -109,6 +111,10 @@ export interface Transport {
   previewProviderRuntimeModels(
     payload: ProviderRuntimeModelsPreviewRequest,
   ): Promise<ProviderRuntimeModelsResult>;
+  checkProviderModel(
+    providerId: number,
+    payload: ProviderModelCheckRequest,
+  ): Promise<ProviderModelCheckResponse>;
   createProvider(data: CreateProviderData): Promise<Provider>;
   updateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
   deleteProvider(id: number): Promise<void>;

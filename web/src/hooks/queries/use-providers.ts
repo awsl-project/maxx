@@ -8,6 +8,7 @@ import {
   type Provider,
   type CreateProviderData,
   type ProviderRuntimeModelsPreviewRequest,
+  type ProviderModelCheckRequest,
 } from '@/lib/transport';
 import { routeKeys } from './use-routes';
 
@@ -62,6 +63,13 @@ export function useProviderRuntimeModelsPreview(
     queryFn: () => getTransport().previewProviderRuntimeModels(payload!),
     enabled: enabled && !!payload,
     staleTime: 60 * 1000,
+  });
+}
+
+export function useProviderModelCheck(providerId: number) {
+  return useMutation({
+    mutationFn: (payload: ProviderModelCheckRequest) =>
+      getTransport().checkProviderModel(providerId, payload),
   });
 }
 

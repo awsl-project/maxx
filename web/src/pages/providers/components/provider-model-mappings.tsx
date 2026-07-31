@@ -22,6 +22,7 @@ import {
   useModelMappings,
   useProviderRuntimeModels,
   useProviderRuntimeModelsPreview,
+  useProviderModelCheck,
   useCreateModelMapping,
   useUpdateModelMapping,
   useReorderModelMappings,
@@ -32,6 +33,7 @@ import type {
   ModelMapping,
   ModelMappingInput,
   ProviderRuntimeModelsPreviewRequest,
+  ProviderModelCheckBaseline,
 } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { ModelInput } from '@/components/ui/model-input';
@@ -61,6 +63,37 @@ export function buildProviderRuntimeModelOptions(
     });
   }
   return options;
+}
+
+function parseProviderModelCheckBaselines(raw: string): ProviderModelCheckBaseline[] {
+  const text = raw.trim();
+  if (!text) return [];
+  const parsed = JSON.parse(text) as unknown;
+  const list = Array.isArray(parsed)
+    ? parsed
+    : typeof parsed === 'object' &&
+        parsed !== null &&
+        Array.isArray((parsed as { baselines?: unknown }).baselines)
+      ? (parsed as { baselines: unknown[] }).baselines
+      : [];
+  return list.filter((item): item is ProviderModelCheckBaseline => {
+    if (typeof item !== 'object' || item === null) return false;
+    const candidate = item as Partial<ProviderModelCheckBaseline>;
+    return (
+      typeof candidate.name === 'string' &&
+      typeof candidate.model === 'string' &&
+      Array.isArray(candidate.distribution) &&
+      candidate.distribution.length === 355 &&
+      typeof candidate.stats === 'object' &&
+      candidate.stats !== null &&
+      typeof candidate.stats.mode === 'number'
+    );
+  });
+}
+
+function formatModelCheckScore(value: number | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-';
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 interface SortableProviderMappingRowProps {
@@ -151,6 +184,12 @@ export function ProviderModelMappings({
   const runtimeModels = previewRuntimeModels ?? savedRuntimeModels;
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
+  const [checkModel, setCheckModel] = useState('');
+  const [checkIterations, setCheckIterations] = useState(50);
+  const [checkConcurrency, setCheckConcurrency] = useState(4);
+  const [checkBaselinesText, setCheckBaselinesText] = useState('');
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const modelCheck = useProviderModelCheck(provider.id);
 
   // Filter mappings for this provider
   const providerMappings = useMemo(() => {
@@ -180,6 +219,25 @@ export function ProviderModelMappings({
       ),
     [provider.supportModels, runtimeModels?.models, t],
   );
+
+  const canRunModelCheck =
+    (provider.type === 'custom' || provider.type === 'newapi') && checkModel.trim().length > 0;
+
+  const handleRunModelCheck = async () => {
+    if (!canRunModelCheck || modelCheck.isPending) return;
+    setCheckError(null);
+    try {
+      await modelCheck.mutateAsync({
+        clientType: 'openai',
+        model: checkModel.trim(),
+        iterations: Math.max(40, Math.min(500, checkIterations || 50)),
+        concurrency: Math.max(1, Math.min(10, checkConcurrency || 4)),
+        baselines: parseProviderModelCheckBaselines(checkBaselinesText),
+      });
+    } catch (error) {
+      setCheckError(error instanceof Error ? error.message : '模型检验失败');
+    }
+  };
 
   const handleDragStart = () => {
     document.body.classList.add('is-dragging');
@@ -248,6 +306,101 @@ export function ProviderModelMappings({
 
       <div className="bg-card border border-border rounded-xl p-4">
         <p className="text-xs text-muted-foreground mb-4">{t('modelMappings.pageDesc')}</p>
+
+        {(provider.type === 'custom' || provider.type === 'newapi') && (
+          <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">模型检验</div>
+                <div className="text-xs text-muted-foreground">
+                  对当前自定义提供商发起随机数指纹测试；结果只作概率参考，不自动改映射。
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleRunModelCheck}
+                disabled={!canRunModelCheck || modelCheck.isPending}
+              >
+                {modelCheck.isPending ? '检验中...' : '开始检验'}
+              </Button>
+            </div>
+            <div className="grid gap-2 md:grid-cols-[1fr_96px_96px]">
+              <ModelInput
+                value={checkModel}
+                onChange={setCheckModel}
+                placeholder="要检验的上游模型，例如 gpt-4o"
+                extraModels={providerRuntimeModelOptions}
+                className="h-8 text-sm"
+              />
+              <input
+                type="number"
+                min={40}
+                max={500}
+                value={checkIterations}
+                onChange={(event) => setCheckIterations(Number(event.target.value))}
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                title="测试次数"
+              />
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={checkConcurrency}
+                onChange={(event) => setCheckConcurrency(Number(event.target.value))}
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                title="并发"
+              />
+            </div>
+            <textarea
+              value={checkBaselinesText}
+              onChange={(event) => setCheckBaselinesText(event.target.value)}
+              placeholder="可选：粘贴 hlwy-ai-checker 导出的 baseline JSON，用于匹配排名"
+              className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-xs"
+            />
+            {checkError && <div className="text-xs text-destructive">{checkError}</div>}
+            {modelCheck.data && (
+              <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                  <span>成功 {modelCheck.data.successCount}</span>
+                  <span>失败 {modelCheck.data.errorCount}</span>
+                  <span>有效样本 {modelCheck.data.validCount}</span>
+                  <span>耗时 {(modelCheck.data.durationMs / 1000).toFixed(1)}s</span>
+                  <span className={modelCheck.data.reliable ? 'text-green-600' : 'text-amber-600'}>
+                    {modelCheck.data.reliable ? '样本可靠' : '样本不足，仅供参考'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span>众数：{modelCheck.data.stats.mode || '-'}</span>
+                  <span>
+                    均值：{modelCheck.data.stats.mean ? modelCheck.data.stats.mean.toFixed(1) : '-'}
+                  </span>
+                  <span>唯一值：{modelCheck.data.stats.unique || '-'}</span>
+                </div>
+                {modelCheck.data.matches && modelCheck.data.matches.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="font-medium">匹配排名</div>
+                    {modelCheck.data.matches.slice(0, 3).map((match, index) => (
+                      <div
+                        key={`${match.baseline.name}-${index}`}
+                        className="flex flex-wrap gap-x-3 text-muted-foreground"
+                      >
+                        <span>
+                          #{index + 1} {match.baseline.name}
+                        </span>
+                        <span>{match.baseline.model}</span>
+                        <span>综合 {formatModelCheckScore(match.overallScore)}</span>
+                        <span>众数{match.modeMatch ? '匹配' : '不匹配'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {modelCheck.data.errors && modelCheck.data.errors.length > 0 && (
+                  <div className="text-muted-foreground">错误样例：{modelCheck.data.errors[0]}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {providerMappings.length > 0 && (
           <DndContext
