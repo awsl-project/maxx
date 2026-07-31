@@ -33,7 +33,6 @@ import type {
   ModelMapping,
   ModelMappingInput,
   ProviderRuntimeModelsPreviewRequest,
-  ProviderModelCheckBaseline,
 } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { ModelInput } from '@/components/ui/model-input';
@@ -49,11 +48,16 @@ import { Progress } from '@/components/ui/progress';
 export function buildProviderRuntimeModelOptions(
   providerModels: string[] | undefined,
   configuredModels: string[] | undefined,
+  mappedModels: string[] | undefined,
   label: string,
 ) {
   const modelIDs = new Set<string>();
   const options = [];
-  for (const model of [...(providerModels || []), ...(configuredModels || [])]) {
+  for (const model of [
+    ...(providerModels || []),
+    ...(configuredModels || []),
+    ...(mappedModels || []),
+  ]) {
     const id = model.trim();
     if (!id || modelIDs.has(id)) continue;
     modelIDs.add(id);
@@ -64,32 +68,6 @@ export function buildProviderRuntimeModelOptions(
     });
   }
   return options;
-}
-
-function parseProviderModelCheckBaselines(raw: string): ProviderModelCheckBaseline[] {
-  const text = raw.trim();
-  if (!text) return [];
-  const parsed = JSON.parse(text) as unknown;
-  const list = Array.isArray(parsed)
-    ? parsed
-    : typeof parsed === 'object' &&
-        parsed !== null &&
-        Array.isArray((parsed as { baselines?: unknown }).baselines)
-      ? (parsed as { baselines: unknown[] }).baselines
-      : [];
-  return list.filter((item): item is ProviderModelCheckBaseline => {
-    if (typeof item !== 'object' || item === null) return false;
-    const candidate = item as Partial<ProviderModelCheckBaseline>;
-    return (
-      typeof candidate.name === 'string' &&
-      typeof candidate.model === 'string' &&
-      Array.isArray(candidate.distribution) &&
-      candidate.distribution.length === 355 &&
-      typeof candidate.stats === 'object' &&
-      candidate.stats !== null &&
-      typeof candidate.stats.mode === 'number'
-    );
-  });
 }
 
 function formatModelCheckScore(value: number | undefined) {
@@ -188,7 +166,6 @@ export function ProviderModelMappings({
   const [selectedCheckModel, setSelectedCheckModel] = useState('');
   const [checkIterations, setCheckIterations] = useState(50);
   const [checkConcurrency, setCheckConcurrency] = useState(4);
-  const [checkBaselinesText, setCheckBaselinesText] = useState('');
   const [checkError, setCheckError] = useState<string | null>(null);
   const [checkElapsedSeconds, setCheckElapsedSeconds] = useState(0);
   const modelCheckAbortRef = useRef<AbortController | null>(null);
@@ -218,9 +195,10 @@ export function ProviderModelMappings({
       buildProviderRuntimeModelOptions(
         runtimeModels?.models,
         provider.supportModels,
+        providerMappings.map((mapping) => mapping.target),
         t('modelInput.currentProviderModels'),
       ),
-    [provider.supportModels, runtimeModels?.models, t],
+    [provider.supportModels, providerMappings, runtimeModels?.models, t],
   );
 
   const availableCheckModels = providerRuntimeModelOptions;
@@ -272,7 +250,6 @@ export function ProviderModelMappings({
           model: checkModel,
           iterations: sanitizedCheckIterations,
           concurrency: sanitizedCheckConcurrency,
-          baselines: parseProviderModelCheckBaselines(checkBaselinesText),
         },
         signal: controller.signal,
       });
@@ -407,7 +384,9 @@ export function ProviderModelMappings({
                     ))
                   )}
                 </select>
-                <span>来自 provider 配置/运行时模型列表，共 {availableCheckModels.length} 个</span>
+                <span>
+                  来自 provider 配置、运行时模型和映射目标，共 {availableCheckModels.length} 个
+                </span>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-1">
@@ -451,13 +430,6 @@ export function ProviderModelMappings({
                 <Progress value={checkProgressValue} />
               </div>
             )}
-            <textarea
-              value={checkBaselinesText}
-              onChange={(event) => setCheckBaselinesText(event.target.value)}
-              disabled={modelCheck.isPending}
-              placeholder="可选：粘贴 hlwy-ai-checker 导出的 baseline JSON，用于匹配排名"
-              className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-xs disabled:opacity-60"
-            />
             {checkError && <div className="text-xs text-destructive">{checkError}</div>}
             {modelCheck.data && (
               <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
