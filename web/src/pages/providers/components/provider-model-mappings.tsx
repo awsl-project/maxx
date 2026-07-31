@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -37,6 +37,7 @@ import type {
 } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { ModelInput } from '@/components/ui/model-input';
+import { Progress } from '@/components/ui/progress';
 
 /**
  * Provider-scoped model mappings editor backed by the ModelMapping entity API
@@ -184,11 +185,13 @@ export function ProviderModelMappings({
   const runtimeModels = previewRuntimeModels ?? savedRuntimeModels;
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
-  const [checkModel, setCheckModel] = useState('');
+  const [selectedCheckModel, setSelectedCheckModel] = useState('');
   const [checkIterations, setCheckIterations] = useState(50);
   const [checkConcurrency, setCheckConcurrency] = useState(4);
   const [checkBaselinesText, setCheckBaselinesText] = useState('');
   const [checkError, setCheckError] = useState<string | null>(null);
+  const [checkElapsedSeconds, setCheckElapsedSeconds] = useState(0);
+  const modelCheckAbortRef = useRef<AbortController | null>(null);
   const modelCheck = useProviderModelCheck(provider.id);
 
   // Filter mappings for this provider
@@ -220,23 +223,77 @@ export function ProviderModelMappings({
     [provider.supportModels, runtimeModels?.models, t],
   );
 
+  const availableCheckModels = providerRuntimeModelOptions;
+  const selectedCheckModelAvailable = availableCheckModels.some(
+    (model) => model.id === selectedCheckModel,
+  );
+  const checkModel = selectedCheckModelAvailable
+    ? selectedCheckModel
+    : (availableCheckModels[0]?.id ?? '');
+  const sanitizedCheckIterations = Math.max(40, Math.min(500, checkIterations || 50));
+  const sanitizedCheckConcurrency = Math.max(1, Math.min(10, checkConcurrency || 4));
+  const estimatedCheckSeconds = Math.max(
+    8,
+    Math.ceil(sanitizedCheckIterations / sanitizedCheckConcurrency) * 2,
+  );
+  const checkProgressValue = modelCheck.isPending
+    ? Math.min(95, Math.max(5, Math.round((checkElapsedSeconds / estimatedCheckSeconds) * 90)))
+    : modelCheck.data
+      ? 100
+      : 0;
   const canRunModelCheck =
-    (provider.type === 'custom' || provider.type === 'newapi') && checkModel.trim().length > 0;
+    (provider.type === 'custom' || provider.type === 'newapi') && checkModel.length > 0;
+
+  useEffect(() => {
+    if (modelCheck.isPending) return;
+    if (selectedCheckModelAvailable || !checkModel) return;
+    setSelectedCheckModel(checkModel);
+  }, [checkModel, modelCheck.isPending, selectedCheckModelAvailable]);
+
+  useEffect(() => {
+    if (!modelCheck.isPending) return;
+    setCheckElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setCheckElapsedSeconds((seconds) => seconds + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [modelCheck.isPending]);
 
   const handleRunModelCheck = async () => {
     if (!canRunModelCheck || modelCheck.isPending) return;
+    modelCheckAbortRef.current?.abort();
+    const controller = new AbortController();
+    modelCheckAbortRef.current = controller;
     setCheckError(null);
     try {
       await modelCheck.mutateAsync({
-        clientType: 'openai',
-        model: checkModel.trim(),
-        iterations: Math.max(40, Math.min(500, checkIterations || 50)),
-        concurrency: Math.max(1, Math.min(10, checkConcurrency || 4)),
-        baselines: parseProviderModelCheckBaselines(checkBaselinesText),
+        payload: {
+          clientType: 'openai',
+          model: checkModel,
+          iterations: sanitizedCheckIterations,
+          concurrency: sanitizedCheckConcurrency,
+          baselines: parseProviderModelCheckBaselines(checkBaselinesText),
+        },
+        signal: controller.signal,
       });
     } catch (error) {
-      setCheckError(error instanceof Error ? error.message : '模型检验失败');
+      setCheckError(
+        controller.signal.aborted
+          ? '已取消检验'
+          : error instanceof Error
+            ? error.message
+            : '模型检验失败',
+      );
+    } finally {
+      if (modelCheckAbortRef.current === controller) {
+        modelCheckAbortRef.current = null;
+      }
     }
+  };
+
+  const handleCancelModelCheck = () => {
+    modelCheckAbortRef.current?.abort();
+    setCheckError('正在取消检验...');
   };
 
   const handleDragStart = () => {
@@ -316,51 +373,96 @@ export function ProviderModelMappings({
                   对当前自定义提供商发起随机数指纹测试；结果只作概率参考，不自动改映射。
                 </div>
               </div>
-              <Button
-                size="sm"
-                onClick={handleRunModelCheck}
-                disabled={!canRunModelCheck || modelCheck.isPending}
-              >
-                {modelCheck.isPending ? '检验中...' : '开始检验'}
-              </Button>
+              <div className="flex items-center gap-2">
+                {modelCheck.isPending && (
+                  <Button size="sm" variant="outline" onClick={handleCancelModelCheck}>
+                    取消
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={handleRunModelCheck}
+                  disabled={!canRunModelCheck || modelCheck.isPending}
+                >
+                  {modelCheck.isPending ? '检验中...' : '开始检验'}
+                </Button>
+              </div>
             </div>
-            <div className="grid gap-2 md:grid-cols-[1fr_96px_96px]">
-              <ModelInput
-                value={checkModel}
-                onChange={setCheckModel}
-                placeholder="要检验的上游模型，例如 gpt-4o"
-                extraModels={providerRuntimeModelOptions}
-                className="h-8 text-sm"
-              />
-              <input
-                type="number"
-                min={40}
-                max={500}
-                value={checkIterations}
-                onChange={(event) => setCheckIterations(Number(event.target.value))}
-                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-                title="测试次数"
-              />
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={checkConcurrency}
-                onChange={(event) => setCheckConcurrency(Number(event.target.value))}
-                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-                title="并发"
-              />
+            <div className="space-y-2 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2">
+                <span>可测试模型</span>
+                <select
+                  value={checkModel}
+                  onChange={(event) => setSelectedCheckModel(event.target.value)}
+                  disabled={modelCheck.isPending || availableCheckModels.length === 0}
+                  className="h-8 min-w-64 max-w-full rounded-md border border-input bg-background px-2 font-mono text-sm text-foreground disabled:opacity-60"
+                >
+                  {availableCheckModels.length === 0 ? (
+                    <option value="">暂无可用模型</option>
+                  ) : (
+                    availableCheckModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.id}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <span>来自 provider 配置/运行时模型列表，共 {availableCheckModels.length} 个</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1">
+                  <span>次数</span>
+                  <input
+                    type="number"
+                    min={40}
+                    max={500}
+                    value={checkIterations}
+                    onChange={(event) => setCheckIterations(Number(event.target.value))}
+                    disabled={modelCheck.isPending}
+                    className="h-8 w-24 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
+                    title="测试次数"
+                  />
+                </label>
+                <label className="flex items-center gap-1">
+                  <span>并发</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={checkConcurrency}
+                    onChange={(event) => setCheckConcurrency(Number(event.target.value))}
+                    disabled={modelCheck.isPending}
+                    className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground disabled:opacity-60"
+                    title="并发"
+                  />
+                </label>
+              </div>
             </div>
+            {(modelCheck.isPending || modelCheck.data) && (
+              <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
+                  <span>{modelCheck.isPending ? '检验进行中' : '检验完成'}</span>
+                  <span>
+                    {modelCheck.isPending
+                      ? `已等待 ${checkElapsedSeconds}s · ${sanitizedCheckIterations} 次 / 并发 ${sanitizedCheckConcurrency}`
+                      : `耗时 ${(modelCheck.data.durationMs / 1000).toFixed(1)}s`}
+                  </span>
+                </div>
+                <Progress value={checkProgressValue} />
+              </div>
+            )}
             <textarea
               value={checkBaselinesText}
               onChange={(event) => setCheckBaselinesText(event.target.value)}
+              disabled={modelCheck.isPending}
               placeholder="可选：粘贴 hlwy-ai-checker 导出的 baseline JSON，用于匹配排名"
-              className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-xs"
+              className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-xs disabled:opacity-60"
             />
             {checkError && <div className="text-xs text-destructive">{checkError}</div>}
             {modelCheck.data && (
               <div className="rounded-md border border-border bg-background p-3 text-xs space-y-2">
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                  <span>模型 {modelCheck.data.model}</span>
                   <span>成功 {modelCheck.data.successCount}</span>
                   <span>失败 {modelCheck.data.errorCount}</span>
                   <span>有效样本 {modelCheck.data.validCount}</span>

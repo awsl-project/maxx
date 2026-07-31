@@ -282,10 +282,12 @@ export class HttpTransport implements Transport {
   async checkProviderModel(
     providerId: number,
     payload: ProviderModelCheckRequest,
+    signal?: AbortSignal,
   ): Promise<ProviderModelCheckResponse> {
     const { data } = await this.client.post<ProviderModelCheckResponse>(
       `/admin/providers/${providerId}/model-check`,
       payload,
+      { signal },
     );
     return this.expectObject<ProviderModelCheckResponse>(
       data,

@@ -68,8 +68,13 @@ export function useProviderRuntimeModelsPreview(
 
 export function useProviderModelCheck(providerId: number) {
   return useMutation({
-    mutationFn: (payload: ProviderModelCheckRequest) =>
-      getTransport().checkProviderModel(providerId, payload),
+    mutationFn: ({
+      payload,
+      signal,
+    }: {
+      payload: ProviderModelCheckRequest;
+      signal?: AbortSignal;
+    }) => getTransport().checkProviderModel(providerId, payload, signal),
   });
 }
 
