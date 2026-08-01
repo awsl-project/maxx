@@ -57,11 +57,31 @@ func TestApply_AutoPassesThroughWithoutCeiling(t *testing.T) {
 }
 
 func TestApply_UnknownVocabularyClampedWhenCapped(t *testing.T) {
-	// A ceiling must hold even against a value we can't rank (e.g. "xhigh").
+	// A ceiling must hold even against a value we can't rank.
 	eff := Resolve(nil, mustPolicy("medium", ""), "")
-	out := Apply([]byte(`{"reasoning_effort":"xhigh"}`), domain.ClientTypeOpenAI, eff)
+	out := Apply([]byte(`{"reasoning_effort":"ultra"}`), domain.ClientTypeOpenAI, eff)
 	if got := effortAt(t, out, domain.ClientTypeOpenAI); got != "medium" {
 		t.Fatalf("unknown reasoning_effort = %q, want clamped to medium", got)
+	}
+}
+
+func TestApply_ExtendedEffortsAreOrderedAndWritable(t *testing.T) {
+	clamped := Apply(
+		[]byte(`{"reasoning_effort":"max"}`),
+		domain.ClientTypeOpenAI,
+		Resolve(nil, mustPolicy("xhigh", ""), ""),
+	)
+	if got := effortAt(t, clamped, domain.ClientTypeOpenAI); got != "xhigh" {
+		t.Fatalf("max above xhigh ceiling = %q, want xhigh", got)
+	}
+
+	filled := Apply(
+		[]byte(`{"model":"m"}`),
+		domain.ClientTypeOpenAI,
+		Resolve(nil, mustPolicy("", "max"), ""),
+	)
+	if got := effortAt(t, filled, domain.ClientTypeOpenAI); got != "max" {
+		t.Fatalf("default effort = %q, want max", got)
 	}
 }
 
@@ -105,6 +125,25 @@ func TestApply_GeminiUpperCaseWire(t *testing.T) {
 	}
 }
 
+func TestApply_GeminiCapsExtendedWireToHigh(t *testing.T) {
+	eff := Resolve(nil, mustPolicy("", "max"), "")
+	out := Apply([]byte(`{}`), domain.ClientTypeGemini, eff)
+	if got := gjson.GetBytes(out, "generationConfig.thinkingConfig.thinkingLevel").String(); got != "HIGH" {
+		t.Fatalf("thinkingLevel = %q, want HIGH (Gemini wire maximum)", got)
+	}
+}
+
+func TestValidEffort_AcceptsExtendedEfforts(t *testing.T) {
+	for _, effort := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "max", ""} {
+		if !ValidEffort(effort) {
+			t.Fatalf("ValidEffort(%q) = false, want true", effort)
+		}
+	}
+	if ValidEffort("ultra") {
+		t.Fatal("ValidEffort(ultra) = true, want false")
+	}
+}
+
 func TestApply_ClaudeDefaultWritesThinkingBudget(t *testing.T) {
 	eff := Resolve(nil, mustPolicy("", "medium"), "")
 	out := Apply([]byte(`{"model":"claude-sonnet","max_tokens":4096}`), domain.ClientTypeClaude, eff)
@@ -116,6 +155,17 @@ func TestApply_ClaudeDefaultWritesThinkingBudget(t *testing.T) {
 	}
 	if got := gjson.GetBytes(out, "max_tokens").Int(); got != 8193 {
 		t.Fatalf("max_tokens = %d, want bumped above thinking budget; body=%s", got, out)
+	}
+}
+
+func TestApply_ClaudeMaxWritesHighestThinkingBudget(t *testing.T) {
+	eff := Resolve(nil, mustPolicy("", "max"), "")
+	out := Apply([]byte(`{"model":"claude-sonnet","max_tokens":4096}`), domain.ClientTypeClaude, eff)
+	if got := gjson.GetBytes(out, "thinking.budget_tokens").Int(); got != 64000 {
+		t.Fatalf("thinking.budget_tokens = %d, want 64000; body=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "max_tokens").Int(); got != 64001 {
+		t.Fatalf("max_tokens = %d, want bumped above max thinking budget; body=%s", got, out)
 	}
 }
 

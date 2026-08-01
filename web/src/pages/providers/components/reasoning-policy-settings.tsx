@@ -8,7 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high'] as const;
+const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 const UNSET_VALUE = '__unset__';
 
 type ReasoningEffort = (typeof EFFORTS)[number];

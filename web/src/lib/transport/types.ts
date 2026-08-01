@@ -35,8 +35,8 @@ export interface ProviderConfigCustomDisguise {
 }
 
 export interface ReasoningPolicy {
-  maxEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
-  defaultEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
+  maxEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  defaultEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
 export interface ProviderConfigCustom {

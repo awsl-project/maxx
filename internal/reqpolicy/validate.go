@@ -25,10 +25,10 @@ func ValidatePolicy(p *domain.ReasoningPolicy) error {
 		return nil
 	}
 	if !ValidEffort(p.MaxEffort) {
-		return fmt.Errorf("%w: invalid maxEffort %q (want one of none|minimal|low|medium|high)", domain.ErrInvalidInput, p.MaxEffort)
+		return fmt.Errorf("%w: invalid maxEffort %q (want one of none|minimal|low|medium|high|xhigh|max)", domain.ErrInvalidInput, p.MaxEffort)
 	}
 	if !ValidEffort(p.DefaultEffort) {
-		return fmt.Errorf("%w: invalid defaultEffort %q (want one of none|minimal|low|medium|high)", domain.ErrInvalidInput, p.DefaultEffort)
+		return fmt.Errorf("%w: invalid defaultEffort %q (want one of none|minimal|low|medium|high|xhigh|max)", domain.ErrInvalidInput, p.DefaultEffort)
 	}
 	return nil
 }
