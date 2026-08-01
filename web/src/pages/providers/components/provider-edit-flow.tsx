@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Globe,
@@ -69,6 +69,72 @@ import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { normalizeProviderArrayField } from '../utils/provider-normalize';
+
+function ProviderEditSection({
+  id,
+  title,
+  description,
+  icon,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      className="scroll-mt-28 space-y-4 rounded-2xl border border-border bg-card/60 p-5 shadow-sm"
+    >
+      <div className="flex items-start gap-3 border-b border-border pb-4">
+        {icon && (
+          <div className="mt-0.5 rounded-lg border border-border bg-background p-2 text-muted-foreground">
+            {icon}
+          </div>
+        )}
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        </div>
+      </div>
+      <div className="space-y-6">{children}</div>
+    </section>
+  );
+}
+
+function ProviderEditSectionNav({
+  title,
+  sections,
+}: {
+  title: string;
+  sections: Array<{ id: string; label: string; description: string }>;
+}) {
+  return (
+    <aside className="hidden xl:block">
+      <div className="sticky top-28 rounded-2xl border border-border bg-card/70 p-3 shadow-sm">
+        <div className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {title}
+        </div>
+        <nav className="space-y-1">
+          {sections.map((section) => (
+            <a
+              key={section.id}
+              href={`#${section.id}`}
+              className="block rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <span className="block font-medium text-foreground">{section.label}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {section.description}
+              </span>
+            </a>
+          ))}
+        </nav>
+      </div>
+    </aside>
+  );
+}
 
 function ResponseModelMappings({
   mappings,
@@ -1010,66 +1076,105 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           </div>
         </div>
         <div className="p-6">
-          <div className="mx-auto max-w-7xl space-y-8">
-            <ProviderProxyURLCard provider={provider} />
+          <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
+            <ProviderEditSectionNav
+              title={t('provider.infoSections.navigation')}
+              sections={[
+                {
+                  id: 'provider-overview',
+                  label: t('provider.infoSections.overview'),
+                  description: t('provider.infoSections.overviewDesc'),
+                },
+                {
+                  id: 'provider-connection',
+                  label: t('provider.infoSections.connection'),
+                  description: t('provider.infoSections.connectionDesc'),
+                },
+                {
+                  id: 'provider-clients',
+                  label: t('provider.infoSections.clients'),
+                  description: t('provider.infoSections.clientsDesc'),
+                },
+                {
+                  id: 'provider-models',
+                  label: t('provider.infoSections.models'),
+                  description: t('provider.infoSections.modelsDesc'),
+                },
+                {
+                  id: 'provider-policies',
+                  label: t('provider.infoSections.policies'),
+                  description: t('provider.infoSections.policiesDesc'),
+                },
+                {
+                  id: 'provider-danger',
+                  label: t('provider.infoSections.danger'),
+                  description: t('provider.infoSections.dangerDesc'),
+                },
+              ]}
+            />
 
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-                {t('provider.basicInfo')}
-              </h3>
+            <div className="min-w-0 space-y-6">
+              <ProviderEditSection
+                id="provider-overview"
+                title={t('provider.infoSections.overview')}
+                description={t('provider.infoSections.overviewDesc')}
+                icon={<Globe size={18} />}
+              >
+                <ProviderProxyURLCard provider={provider} />
 
-              <div className="grid gap-6">
-                <div>
-                  <label className="text-sm font-medium text-foreground block mb-2">
-                    {t('provider.displayName')}
-                  </label>
-                  <Input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                    placeholder={t('provider.namePlaceholder')}
-                    className="w-full"
-                  />
-                </div>
-
-                <ProviderMaxConcurrencyField
-                  value={formData.maxConcurrency}
-                  onChange={(maxConcurrency) =>
-                    setFormData((prev) => ({ ...prev, maxConcurrency }))
-                  }
-                />
-
-                <div>
-                  <label className="text-sm font-medium text-foreground block mb-2">
-                    {t('provider.customBackend')}
-                  </label>
-                  <Select
-                    value={formData.backend}
-                    onValueChange={(backend) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        backend: backend === 'ollama' ? 'ollama' : 'http',
-                      }))
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
-                      <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {formData.backend === 'ollama'
-                      ? t('provider.customBackendOllamaDesc')
-                      : t('provider.customBackendHttpDesc')}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid gap-6 md:grid-cols-2">
                   <div>
-                    <label className="text-sm font-medium text-foreground block mb-2">
+                    <label className="mb-2 block text-sm font-medium text-foreground">
+                      {t('provider.displayName')}
+                    </label>
+                    <Input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                      placeholder={t('provider.namePlaceholder')}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-foreground">
+                      {t('provider.customBackend')}
+                    </label>
+                    <Select
+                      value={formData.backend}
+                      onValueChange={(backend) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          backend: backend === 'ollama' ? 'ollama' : 'http',
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
+                        <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formData.backend === 'ollama'
+                        ? t('provider.customBackendOllamaDesc')
+                        : t('provider.customBackendHttpDesc')}
+                    </p>
+                  </div>
+                </div>
+              </ProviderEditSection>
+
+              <ProviderEditSection
+                id="provider-connection"
+                title={t('provider.infoSections.connection')}
+                description={t('provider.infoSections.connectionDesc')}
+                icon={<Key size={18} />}
+              >
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-foreground">
                       <div className="flex items-center gap-2">
                         <Globe size={14} />
                         <span>{t('provider.apiEndpoint')}</span>
@@ -1091,7 +1196,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       }
                       className="w-full"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {providerConfigIsWriteOnly
                         ? t('provider.urlExcludedHint')
                         : t('provider.optionalUrlNote')}
@@ -1099,7 +1204,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium text-foreground block mb-2">
+                    <label className="mb-2 block text-sm font-medium text-foreground">
                       <div className="flex items-center gap-2">
                         <Key size={14} />
                         <span>
@@ -1130,7 +1235,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                         <button
                           type="button"
                           onClick={() => setShowApiKey(!showApiKey)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
                           aria-label={showApiKey ? t('common.hide') : t('common.show')}
                         >
                           {showApiKey ? (
@@ -1142,192 +1247,211 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       )}
                     </div>
                     {providerConfigIsWriteOnly && (
-                      <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
+                      <div className="mt-2 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
                         {t('provider.apiKeyExcludedHint')}
                       </div>
                     )}
                     {cloneError && (
-                      <div className="mt-2 p-3 bg-error/10 border border-error/30 rounded-lg text-xs text-error">
+                      <div className="mt-2 rounded-lg border border-error/30 bg-error/10 p-3 text-xs text-error">
                         {cloneError}
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
-            </div>
+              </ProviderEditSection>
 
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-                {t('provider.clientConfig')}
-              </h3>
-              <ClientsConfigSection
-                clients={formData.clients}
-                onUpdateClient={updateClient}
-                disguise={{
-                  type: formData.disguiseType ?? 'claude-code',
-                  claudeCodeMode: formData.cloakMode ?? 'auto',
-                  claudeCodeStrictMode: !!formData.cloakStrictMode,
-                  claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
-                }}
-                onUpdateDisguise={(updates) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    disguiseType: updates?.type ?? prev.disguiseType,
-                    cloakMode: updates?.claudeCodeMode ?? prev.cloakMode,
-                    cloakStrictMode: updates?.claudeCodeStrictMode ?? prev.cloakStrictMode,
-                    cloakSensitiveWords:
-                      updates?.claudeCodeSensitiveWords ?? prev.cloakSensitiveWords,
-                  }))
-                }
-                responsesWebSocket={formData.responsesWebSocket === true}
-                onUpdateResponsesWebSocket={(checked) =>
-                  setFormData((prev) => ({ ...prev, responsesWebSocket: checked }))
-                }
-              />
-            </div>
-
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-                {t('provider.errorCooldownTitle')}
-              </h3>
-              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                <div className="pr-4">
-                  <div className="text-sm font-medium text-foreground">
-                    {t('provider.disableErrorCooldown')}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('provider.disableErrorCooldownDesc')}
-                  </p>
-                </div>
-                <Switch
-                  checked={!!formData.disableErrorCooldown}
-                  onCheckedChange={(checked) =>
+              <ProviderEditSection
+                id="provider-clients"
+                title={t('provider.infoSections.clients')}
+                description={t('provider.infoSections.clientsDesc')}
+                icon={<Zap size={18} />}
+              >
+                <ClientsConfigSection
+                  clients={formData.clients}
+                  onUpdateClient={updateClient}
+                  disguise={{
+                    type: formData.disguiseType ?? 'claude-code',
+                    claudeCodeMode: formData.cloakMode ?? 'auto',
+                    claudeCodeStrictMode: !!formData.cloakStrictMode,
+                    claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
+                  }}
+                  onUpdateDisguise={(updates) =>
                     setFormData((prev) => ({
                       ...prev,
-                      disableErrorCooldown: checked,
-                      smartMappingRetryEnabled: checked ? prev.smartMappingRetryEnabled : false,
+                      disguiseType: updates?.type ?? prev.disguiseType,
+                      cloakMode: updates?.claudeCodeMode ?? prev.cloakMode,
+                      cloakStrictMode: updates?.claudeCodeStrictMode ?? prev.cloakStrictMode,
+                      cloakSensitiveWords:
+                        updates?.claudeCodeSensitiveWords ?? prev.cloakSensitiveWords,
                     }))
                   }
-                />
-              </div>
-              <SmartMappingRetrySettings
-                disableErrorCooldown={!!formData.disableErrorCooldown}
-                enabled={formData.smartMappingRetryEnabled}
-                retryLimit={formData.smartMappingRetryLimit}
-                mappingTargetCount={providerMappingTargetCount}
-                onEnabledChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, smartMappingRetryEnabled: checked }))
-                }
-                onRetryLimitChange={(limit) =>
-                  setFormData((prev) => ({ ...prev, smartMappingRetryLimit: limit }))
-                }
-              />
-              <ReasoningPolicySettings
-                value={formData.reasoning}
-                onChange={(reasoning) => setFormData((prev) => ({ ...prev, reasoning }))}
-              />
-              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                <div className="pr-4">
-                  <div className="text-sm font-medium text-foreground">
-                    {t('provider.responsesPassthrough')}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('provider.responsesPassthroughDesc')}
-                  </p>
-                </div>
-                <Switch
-                  checked={formData.responsesPassthrough !== false}
-                  onCheckedChange={(checked) =>
-                    setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
+                  responsesWebSocket={formData.responsesWebSocket === true}
+                  onUpdateResponsesWebSocket={(checked) =>
+                    setFormData((prev) => ({ ...prev, responsesWebSocket: checked }))
                   }
                 />
-              </div>
-            </div>
 
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-                {t('provider.visibilityAndExport')}
-              </h3>
-              <div className="space-y-3">
                 <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
                   <div className="pr-4">
                     <div className="text-sm font-medium text-foreground">
-                      {t('provider.blackBox')}
+                      {t('provider.responsesPassthrough')}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {t('provider.blackBoxDesc')}
+                      {t('provider.responsesPassthroughDesc')}
                     </p>
                   </div>
                   <Switch
-                    checked={!!formData.blackBox}
+                    checked={formData.responsesPassthrough !== false}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
+                    }
+                  />
+                </div>
+              </ProviderEditSection>
+
+              <ProviderEditSection
+                id="provider-models"
+                title={t('provider.infoSections.models')}
+                description={t('provider.infoSections.modelsDesc')}
+                icon={<Filter size={18} />}
+              >
+                <ProviderSupportModels
+                  supportModels={formData.supportModels}
+                  onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
+                />
+
+                <ProviderExposedModels
+                  enabled={formData.exposedModelsEnabled}
+                  exposedModels={formData.exposedModels}
+                  onEnabledChange={(enabled) =>
+                    setFormData((prev) => ({ ...prev, exposedModelsEnabled: enabled }))
+                  }
+                  onChange={(models) => setFormData((prev) => ({ ...prev, exposedModels: models }))}
+                />
+
+                <ProviderModelMappings
+                  provider={provider}
+                  runtimeModelsPreview={runtimeModelsPreview}
+                />
+
+                <ResponseModelMappings
+                  mappings={formData.responseModelMapping}
+                  onChange={(mappings) =>
+                    setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
+                  }
+                  disabled={saving}
+                />
+              </ProviderEditSection>
+
+              <ProviderEditSection
+                id="provider-policies"
+                title={t('provider.infoSections.policies')}
+                description={t('provider.infoSections.policiesDesc')}
+                icon={<Zap size={18} />}
+              >
+                <ProviderMaxConcurrencyField
+                  value={formData.maxConcurrency}
+                  onChange={(maxConcurrency) =>
+                    setFormData((prev) => ({ ...prev, maxConcurrency }))
+                  }
+                />
+
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.disableErrorCooldown')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('provider.disableErrorCooldownDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!formData.disableErrorCooldown}
                     onCheckedChange={(checked) =>
                       setFormData((prev) => ({
                         ...prev,
-                        blackBox: checked,
-                        excludeFromExport: checked ? true : prev.excludeFromExport,
+                        disableErrorCooldown: checked,
+                        smartMappingRetryEnabled: checked ? prev.smartMappingRetryEnabled : false,
                       }))
                     }
                   />
                 </div>
 
-                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
-                  <div className="pr-4">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('provider.excludeFromExport')}
+                <SmartMappingRetrySettings
+                  disableErrorCooldown={!!formData.disableErrorCooldown}
+                  enabled={formData.smartMappingRetryEnabled}
+                  retryLimit={formData.smartMappingRetryLimit}
+                  mappingTargetCount={providerMappingTargetCount}
+                  onEnabledChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, smartMappingRetryEnabled: checked }))
+                  }
+                  onRetryLimitChange={(limit) =>
+                    setFormData((prev) => ({ ...prev, smartMappingRetryLimit: limit }))
+                  }
+                />
+                <ReasoningPolicySettings
+                  value={formData.reasoning}
+                  onChange={(reasoning) => setFormData((prev) => ({ ...prev, reasoning }))}
+                />
+              </ProviderEditSection>
+
+              <ProviderEditSection
+                id="provider-danger"
+                title={t('provider.infoSections.danger')}
+                description={t('provider.infoSections.dangerDesc')}
+                icon={<Trash2 size={18} />}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                    <div className="pr-4">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('provider.blackBox')}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t('provider.blackBoxDesc')}
+                      </p>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {excludeFromExportLocked
-                        ? t('provider.excludeFromExportLockedDesc')
-                        : t('provider.excludeFromExportDesc')}
-                    </p>
+                    <Switch
+                      checked={!!formData.blackBox}
+                      onCheckedChange={(checked) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          blackBox: checked,
+                          excludeFromExport: checked ? true : prev.excludeFromExport,
+                        }))
+                      }
+                    />
                   </div>
-                  <Switch
-                    checked={effectiveExcludeFromExport}
-                    disabled={excludeFromExportLocked || !!formData.blackBox}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
-                    }
-                  />
+
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                    <div className="pr-4">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('provider.excludeFromExport')}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {excludeFromExportLocked
+                          ? t('provider.excludeFromExportLockedDesc')
+                          : t('provider.excludeFromExportDesc')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={effectiveExcludeFromExport}
+                      disabled={excludeFromExportLocked || !!formData.blackBox}
+                      onCheckedChange={(checked) =>
+                        setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
+              </ProviderEditSection>
+
+              {saveStatus === 'error' && (
+                <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-error" />
+                  {t('provider.updateError')}
+                </div>
+              )}
             </div>
-
-            {/* Provider Supported Models Filter */}
-            <ProviderSupportModels
-              supportModels={formData.supportModels}
-              onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
-            />
-
-            {/* Provider Exposed Models Allowlist */}
-            <ProviderExposedModels
-              enabled={formData.exposedModelsEnabled}
-              exposedModels={formData.exposedModels}
-              onEnabledChange={(enabled) =>
-                setFormData((prev) => ({ ...prev, exposedModelsEnabled: enabled }))
-              }
-              onChange={(models) => setFormData((prev) => ({ ...prev, exposedModels: models }))}
-            />
-
-            {/* Provider Model Mappings */}
-            <ProviderModelMappings
-              provider={provider}
-              runtimeModelsPreview={runtimeModelsPreview}
-            />
-
-            <ResponseModelMappings
-              mappings={formData.responseModelMapping}
-              onChange={(mappings) =>
-                setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
-              }
-              disabled={saving}
-            />
-
-            {saveStatus === 'error' && (
-              <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-error" />
-                {t('provider.updateError')}
-              </div>
-            )}
           </div>
         </div>
       </div>
