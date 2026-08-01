@@ -9,7 +9,7 @@
 //
 // Phase 1 handles reasoning effort. Effort is ordered:
 //
-//	none < minimal < low < medium < high
+//	none < minimal < low < medium < high < xhigh < max
 //
 // plus the special "auto" (defer to provider). Two composable primitives:
 //
@@ -35,6 +35,8 @@ const (
 	rankLow
 	rankMedium
 	rankHigh
+	rankXHigh
+	rankMax
 )
 
 var effortToRank = map[string]int{
@@ -43,6 +45,8 @@ var effortToRank = map[string]int{
 	"low":     rankLow,
 	"medium":  rankMedium,
 	"high":    rankHigh,
+	"xhigh":   rankXHigh,
+	"max":     rankMax,
 }
 
 var rankToEffort = map[int]string{
@@ -51,6 +55,8 @@ var rankToEffort = map[int]string{
 	rankLow:     "low",
 	rankMedium:  "medium",
 	rankHigh:    "high",
+	rankXHigh:   "xhigh",
+	rankMax:     "max",
 }
 
 // parseRank normalizes an effort string to its rank. ok is false for empty or
@@ -74,8 +80,9 @@ type effortValue struct {
 
 // codec hides each protocol's JSON path and value vocabulary for effort.
 type codec struct {
-	path   string              // gjson/sjson dotted path in the outbound body
-	toWire func(string) string // rank name -> protocol wire form
+	path        string              // gjson/sjson dotted path in the outbound body
+	toWire      func(string) string // rank name -> protocol wire form
+	maxWireRank int                 // highest rank this protocol can express; 0 means no protocol-specific cap
 }
 
 func identity(s string) string { return s }
@@ -90,8 +97,8 @@ func codecFor(protocol domain.ClientType) *codec {
 	case domain.ClientTypeCodex:
 		return &codec{path: "reasoning.effort", toWire: identity}
 	case domain.ClientTypeGemini:
-		// Gemini's thinkingLevel vocabulary is upper-case (LOW/MEDIUM/HIGH).
-		return &codec{path: "generationConfig.thinkingConfig.thinkingLevel", toWire: strings.ToUpper}
+		// Gemini's thinkingLevel vocabulary is upper-case and currently tops out at HIGH.
+		return &codec{path: "generationConfig.thinkingConfig.thinkingLevel", toWire: strings.ToUpper, maxWireRank: rankHigh}
 	default:
 		return nil
 	}
@@ -116,6 +123,9 @@ func (c *codec) read(body []byte) effortValue {
 }
 
 func (c *codec) write(body []byte, rank int) []byte {
+	if c.maxWireRank > 0 && rank > c.maxWireRank {
+		rank = c.maxWireRank
+	}
 	name, ok := rankToEffort[rank]
 	if !ok {
 		return body
@@ -150,6 +160,10 @@ func claudeThinkingBudgetForRank(rank int) int64 {
 		return 8192
 	case rankHigh:
 		return 16000
+	case rankXHigh:
+		return 32000
+	case rankMax:
+		return 64000
 	default:
 		return 0
 	}
