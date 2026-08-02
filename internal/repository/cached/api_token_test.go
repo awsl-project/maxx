@@ -74,6 +74,31 @@ func (r *apiTokenTestRepo) UpdateLastSeen(tenantID uint64, id uint64, lastIP str
 	return nil
 }
 
+func (r *apiTokenTestRepo) AddQuotaBalance(tenantID uint64, ids []uint64, amount uint64) (int64, error) {
+	if r.token == nil || len(ids) == 0 {
+		return 0, nil
+	}
+	for _, id := range ids {
+		if r.token.ID == id && r.token.TenantID == tenantID {
+			r.token.QuotaBalance += amount
+			return 1, nil
+		}
+	}
+	return 0, nil
+}
+
+func (r *apiTokenTestRepo) DeductQuotaBalanceToZero(tenantID uint64, id uint64, amount uint64) error {
+	if r.token == nil || r.token.ID != id || r.token.TenantID != tenantID {
+		return domain.ErrNotFound
+	}
+	if r.token.QuotaBalance > amount {
+		r.token.QuotaBalance -= amount
+	} else {
+		r.token.QuotaBalance = 0
+	}
+	return nil
+}
+
 func TestAPITokenRepositoryUpdateLastSeenKeepsLastIPWhenIPIsEmpty(t *testing.T) {
 	baseRepo := &apiTokenTestRepo{}
 	repo := NewAPITokenRepository(baseRepo)

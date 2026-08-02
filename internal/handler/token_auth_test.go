@@ -111,6 +111,14 @@ func (r *tokenAuthTestRepo) UpdateLastSeen(tenantID uint64, id uint64, lastIP st
 	return nil
 }
 
+func (r *tokenAuthTestRepo) AddQuotaBalance(tenantID uint64, ids []uint64, amount uint64) (int64, error) {
+	return 0, nil
+}
+
+func (r *tokenAuthTestRepo) DeductQuotaBalanceToZero(tenantID uint64, id uint64, amount uint64) error {
+	return nil
+}
+
 func TestTokenAuthValidateRequestUpdatesLastSeenWithClientIP(t *testing.T) {
 	repo := newTokenAuthTestRepo()
 	cachedRepo := cached.NewAPITokenRepository(repo)

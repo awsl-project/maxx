@@ -1602,7 +1602,19 @@
       }
     },
     "reactivateToken": "恢复有效",
-    "reactivateHint": "保存后会清除过期时间和非活跃状态。"
+    "reactivateHint": "保存后会清除过期时间和非活跃状态。",
+    "selectAll": "选择全部令牌",
+    "selectToken": "选择 {{name}}",
+    "quotaBalance": "额度余额",
+    "quotaRecharge": {
+      "button": "批量充值额度 ({{count}})",
+      "title": "批量充值额度",
+      "description": "为选中的 {{count}} 个令牌增加固定额度。",
+      "amount": "充值额度（USD）",
+      "amountHint": "按美元输入，保存时会转换为请求成本使用的最小额度单位。",
+      "confirm": "为 {{count}} 个令牌充值",
+      "lastResult": "已为 {{count}} 个令牌增加额度。"
+    }
   },
   "app": {
     "title": "Maxx Next"
@@ -1773,7 +1785,9 @@
       "high": "高",
       "xhigh": "超高",
       "max": "最高"
-    }
+    },
+    "quotaEnabled": "启用额度检查",
+    "quotaEnabledDesc": "开启后，使用该提供商的请求会检查对应 API 令牌的额度；令牌无额度时直接拦截。"
   },
   "cooldown": {
     "title": "冷却保护中",

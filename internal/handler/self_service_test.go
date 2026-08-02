@@ -501,6 +501,37 @@ func (r *selfServiceAPITokenRepo) UpdateLastSeen(_ uint64, _ uint64, _ string, _
 	return nil
 }
 
+func (r *selfServiceAPITokenRepo) AddQuotaBalance(tenantID uint64, ids []uint64, amount uint64) (int64, error) {
+	var updated int64
+	for _, token := range r.tokens {
+		if token.TenantID != tenantID {
+			continue
+		}
+		for _, id := range ids {
+			if token.ID == id {
+				token.QuotaBalance += amount
+				updated++
+				break
+			}
+		}
+	}
+	return updated, nil
+}
+
+func (r *selfServiceAPITokenRepo) DeductQuotaBalanceToZero(tenantID uint64, id uint64, amount uint64) error {
+	for _, token := range r.tokens {
+		if token.ID == id && token.TenantID == tenantID {
+			if token.QuotaBalance > amount {
+				token.QuotaBalance -= amount
+			} else {
+				token.QuotaBalance = 0
+			}
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
 type selfServiceUsageStatsRepo struct {
 	providerStats  map[uint64]*domain.ProviderStats
 	stats          []*domain.UsageStats
