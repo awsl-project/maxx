@@ -1025,9 +1025,6 @@ export function APITokensPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('apiTokens.quotaRecharge.title')}</DialogTitle>
-            <DialogDescription>
-              {t('apiTokens.quotaRecharge.description', { count: selectedTokenIds.length })}
-            </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="quota-recharge-amount">
@@ -1042,7 +1039,6 @@ export function APITokensPage() {
               onChange={(event) => setQuotaRechargeUsd(event.target.value)}
               placeholder="1.000000"
             />
-            <p className="text-xs text-text-muted">{t('apiTokens.quotaRecharge.amountHint')}</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setQuotaRechargeDialogOpen(false)}>

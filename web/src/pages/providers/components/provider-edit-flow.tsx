@@ -1365,9 +1365,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     <div className="text-sm font-medium text-foreground">
                       {t('provider.quotaEnabled')}
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t('provider.quotaEnabledDesc')}
-                    </p>
                   </div>
                   <Switch
                     checked={!!formData.quotaEnabled}
