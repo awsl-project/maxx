@@ -371,6 +371,7 @@ func InitializeServerComponents(
 		r,
 		repos.ProxyRequestRepo,
 		repos.AttemptRepo,
+		repos.CachedAPITokenRepo,
 		repos.CachedRetryConfigRepo,
 		repos.CachedSessionRepo,
 		repos.CachedModelMappingRepo,

@@ -33,6 +33,7 @@ var (
 	ErrInviteCodeExpired                    = errors.New("invite code expired")
 	ErrInviteCodeExhausted                  = errors.New("invite code exhausted")
 	ErrInviteCodeDisabled                   = errors.New("invite code disabled")
+	ErrAPITokenQuotaExhausted               = errors.New("API token quota exhausted")
 )
 
 // ErrorScope defines what resource is broken, determining cooldown granularity

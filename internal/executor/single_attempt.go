@@ -52,6 +52,15 @@ func (e *Executor) ExecuteOnce(
 	isStream bool,
 	clearDetail bool,
 ) (*domain.ProxyUpstreamAttempt, error) {
+	quotaState := &execState{tenantID: proxyReq.TenantID, apiTokenID: proxyReq.APITokenID}
+	if quotaState.tenantID == 0 {
+		quotaState.tenantID = maxxctx.GetTenantID(c.Request.Context())
+	}
+	if quotaErr := e.ensureAPITokenQuota(quotaState, proxyReq, provider); quotaErr != nil {
+		rejectProxyRequestForQuota(proxyReq, quotaErr)
+		return nil, quotaErr
+	}
+
 	attempt := &domain.ProxyUpstreamAttempt{
 		TenantID:       proxyReq.TenantID,
 		ProxyRequestID: proxyReq.ID,
@@ -113,6 +122,7 @@ func (e *Executor) ExecuteOnce(
 
 	multiplier := getProviderMultiplier(provider, clientType)
 	pricing.FinalizeAttemptCost(attempt, multiplier)
+	e.deductAPITokenQuota(quotaState, attempt)
 
 	if clearDetail {
 		attempt.RequestInfo = nil

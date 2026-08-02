@@ -77,6 +77,8 @@ import type {
   APITokenCreateResult,
   APITokenUpdateData,
   CreateAPITokenData,
+  APITokenQuotaRechargeData,
+  APITokenQuotaRechargeResult,
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
   RouteBulkDeleteRequest,
@@ -1137,6 +1139,16 @@ export class HttpTransport implements Transport {
 
   async updateAPIToken(id: number, payload: APITokenUpdateData): Promise<APIToken> {
     const { data } = await this.adminClient.put<APIToken>(`/api-tokens/${id}`, payload);
+    return data;
+  }
+
+  async rechargeAPITokenQuota(
+    payload: APITokenQuotaRechargeData,
+  ): Promise<APITokenQuotaRechargeResult> {
+    const { data } = await this.adminClient.post<APITokenQuotaRechargeResult>(
+      '/api-tokens/quota/recharge',
+      payload,
+    );
     return data;
   }
 

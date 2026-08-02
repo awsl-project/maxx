@@ -1788,6 +1788,10 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 		h.handleCleanupExpiredAPITokens(w, r, tenantID)
 		return
 	}
+	if strings.HasSuffix(path, "/api-tokens/quota/recharge") {
+		h.handleRechargeAPITokenQuota(w, r, tenantID)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -1852,6 +1856,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			ProjectID     *uint64 `json:"projectID"`
 			IsEnabled     *bool   `json:"isEnabled"`
 			DevMode       *bool   `json:"devMode"`
+			QuotaBalance  *uint64 `json:"quotaBalance"`
 			ExpiresAt     *string `json:"expiresAt"`
 			ResetValidity *bool   `json:"resetValidity"`
 		}
@@ -1877,6 +1882,9 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 		}
 		if body.DevMode != nil {
 			existing.DevMode = *body.DevMode
+		}
+		if body.QuotaBalance != nil {
+			existing.QuotaBalance = *body.QuotaBalance
 		}
 		if body.ExpiresAt != nil {
 			if *body.ExpiresAt == "" {
@@ -1915,6 +1923,31 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (h *AdminHandler) handleRechargeAPITokenQuota(w http.ResponseWriter, r *http.Request, tenantID uint64) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var body struct {
+		IDs    []uint64 `json:"ids"`
+		Amount uint64   `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	result, err := h.svc.RechargeAPITokenQuota(tenantID, body.IDs, body.Amount)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrInvalidInput) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *AdminHandler) handleCleanupExpiredAPITokens(w http.ResponseWriter, r *http.Request, tenantID uint64) {

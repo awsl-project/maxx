@@ -347,6 +347,8 @@ type APITokenRepository interface {
 	GetByToken(tenantID uint64, token string) (*domain.APIToken, error)
 	List(tenantID uint64) ([]*domain.APIToken, error)
 	UpdateLastSeen(tenantID uint64, id uint64, lastIP string, lastSeenAt time.Time) error
+	AddQuotaBalance(tenantID uint64, ids []uint64, amount uint64) (int64, error)
+	DeductQuotaBalanceToZero(tenantID uint64, id uint64, amount uint64) error
 }
 
 type ModelMappingRepository interface {

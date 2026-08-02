@@ -174,6 +174,43 @@ func (r *APITokenRepository) UpdateLastSeen(tenantID uint64, id uint64, lastIP s
 	return nil
 }
 
+func (r *APITokenRepository) AddQuotaBalance(tenantID uint64, ids []uint64, amount uint64) (int64, error) {
+	updated, err := r.repo.AddQuotaBalance(tenantID, ids, amount)
+	if err != nil {
+		return 0, err
+	}
+	r.mu.Lock()
+	for _, id := range ids {
+		if t, ok := r.cache[id]; ok && t != nil && t.TenantID == tenantID {
+			t.QuotaBalance += amount
+		}
+	}
+	r.mu.Unlock()
+	if updated > 0 {
+		for _, id := range ids {
+			r.bc.publish(OpUpdate, id)
+		}
+	}
+	return updated, nil
+}
+
+func (r *APITokenRepository) DeductQuotaBalanceToZero(tenantID uint64, id uint64, amount uint64) error {
+	if err := r.repo.DeductQuotaBalanceToZero(tenantID, id, amount); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if t, ok := r.cache[id]; ok && t != nil && t.TenantID == tenantID {
+		if t.QuotaBalance > amount {
+			t.QuotaBalance -= amount
+		} else {
+			t.QuotaBalance = 0
+		}
+	}
+	r.mu.Unlock()
+	r.bc.publish(OpUpdate, id)
+	return nil
+}
+
 // InvalidateCache clears all cached tokens
 func (r *APITokenRepository) InvalidateCache() {
 	r.mu.Lock()

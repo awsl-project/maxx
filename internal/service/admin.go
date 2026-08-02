@@ -1589,6 +1589,17 @@ func (s *AdminService) UpdateAPIToken(tenantID uint64, token *domain.APIToken) e
 	return s.apiTokenRepo.Update(token)
 }
 
+func (s *AdminService) RechargeAPITokenQuota(tenantID uint64, ids []uint64, amount uint64) (*domain.APITokenQuotaRechargeResult, error) {
+	if len(ids) == 0 || amount == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	updated, err := s.apiTokenRepo.AddQuotaBalance(tenantID, ids, amount)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.APITokenQuotaRechargeResult{UpdatedCount: int(updated)}, nil
+}
+
 func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
 	return s.apiTokenRepo.Delete(tenantID, id)
 }

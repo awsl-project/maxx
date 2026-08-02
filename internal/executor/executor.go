@@ -24,6 +24,7 @@ type Executor struct {
 	router           *router.Router
 	proxyRequestRepo repository.ProxyRequestRepository
 	attemptRepo      repository.ProxyUpstreamAttemptRepository
+	apiTokenRepo     repository.APITokenRepository
 	retryConfigRepo  repository.RetryConfigRepository
 	sessionRepo      repository.SessionRepository
 	modelMappingRepo repository.ModelMappingRepository
@@ -42,6 +43,7 @@ func NewExecutor(
 	r *router.Router,
 	prr repository.ProxyRequestRepository,
 	ar repository.ProxyUpstreamAttemptRepository,
+	apiTokenRepo repository.APITokenRepository,
 	rcr repository.RetryConfigRepository,
 	sessionRepo repository.SessionRepository,
 	modelMappingRepo repository.ModelMappingRepository,
@@ -54,6 +56,7 @@ func NewExecutor(
 		router:           r,
 		proxyRequestRepo: prr,
 		attemptRepo:      ar,
+		apiTokenRepo:     apiTokenRepo,
 		retryConfigRepo:  rcr,
 		sessionRepo:      sessionRepo,
 		modelMappingRepo: modelMappingRepo,

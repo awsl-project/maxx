@@ -33,16 +33,17 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	t.UpdatedAt = time.Now()
 	updates := map[string]any{
-		"updated_at":   toTimestamp(t.UpdatedAt),
-		"name":         t.Name,
-		"description":  LongText(t.Description),
-		"project_id":   t.ProjectID,
-		"is_enabled":   boolToInt(t.IsEnabled),
-		"dev_mode":     boolToInt(t.DevMode),
-		"expires_at":   toTimestampPtr(t.ExpiresAt),
-		"last_used_at": toTimestampPtr(t.LastUsedAt),
-		"last_ip":      t.LastIP,
-		"last_ip_at":   toTimestampPtr(t.LastIPAt),
+		"updated_at":    toTimestamp(t.UpdatedAt),
+		"name":          t.Name,
+		"description":   LongText(t.Description),
+		"project_id":    t.ProjectID,
+		"is_enabled":    boolToInt(t.IsEnabled),
+		"dev_mode":      boolToInt(t.DevMode),
+		"expires_at":    toTimestampPtr(t.ExpiresAt),
+		"last_used_at":  toTimestampPtr(t.LastUsedAt),
+		"last_ip":       t.LastIP,
+		"last_ip_at":    toTimestampPtr(t.LastIPAt),
+		"quota_balance": t.QuotaBalance,
 	}
 	if t.Token != "" {
 		updates["token"] = t.Token
@@ -168,42 +169,63 @@ func (r *APITokenRepository) toModel(t *domain.APIToken) *APIToken {
 			},
 			DeletedAt: toTimestampPtr(t.DeletedAt),
 		},
-		TenantID:    t.TenantID,
-		Token:       t.Token,
-		TokenPrefix: t.TokenPrefix,
-		Name:        t.Name,
-		Description: LongText(t.Description),
-		ProjectID:   t.ProjectID,
-		IsEnabled:   boolToInt(t.IsEnabled),
-		DevMode:     boolToInt(t.DevMode),
-		ExpiresAt:   toTimestampPtr(t.ExpiresAt),
-		LastUsedAt:  toTimestampPtr(t.LastUsedAt),
-		LastIP:      t.LastIP,
-		LastIPAt:    toTimestampPtr(t.LastIPAt),
-		UseCount:    t.UseCount,
+		TenantID:     t.TenantID,
+		Token:        t.Token,
+		TokenPrefix:  t.TokenPrefix,
+		Name:         t.Name,
+		Description:  LongText(t.Description),
+		ProjectID:    t.ProjectID,
+		IsEnabled:    boolToInt(t.IsEnabled),
+		DevMode:      boolToInt(t.DevMode),
+		ExpiresAt:    toTimestampPtr(t.ExpiresAt),
+		LastUsedAt:   toTimestampPtr(t.LastUsedAt),
+		LastIP:       t.LastIP,
+		LastIPAt:     toTimestampPtr(t.LastIPAt),
+		UseCount:     t.UseCount,
+		QuotaBalance: t.QuotaBalance,
 	}
 }
 
 func (r *APITokenRepository) toDomain(m *APIToken) *domain.APIToken {
 	return &domain.APIToken{
-		ID:          m.ID,
-		CreatedAt:   fromTimestamp(m.CreatedAt),
-		UpdatedAt:   fromTimestamp(m.UpdatedAt),
-		DeletedAt:   fromTimestampPtr(m.DeletedAt),
-		TenantID:    m.TenantID,
-		Token:       m.Token,
-		TokenPrefix: m.TokenPrefix,
-		Name:        m.Name,
-		Description: string(m.Description),
-		ProjectID:   m.ProjectID,
-		IsEnabled:   m.IsEnabled == 1,
-		DevMode:     m.DevMode == 1,
-		ExpiresAt:   fromTimestampPtr(m.ExpiresAt),
-		LastUsedAt:  fromTimestampPtr(m.LastUsedAt),
-		LastIP:      m.LastIP,
-		LastIPAt:    fromTimestampPtr(m.LastIPAt),
-		UseCount:    m.UseCount,
+		ID:           m.ID,
+		CreatedAt:    fromTimestamp(m.CreatedAt),
+		UpdatedAt:    fromTimestamp(m.UpdatedAt),
+		DeletedAt:    fromTimestampPtr(m.DeletedAt),
+		TenantID:     m.TenantID,
+		Token:        m.Token,
+		TokenPrefix:  m.TokenPrefix,
+		Name:         m.Name,
+		Description:  string(m.Description),
+		ProjectID:    m.ProjectID,
+		IsEnabled:    m.IsEnabled == 1,
+		DevMode:      m.DevMode == 1,
+		ExpiresAt:    fromTimestampPtr(m.ExpiresAt),
+		LastUsedAt:   fromTimestampPtr(m.LastUsedAt),
+		LastIP:       m.LastIP,
+		LastIPAt:     fromTimestampPtr(m.LastIPAt),
+		UseCount:     m.UseCount,
+		QuotaBalance: m.QuotaBalance,
 	}
+}
+
+func (r *APITokenRepository) AddQuotaBalance(tenantID uint64, ids []uint64, amount uint64) (int64, error) {
+	if len(ids) == 0 || amount == 0 {
+		return 0, nil
+	}
+	result := tenantScope(r.db.gorm.Model(&APIToken{}), tenantID).
+		Where("id IN ?", ids).
+		Update("quota_balance", gorm.Expr("quota_balance + ?", amount))
+	return result.RowsAffected, result.Error
+}
+
+func (r *APITokenRepository) DeductQuotaBalanceToZero(tenantID uint64, id uint64, amount uint64) error {
+	if id == 0 || amount == 0 {
+		return nil
+	}
+	return tenantScope(r.db.gorm.Model(&APIToken{}), tenantID).
+		Where("id = ?", id).
+		Update("quota_balance", gorm.Expr("CASE WHEN quota_balance > ? THEN quota_balance - ? ELSE 0 END", amount, amount)).Error
 }
 
 // boolToInt converts bool to int
