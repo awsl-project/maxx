@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clock3, Copy, Eye, EyeOff, KeyRound, ListChecks, LogOut, Server, UserRound } from 'lucide-react';
+import { Clock3, Copy, Eye, EyeOff, Gift, KeyRound, ListChecks, LogOut, Server, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Badge,
@@ -23,6 +23,7 @@ import {
   useProxyRequests,
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
+  useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
   useProxyRequestUpdates,
   usePublicSettings,
@@ -42,6 +43,10 @@ import {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat().format(value || 0);
+}
+
+function formatQuotaBalance(value: number) {
+  return `$${((value || 0) / 1_000_000_000).toFixed(6)}`;
 }
 
 function formatDateTime(value?: string) {
@@ -176,12 +181,15 @@ export function UserPanelPage() {
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const revealUserPanelToken = useRevealUserPanelAPIToken();
+  const dailyCheckIn = useUserPanelDailyCheckIn();
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
   const [revealedUserPanelToken, setRevealedUserPanelToken] = useState('');
   const [revealKeyError, setRevealKeyError] = useState('');
+  const [dailyCheckInMessage, setDailyCheckInMessage] = useState('');
+  const [dailyCheckInDone, setDailyCheckInDone] = useState(false);
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
     if (typeof window === 'undefined') return 'main';
@@ -298,8 +306,24 @@ export function UserPanelPage() {
     setKeyCopied(false);
   };
 
+  const handleDailyCheckIn = async () => {
+    setDailyCheckInMessage('');
+    try {
+      const result = await dailyCheckIn.mutateAsync();
+      setDailyCheckInDone(result.alreadyCheckedIn || result.checkedIn);
+      setDailyCheckInMessage(
+        result.alreadyCheckedIn
+          ? t('userPanel.dailyCheckInAlreadyDone')
+          : t('userPanel.dailyCheckInSuccess'),
+      );
+    } catch {
+      setDailyCheckInMessage(t('userPanel.dailyCheckInError'));
+    }
+  };
+
   const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
   const revealActionPending = revealUserPanelToken.isPending;
+  const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
 
   return (
     <main className="min-h-svh bg-muted/30 px-4 py-6 text-foreground sm:px-6 lg:px-8">
@@ -344,6 +368,49 @@ export function UserPanelPage() {
           </TabsList>
 
           <TabsContent value="main" className="space-y-5">
+            {dailyCheckInEnabled && (
+              <Card className="border-border bg-card shadow-sm">
+                <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <Gift className="size-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {t('userPanel.dailyCheckInTitle')}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t('userPanel.dailyCheckInReward')}
+                      </p>
+                      {dailyCheckInMessage ? (
+                        <p className="mt-1 text-xs text-muted-foreground">{dailyCheckInMessage}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {userPanelToken ? (
+                      <Badge variant="secondary">
+                        {formatQuotaBalance(userPanelToken.quotaBalance)}
+                      </Badge>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      className="h-8 gap-2"
+                      disabled={dailyCheckIn.isPending || dailyCheckInDone}
+                      onClick={handleDailyCheckIn}
+                    >
+                      <Gift className="size-3.5" />
+                      {dailyCheckInDone
+                        ? t('userPanel.dailyCheckInDone')
+                        : dailyCheckIn.isPending
+                          ? t('common.loading')
+                          : t('userPanel.dailyCheckInAction')}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="border-border bg-card shadow-sm">
               <CardContent className="space-y-3 p-4">
                 {oneTimeToken ? (
@@ -395,7 +462,7 @@ export function UserPanelPage() {
                       </Button>
                     </div>
 
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
                       <div className="space-y-1">
                         <div className="relative">
                           <Input

@@ -275,6 +275,11 @@ type SystemSettingRepository interface {
 	Delete(key string) error
 }
 
+type UserPanelDailyCheckInRepository interface {
+	Claim(tenantID uint64, userID uint64, date string) (bool, error)
+	DeleteClaim(tenantID uint64, userID uint64, date string) error
+}
+
 type AntigravityQuotaRepository interface {
 	// Upsert 更新或插入配额（基于邮箱）
 	Upsert(quota *domain.AntigravityQuota) error

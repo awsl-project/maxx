@@ -81,6 +81,7 @@ import type {
   APITokenQuotaRechargeResult,
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
+  UserPanelDailyCheckInResult,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -1128,6 +1129,13 @@ export class HttpTransport implements Transport {
   async revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult> {
     const { data } = await this.client.post<UserPanelAPITokenRevealResult>(
       '/user-panel-token/reveal',
+    );
+    return data;
+  }
+
+  async checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult> {
+    const { data } = await this.client.post<UserPanelDailyCheckInResult>(
+      '/user-panel/check-in',
     );
     return data;
   }

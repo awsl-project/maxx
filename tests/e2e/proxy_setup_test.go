@@ -151,6 +151,7 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 		usageStatsRepo,
 		responseModelRepo,
 		modelPriceRepo,
+		nil,
 		":9880",
 		r, // Router as adapter refresher (not nil, so adapters refresh on provider create)
 		wsHub,

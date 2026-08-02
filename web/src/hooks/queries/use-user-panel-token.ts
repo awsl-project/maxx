@@ -48,3 +48,12 @@ export function useRevealUserPanelAPIToken() {
     mutationFn: () => getTransport().revealUserPanelAPIToken(),
   });
 }
+
+export function useUserPanelDailyCheckIn() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => getTransport().checkInUserPanelDailyQuota(),
+    onSuccess: () => refreshUserPanelTokenDependents(queryClient),
+  });
+}

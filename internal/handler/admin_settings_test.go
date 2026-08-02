@@ -61,6 +61,7 @@ func TestHandleSettingsDeleteReturnsBadRequestWhenDeletingLastPublicProxyRoute(t
 		nil,
 		nil,
 		nil,
+		nil,
 		"",
 		nil,
 		nil,

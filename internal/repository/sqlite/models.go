@@ -377,6 +377,16 @@ type SystemSetting struct {
 
 func (SystemSetting) TableName() string { return "system_settings" }
 
+// UserPanelDailyCheckIn records one daily reward claim per tenant user and local date.
+type UserPanelDailyCheckIn struct {
+	BaseModel
+	TenantID uint64 `gorm:"uniqueIndex:idx_user_panel_daily_checkins_tenant_user_date"`
+	UserID   uint64 `gorm:"uniqueIndex:idx_user_panel_daily_checkins_tenant_user_date"`
+	Date     string `gorm:"size:10;uniqueIndex:idx_user_panel_daily_checkins_tenant_user_date"`
+}
+
+func (UserPanelDailyCheckIn) TableName() string { return "user_panel_daily_checkins" }
+
 // Cooldown model
 type Cooldown struct {
 	BaseModel
@@ -524,6 +534,7 @@ func AllModels() []any {
 		&ProxyRequest{},
 		&ProxyUpstreamAttempt{},
 		&SystemSetting{},
+		&UserPanelDailyCheckIn{},
 		&Cooldown{},
 		&FailureCount{},
 		&UsageStats{},

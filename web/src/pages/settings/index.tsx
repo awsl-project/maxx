@@ -73,6 +73,7 @@ const OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY = 'openai_chat_stream_idle_tim
 const DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS = '20000';
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
+const USER_PANEL_DAILY_CHECKIN_SETTING_KEY = 'user_panel_daily_checkin_enabled';
 type MultiTenantUILayout = 'current' | 'user_panel';
 
 interface ProxyRouteExposureSetting {
@@ -1696,13 +1697,19 @@ function MultiTenantUISection() {
   const settingsEnabled = settings?.ui_multitenant_enabled === 'true';
   const settingsLayout: MultiTenantUILayout =
     settings?.[MULTITENANT_UI_LAYOUT_SETTING_KEY] === 'user_panel' ? 'user_panel' : 'current';
+  const settingsDailyCheckInEnabled =
+    settings?.[USER_PANEL_DAILY_CHECKIN_SETTING_KEY] === 'true';
   const [localEnabled, setLocalEnabled] = useState(settingsEnabled);
   const [localLayout, setLocalLayout] = useState<MultiTenantUILayout>(settingsLayout);
+  const [localDailyCheckInEnabled, setLocalDailyCheckInEnabled] = useState(
+    settingsDailyCheckInEnabled,
+  );
 
   useEffect(() => {
     setLocalEnabled(settingsEnabled);
     setLocalLayout(settingsLayout);
-  }, [settingsEnabled, settingsLayout]);
+    setLocalDailyCheckInEnabled(settingsDailyCheckInEnabled);
+  }, [settingsEnabled, settingsLayout, settingsDailyCheckInEnabled]);
 
   const handleToggle = async (checked: boolean) => {
     const previous = localEnabled;
@@ -1729,6 +1736,20 @@ function MultiTenantUISection() {
       });
     } catch (error) {
       setLocalLayout(previous);
+      throw error;
+    }
+  };
+
+  const handleDailyCheckInToggle = async (checked: boolean) => {
+    const previous = localDailyCheckInEnabled;
+    setLocalDailyCheckInEnabled(checked);
+    try {
+      await updateSetting.mutateAsync({
+        key: USER_PANEL_DAILY_CHECKIN_SETTING_KEY,
+        value: checked ? 'true' : 'false',
+      });
+    } catch (error) {
+      setLocalDailyCheckInEnabled(previous);
       throw error;
     }
   };
@@ -1790,6 +1811,25 @@ function MultiTenantUISection() {
                 </SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        )}
+
+        {localEnabled && localLayout === 'user_panel' && (
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {t('settings.userPanelDailyCheckIn')}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('settings.userPanelDailyCheckInDesc')}
+              </p>
+            </div>
+            <Switch
+              aria-label={t('settings.userPanelDailyCheckIn')}
+              checked={localDailyCheckInEnabled}
+              onCheckedChange={handleDailyCheckInToggle}
+              disabled={updateSetting.isPending}
+            />
           </div>
         )}
       </CardContent>

@@ -58,26 +58,27 @@ func (s *AdminService) GetProviderAdapter(providerID uint64) (provider.ProviderA
 // AdminService provides business logic for admin operations
 // Both HTTP handlers and Wails bindings call this service
 type AdminService struct {
-	providerRepo        repository.ProviderRepository
-	routeRepo           repository.RouteRepository
-	projectRepo         repository.ProjectRepository
-	sessionRepo         repository.SessionRepository
-	retryConfigRepo     repository.RetryConfigRepository
-	routingStrategyRepo repository.RoutingStrategyRepository
-	proxyRequestRepo    repository.ProxyRequestRepository
-	attemptRepo         repository.ProxyUpstreamAttemptRepository
-	settingRepo         repository.SystemSettingRepository
-	apiTokenRepo        repository.APITokenRepository
-	inviteCodeRepo      repository.InviteCodeRepository
-	inviteCodeUsageRepo repository.InviteCodeUsageRepository
-	modelMappingRepo    repository.ModelMappingRepository
-	usageStatsRepo      repository.UsageStatsRepository
-	responseModelRepo   repository.ResponseModelRepository
-	modelPriceRepo      repository.ModelPriceRepository
-	serverAddr          string
-	adapterRefresher    ProviderAdapterRefresher
-	broadcaster         event.Broadcaster
-	pprofReloader       PprofReloader
+	providerRepo              repository.ProviderRepository
+	routeRepo                 repository.RouteRepository
+	projectRepo               repository.ProjectRepository
+	sessionRepo               repository.SessionRepository
+	retryConfigRepo           repository.RetryConfigRepository
+	routingStrategyRepo       repository.RoutingStrategyRepository
+	proxyRequestRepo          repository.ProxyRequestRepository
+	attemptRepo               repository.ProxyUpstreamAttemptRepository
+	settingRepo               repository.SystemSettingRepository
+	apiTokenRepo              repository.APITokenRepository
+	inviteCodeRepo            repository.InviteCodeRepository
+	inviteCodeUsageRepo       repository.InviteCodeUsageRepository
+	modelMappingRepo          repository.ModelMappingRepository
+	usageStatsRepo            repository.UsageStatsRepository
+	responseModelRepo         repository.ResponseModelRepository
+	modelPriceRepo            repository.ModelPriceRepository
+	userPanelDailyCheckInRepo repository.UserPanelDailyCheckInRepository
+	serverAddr                string
+	adapterRefresher          ProviderAdapterRefresher
+	broadcaster               event.Broadcaster
+	pprofReloader             PprofReloader
 }
 
 // PprofReloader is an interface for reloading pprof configuration
@@ -103,32 +104,34 @@ func NewAdminService(
 	usageStatsRepo repository.UsageStatsRepository,
 	responseModelRepo repository.ResponseModelRepository,
 	modelPriceRepo repository.ModelPriceRepository,
+	userPanelDailyCheckInRepo repository.UserPanelDailyCheckInRepository,
 	serverAddr string,
 	adapterRefresher ProviderAdapterRefresher,
 	broadcaster event.Broadcaster,
 	pprofReloader PprofReloader,
 ) *AdminService {
 	return &AdminService{
-		providerRepo:        providerRepo,
-		routeRepo:           routeRepo,
-		projectRepo:         projectRepo,
-		sessionRepo:         sessionRepo,
-		retryConfigRepo:     retryConfigRepo,
-		routingStrategyRepo: routingStrategyRepo,
-		proxyRequestRepo:    proxyRequestRepo,
-		attemptRepo:         attemptRepo,
-		settingRepo:         settingRepo,
-		apiTokenRepo:        apiTokenRepo,
-		inviteCodeRepo:      inviteCodeRepo,
-		inviteCodeUsageRepo: inviteCodeUsageRepo,
-		modelMappingRepo:    modelMappingRepo,
-		usageStatsRepo:      usageStatsRepo,
-		responseModelRepo:   responseModelRepo,
-		modelPriceRepo:      modelPriceRepo,
-		serverAddr:          serverAddr,
-		adapterRefresher:    adapterRefresher,
-		broadcaster:         broadcaster,
-		pprofReloader:       pprofReloader,
+		providerRepo:              providerRepo,
+		routeRepo:                 routeRepo,
+		projectRepo:               projectRepo,
+		sessionRepo:               sessionRepo,
+		retryConfigRepo:           retryConfigRepo,
+		routingStrategyRepo:       routingStrategyRepo,
+		proxyRequestRepo:          proxyRequestRepo,
+		attemptRepo:               attemptRepo,
+		settingRepo:               settingRepo,
+		apiTokenRepo:              apiTokenRepo,
+		inviteCodeRepo:            inviteCodeRepo,
+		inviteCodeUsageRepo:       inviteCodeUsageRepo,
+		modelMappingRepo:          modelMappingRepo,
+		usageStatsRepo:            usageStatsRepo,
+		responseModelRepo:         responseModelRepo,
+		modelPriceRepo:            modelPriceRepo,
+		userPanelDailyCheckInRepo: userPanelDailyCheckInRepo,
+		serverAddr:                serverAddr,
+		adapterRefresher:          adapterRefresher,
+		broadcaster:               broadcaster,
+		pprofReloader:             pprofReloader,
 	}
 }
 
@@ -1598,6 +1601,26 @@ func (s *AdminService) RechargeAPITokenQuota(tenantID uint64, ids []uint64, amou
 		return nil, err
 	}
 	return &domain.APITokenQuotaRechargeResult{UpdatedCount: int(updated)}, nil
+}
+
+func (s *AdminService) CheckInUserPanelDailyQuota(tenantID uint64, userID uint64, apiTokenID uint64, checkInDate string, rewardAmount uint64) (bool, error) {
+	if s.userPanelDailyCheckInRepo == nil || tenantID == 0 || userID == 0 || apiTokenID == 0 || checkInDate == "" || rewardAmount == 0 {
+		return false, domain.ErrInvalidInput
+	}
+	claimed, err := s.userPanelDailyCheckInRepo.Claim(tenantID, userID, checkInDate)
+	if err != nil || !claimed {
+		return claimed, err
+	}
+	updated, err := s.apiTokenRepo.AddQuotaBalance(tenantID, []uint64{apiTokenID}, rewardAmount)
+	if err != nil {
+		_ = s.userPanelDailyCheckInRepo.DeleteClaim(tenantID, userID, checkInDate)
+		return false, err
+	}
+	if updated != 1 {
+		_ = s.userPanelDailyCheckInRepo.DeleteClaim(tenantID, userID, checkInDate)
+		return false, domain.ErrNotFound
+	}
+	return true, nil
 }
 
 func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {

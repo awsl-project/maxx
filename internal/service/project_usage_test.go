@@ -53,6 +53,7 @@ func TestAdminServiceGetProjectsAttachesUsageSummaries(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		"",
 		nil,
 		nil,
@@ -111,7 +112,7 @@ func TestAdminServiceArchiveInactiveProjectsOnlyDeletesInactiveCandidates(t *tes
 		t.Fatalf("create recent request: %v", err)
 	}
 
-	svc := NewAdminService(nil, nil, projectRepo, nil, nil, nil, requestRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
+	svc := NewAdminService(nil, nil, projectRepo, nil, nil, nil, requestRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
 	result, err := svc.ArchiveInactiveProjects(1, 30)
 	if err != nil {
 		t.Fatalf("ArchiveInactiveProjects: %v", err)
@@ -144,7 +145,7 @@ func TestAdminServiceArchiveInactiveProjectsFailsClosedWithoutUsageRepository(t 
 		t.Fatalf("create project: %v", err)
 	}
 
-	svc := NewAdminService(nil, nil, projectRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
+	svc := NewAdminService(nil, nil, projectRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
 	if _, err := svc.ArchiveInactiveProjects(1, 30); err == nil {
 		t.Fatalf("ArchiveInactiveProjects succeeded without proxyRequestRepo, want fail-closed error")
 	}

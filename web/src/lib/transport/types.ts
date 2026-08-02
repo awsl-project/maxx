@@ -1249,6 +1249,14 @@ export interface UserPanelAPITokenRevealResult {
   token: string;
 }
 
+export interface UserPanelDailyCheckInResult {
+  apiToken: APIToken;
+  alreadyCheckedIn: boolean;
+  checkedIn: boolean;
+  checkInDate: string;
+  rewardAmount: number;
+}
+
 export interface APITokenCleanupItem {
   id: number;
   name: string;
