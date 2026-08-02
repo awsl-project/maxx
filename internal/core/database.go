@@ -73,6 +73,7 @@ type DatabaseRepos struct {
 	UsageStatsRepo            repository.UsageStatsRepository
 	ResponseModelRepo         repository.ResponseModelRepository
 	ModelPriceRepo            repository.ModelPriceRepository
+	UserPanelDailyCheckInRepo repository.UserPanelDailyCheckInRepository
 	TenantRepo                repository.TenantRepository
 	UserRepo                  repository.UserRepository
 	InviteCodeRepo            repository.InviteCodeRepository
@@ -147,6 +148,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
 	responseModelRepo := sqlite.NewResponseModelRepository(db)
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
+	userPanelDailyCheckInRepo := sqlite.NewUserPanelDailyCheckInRepository(db)
 	tenantRepo := sqlite.NewTenantRepository(db)
 	userRepo := sqlite.NewUserRepository(db)
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
@@ -192,6 +194,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		UsageStatsRepo:            usageStatsRepo,
 		ResponseModelRepo:         responseModelRepo,
 		ModelPriceRepo:            modelPriceRepo,
+		UserPanelDailyCheckInRepo: userPanelDailyCheckInRepo,
 		TenantRepo:                tenantRepo,
 		UserRepo:                  userRepo,
 		InviteCodeRepo:            inviteCodeRepo,
@@ -405,6 +408,7 @@ func InitializeServerComponents(
 		repos.UsageStatsRepo,
 		repos.ResponseModelRepo,
 		repos.ModelPriceRepo,
+		repos.UserPanelDailyCheckInRepo,
 		addr,
 		r,
 		wailsBroadcaster,

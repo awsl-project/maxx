@@ -27,6 +27,7 @@ func setupRouteNativeTestEnv(t *testing.T) (
 	svc := NewAdminService(
 		providerRepo, routeRepo, projectRepo,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil,
 		"", nil, nil, nil,
 	)
 	return svc, providerRepo, routeRepo, projectRepo

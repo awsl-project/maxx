@@ -18,7 +18,7 @@ func TestAdminServiceProviderMaxConcurrencyIsPersistedAndNormalized(t *testing.T
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := sqlite.NewProviderRepository(db)
-	svc := NewAdminService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
+	svc := NewAdminService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
 	provider := &domain.Provider{Name: "limited", Type: "custom", MaxConcurrency: -3}
 	if err := svc.CreateProvider(domain.DefaultTenantID, provider); err != nil {
 		t.Fatalf("CreateProvider() error = %v", err)
@@ -107,7 +107,7 @@ func TestAdminServiceDeleteProviderCleansRoutesAndProviderModelMappings(t *testi
 		t.Fatalf("Create(globalMapping) error = %v", err)
 	}
 
-	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, "", nil, nil, nil)
+	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, nil, "", nil, nil, nil)
 	if err := svc.DeleteProvider(domain.DefaultTenantID, provider.ID); err != nil {
 		t.Fatalf("DeleteProvider() error = %v", err)
 	}
@@ -192,7 +192,7 @@ func TestAdminServiceBulkDeleteProvidersCleansReferencesInOnePass(t *testing.T) 
 		}
 	}
 
-	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, "", nil, nil, nil)
+	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, nil, "", nil, nil, nil)
 	result, err := svc.BulkDeleteProviders(domain.DefaultTenantID, domain.ProviderBulkDeleteRequest{
 		IDs: []uint64{providers[0].ID, providers[1].ID, providers[0].ID, 999999, 0},
 	})
@@ -273,7 +273,7 @@ func TestAdminServiceBulkDeleteProvidersRollsBackReferencesWhenProviderDeleteFai
 		t.Fatalf("create trigger error = %v", err)
 	}
 
-	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, "", nil, nil, nil)
+	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, nil, "", nil, nil, nil)
 	if _, err := svc.BulkDeleteProviders(domain.DefaultTenantID, domain.ProviderBulkDeleteRequest{IDs: []uint64{provider.ID}}); err == nil {
 		t.Fatal("BulkDeleteProviders() error = nil, want provider delete failure")
 	}
@@ -314,7 +314,7 @@ func TestAdminServiceBulkDeleteProvidersReturnsResultWhenPostCommitReloadFails(t
 		reloadErr: errors.New("reload failed after commit"),
 	}
 	adapter := &recordingProviderAdapterRefresher{}
-	svc := NewAdminService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", adapter, nil, nil)
+	svc := NewAdminService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", adapter, nil, nil)
 
 	result, err := svc.BulkDeleteProviders(domain.DefaultTenantID, domain.ProviderBulkDeleteRequest{IDs: []uint64{42, 99}})
 	if err != nil {
@@ -348,7 +348,7 @@ func TestAdminServiceBulkDeleteProvidersFallbackDoesNotRemoveAdapterWhenDeleteFa
 	routeRepo := sqlite.NewRouteRepository(db)
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
 	adapter := &recordingProviderAdapterRefresher{}
-	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, "", adapter, nil, nil)
+	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, nil, "", adapter, nil, nil)
 
 	_, err = svc.BulkDeleteProviders(domain.DefaultTenantID, domain.ProviderBulkDeleteRequest{IDs: []uint64{provider.ID}})
 	if err == nil {

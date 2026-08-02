@@ -532,6 +532,30 @@ func (r *selfServiceAPITokenRepo) DeductQuotaBalanceToZero(tenantID uint64, id u
 	return domain.ErrNotFound
 }
 
+type selfServiceDailyCheckInRepo struct {
+	claims map[string]bool
+}
+
+func (r *selfServiceDailyCheckInRepo) Claim(tenantID uint64, userID uint64, date string) (bool, error) {
+	if r.claims == nil {
+		r.claims = map[string]bool{}
+	}
+	key := fmt.Sprintf("%d:%d:%s", tenantID, userID, date)
+	if r.claims[key] {
+		return false, nil
+	}
+	r.claims[key] = true
+	return true, nil
+}
+
+func (r *selfServiceDailyCheckInRepo) DeleteClaim(tenantID uint64, userID uint64, date string) error {
+	if r.claims == nil {
+		return nil
+	}
+	delete(r.claims, fmt.Sprintf("%d:%d:%s", tenantID, userID, date))
+	return nil
+}
+
 type selfServiceUsageStatsRepo struct {
 	providerStats  map[uint64]*domain.ProviderStats
 	stats          []*domain.UsageStats
@@ -709,6 +733,7 @@ type selfServiceTestDeps struct {
 	usageStatsRepo    *selfServiceUsageStatsRepo
 	responseModelRepo *selfServiceResponseModelRepo
 	modelPriceRepo    *selfServiceModelPriceRepo
+	dailyCheckInRepo  repository.UserPanelDailyCheckInRepository
 }
 
 type selfServiceProviderRepoWithListError struct {
@@ -744,6 +769,7 @@ func newSelfServiceHandlerForTests(deps selfServiceTestDeps) *SelfServiceHandler
 		deps.usageStatsRepo,
 		deps.responseModelRepo,
 		deps.modelPriceRepo,
+		deps.dailyCheckInRepo,
 		"",
 		nil,
 		nil,
@@ -2312,6 +2338,76 @@ func TestSelfServiceHandler_GetAPIToken_MemberRedactsPlaintextToken(t *testing.T
 	}
 }
 
+func TestSelfServiceHandler_UserPanelDailyCheckInAddsTenDollarsOncePerDay(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "user 9", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 0},
+		},
+	}
+	dailyRepo := &selfServiceDailyCheckInRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled":                      "true",
+			"ui_multitenant_layout":                       "user_panel",
+			domain.SettingKeyUserPanelDailyCheckInEnabled: "true",
+			domain.SettingKeyTimezone:                     "UTC",
+		}},
+		apiTokenRepo:     tokenRepo,
+		dailyCheckInRepo: dailyRepo,
+	})
+
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, newSelfServiceRequest(http.MethodPost, "/user-panel/check-in"))
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want %d, body = %s", first.Code, http.StatusOK, first.Body.String())
+	}
+	if tokenRepo.tokens[0].QuotaBalance != 10*1_000_000_000 {
+		t.Fatalf("quota after first check-in = %d, want 10 dollars", tokenRepo.tokens[0].QuotaBalance)
+	}
+	var firstResult map[string]any
+	if err := json.Unmarshal(first.Body.Bytes(), &firstResult); err != nil {
+		t.Fatalf("decode first response: %v", err)
+	}
+	if firstResult["checkedIn"] != true || firstResult["alreadyCheckedIn"] != false {
+		t.Fatalf("first response = %#v, want checkedIn true", firstResult)
+	}
+
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, newSelfServiceRequest(http.MethodPost, "/user-panel/check-in"))
+	if second.Code != http.StatusOK {
+		t.Fatalf("second status = %d, want %d, body = %s", second.Code, http.StatusOK, second.Body.String())
+	}
+	if tokenRepo.tokens[0].QuotaBalance != 10*1_000_000_000 {
+		t.Fatalf("quota after duplicate check-in = %d, want unchanged 10 dollars", tokenRepo.tokens[0].QuotaBalance)
+	}
+	var secondResult map[string]any
+	if err := json.Unmarshal(second.Body.Bytes(), &secondResult); err != nil {
+		t.Fatalf("decode second response: %v", err)
+	}
+	if secondResult["checkedIn"] != false || secondResult["alreadyCheckedIn"] != true {
+		t.Fatalf("second response = %#v, want alreadyCheckedIn true", secondResult)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelDailyCheckInHiddenWhenDisabled(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled":                      "true",
+			"ui_multitenant_layout":                       "user_panel",
+			domain.SettingKeyUserPanelDailyCheckInEnabled: "false",
+		}},
+		apiTokenRepo:     &selfServiceAPITokenRepo{},
+		dailyCheckInRepo: &selfServiceDailyCheckInRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel/check-in"))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
 func TestSelfServiceHandler_UserPanelTokenCreatedForGlobalRoutes(t *testing.T) {
 	tokenRepo := &selfServiceAPITokenRepo{}
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
@@ -2767,6 +2863,7 @@ func newAdminHandlerForSelfServiceTestDeps(deps selfServiceTestDeps) *AdminHandl
 		deps.usageStatsRepo,
 		deps.responseModelRepo,
 		deps.modelPriceRepo,
+		deps.dailyCheckInRepo,
 		"",
 		nil,
 		nil,

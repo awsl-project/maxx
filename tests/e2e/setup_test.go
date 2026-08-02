@@ -153,6 +153,7 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 		usageStatsRepo,
 		responseModelRepo,
 		modelPriceRepo,
+		nil,
 		":9880",
 		nil, // no adapter refresher in tests
 		wsHub,

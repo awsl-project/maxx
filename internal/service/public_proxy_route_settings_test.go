@@ -53,6 +53,7 @@ func newPublicProxyRouteSettingsService(repo *publicProxyRouteSettingRepo) *Admi
 		nil,
 		nil,
 		nil,
+		nil,
 		"",
 		nil,
 		nil,

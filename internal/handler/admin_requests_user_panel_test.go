@@ -51,6 +51,7 @@ func newAdminHandlerWithRequestRepos(t *testing.T) (*AdminHandler, *sqlite.APITo
 		nil,
 		nil,
 		nil,
+		nil,
 		"",
 		nil,
 		nil,

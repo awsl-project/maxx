@@ -148,6 +148,7 @@ func main() {
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
 	responseModelRepo := sqlite.NewResponseModelRepository(db)
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
+	userPanelDailyCheckInRepo := sqlite.NewUserPanelDailyCheckInRepository(db)
 	tenantRepo := sqlite.NewTenantRepository(db)
 	userRepo := sqlite.NewUserRepository(db)
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
@@ -423,6 +424,7 @@ func main() {
 		usageStatsRepo,
 		responseModelRepo,
 		modelPriceRepo,
+		userPanelDailyCheckInRepo,
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
 		wsHub,

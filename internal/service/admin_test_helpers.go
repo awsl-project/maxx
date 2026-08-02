@@ -21,6 +21,7 @@ func NewTestAdminService(inviteRepo repository.InviteCodeRepository) *AdminServi
 		nil,
 		nil,
 		nil,
+		nil,
 		"",
 		nil,
 		nil,

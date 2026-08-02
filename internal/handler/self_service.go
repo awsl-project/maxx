@@ -25,6 +25,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"ui_multitenant_enabled":                         {},
 	"ui_multitenant_layout":                          {},
 	domain.SettingKeyRequestFailureDetailsEnabled:    {},
+	domain.SettingKeyUserPanelDailyCheckInEnabled:    {},
 	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},
 	domain.SettingKeyProxyRouteOpenAIChatEnabled:     {},
 	domain.SettingKeyProxyRouteResponsesEnabled:      {},
@@ -32,6 +33,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 }
 
 const userPanelAPITokenDescriptionPrefix = "managed-by=maxx-user-panel;user-id="
+const userPanelDailyCheckInRewardAmount uint64 = 10 * 1_000_000_000
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
 type SelfServiceHandler struct {
@@ -235,6 +237,13 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleUserPanelAPIToken(w, r, true)
 		case len(parts) == 3 && parts[2] == "reveal":
 			h.handleUserPanelAPITokenReveal(w, r)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+	case "user-panel":
+		switch {
+		case len(parts) == 3 && parts[2] == "check-in":
+			h.handleUserPanelDailyCheckIn(w, r)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
@@ -1350,6 +1359,89 @@ func (h *SelfServiceHandler) userPanelLayoutEnabled() bool {
 	}
 	layout, err := h.svc.GetSetting("ui_multitenant_layout")
 	return err == nil && layout == "user_panel"
+}
+
+func (h *SelfServiceHandler) userPanelDailyCheckInEnabled() bool {
+	if !h.userPanelLayoutEnabled() {
+		return false
+	}
+	enabled, err := h.svc.GetSetting(domain.SettingKeyUserPanelDailyCheckInEnabled)
+	return err == nil && enabled == "true"
+}
+
+func (h *SelfServiceHandler) userPanelCheckInDate(now time.Time) string {
+	loc := time.Local
+	if value, err := h.svc.GetSetting(domain.SettingKeyTimezone); err == nil && strings.TrimSpace(value) != "" {
+		if configured, loadErr := time.LoadLocation(strings.TrimSpace(value)); loadErr == nil {
+			loc = configured
+		}
+	}
+	return now.In(loc).Format("2006-01-02")
+}
+
+func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelDailyCheckInEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel daily check-in is not enabled"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		result, err := h.svc.CreateAPIToken(
+			tenantID,
+			userPanelAPITokenName(userID),
+			userPanelAPITokenDescription(userID),
+			0,
+			nil,
+		)
+		if err != nil {
+			writeSelfServiceInternalError(w, "CreateUserPanelAPIToken failed", err)
+			return
+		}
+		canonicalToken = result.APIToken
+	}
+
+	checkInDate := h.userPanelCheckInDate(time.Now())
+	claimed, err := h.svc.CheckInUserPanelDailyQuota(tenantID, userID, canonicalToken.ID, checkInDate, userPanelDailyCheckInRewardAmount)
+	if err != nil {
+		writeSelfServiceInternalError(w, "CheckInUserPanelDailyQuota failed", err)
+		return
+	}
+	if claimed {
+		canonicalToken, err = h.svc.GetAPIToken(tenantID, canonicalToken.ID)
+		if err != nil {
+			writeSelfServiceInternalError(w, "GetUserPanelAPITokenAfterCheckIn failed", err)
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"apiToken":         sanitizeAPIToken(canonicalToken),
+		"alreadyCheckedIn": !claimed,
+		"checkedIn":        claimed,
+		"checkInDate":      checkInDate,
+		"rewardAmount":     userPanelDailyCheckInRewardAmount,
+	})
 }
 
 func findUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, userID uint64) ([]*domain.APIToken, error) {
