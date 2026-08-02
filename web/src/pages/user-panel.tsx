@@ -462,7 +462,7 @@ export function UserPanelPage() {
                       </Button>
                     </div>
 
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
                       <div className="space-y-1">
                         <div className="relative">
                           <Input
