@@ -48,11 +48,11 @@ func TestAggregateAndRollUpInitialRunBackfillsHistoricalAttempts(t *testing.T) {
 	for range repo.AggregateAndRollUp(0) {
 	}
 
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	historicalStart := now.Add(-72 * time.Hour)
 	last24Start := now.Add(-24 * time.Hour)
 	monthStats, err := repo.Query(1, repository.UsageStatsFilter{
 		Granularity: domain.GranularityDay,
-		StartTime:   &monthStart,
+		StartTime:   &historicalStart,
 		EndTime:     &now,
 	})
 	if err != nil {
@@ -94,11 +94,11 @@ func TestQueryRealtimeBackfillDoesNotDoubleCountCompletedHour(t *testing.T) {
 	}
 	close(progress)
 
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	historicalStart := now.Add(-72 * time.Hour)
 	last24Start := now.Add(-24 * time.Hour)
 	monthStats, err := repo.Query(1, repository.UsageStatsFilter{
 		Granularity: domain.GranularityDay,
-		StartTime:   &monthStart,
+		StartTime:   &historicalStart,
 		EndTime:     &now,
 	})
 	if err != nil {

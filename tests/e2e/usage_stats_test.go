@@ -77,11 +77,11 @@ func TestUsageStatsMonthAndLast24HoursDivergeAfterHistoricalBackfill(t *testing.
 	resp := env.AdminPost("/api/admin/usage-stats/recalculate", nil)
 	AssertStatus(t, resp, http.StatusOK)
 
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	historicalStart := now.Add(-72 * time.Hour).Format(time.RFC3339)
 	last24Start := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	end := now.Format(time.RFC3339)
 
-	monthResp := env.AdminGet("/api/admin/usage-stats?granularity=day&start=" + url.QueryEscape(monthStart) + "&end=" + url.QueryEscape(end))
+	monthResp := env.AdminGet("/api/admin/usage-stats?granularity=day&start=" + url.QueryEscape(historicalStart) + "&end=" + url.QueryEscape(end))
 	AssertStatus(t, monthResp, http.StatusOK)
 	last24Resp := env.AdminGet("/api/admin/usage-stats?granularity=hour&start=" + url.QueryEscape(last24Start) + "&end=" + url.QueryEscape(end))
 	AssertStatus(t, last24Resp, http.StatusOK)
