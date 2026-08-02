@@ -119,6 +119,7 @@ export {
   useAPIToken,
   useCreateAPIToken,
   useUpdateAPIToken,
+  useRechargeAPITokenQuota,
   useDeleteAPIToken,
   useCleanupExpiredAPITokens,
 } from './use-api-tokens';

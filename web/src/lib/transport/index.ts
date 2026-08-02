@@ -131,6 +131,8 @@ export type {
   APITokenCreateResult,
   APITokenUpdateData,
   CreateAPITokenData,
+  APITokenQuotaRechargeData,
+  APITokenQuotaRechargeResult,
   UserPanelAPITokenResponse,
   // Usage Stats
   UsageStats,

@@ -374,6 +374,9 @@ type ProviderConfigGrok struct {
 }
 
 type ProviderConfig struct {
+	// 启用额度检查。开启后,通过 API 令牌访问该提供商时必须有可用额度。
+	QuotaEnabled bool `json:"quotaEnabled,omitempty"`
+
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
 	DisableErrorCooldown bool `json:"disableErrorCooldown,omitempty"`
 	// 智能映射轮询重试：禁用错误自动冻结时，按候选映射模型轮询失败重试。
@@ -1242,8 +1245,16 @@ type APIToken struct {
 	// 使用次数
 	UseCount uint64 `json:"useCount"`
 
+	// 额度余额。单位沿用请求 cost 的最小单位;默认 0。
+	QuotaBalance uint64 `json:"quotaBalance"`
+
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+}
+
+// APITokenQuotaRechargeResult reports the result of a bulk quota recharge.
+type APITokenQuotaRechargeResult struct {
+	UpdatedCount int `json:"updatedCount"`
 }
 
 // APITokenInactiveExpiry is the inactivity window after a token was last used.

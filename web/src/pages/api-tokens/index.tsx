@@ -24,6 +24,7 @@ import {
   useAPITokens,
   useCreateAPIToken,
   useUpdateAPIToken,
+  useRechargeAPITokenQuota,
   useDeleteAPIToken,
   useCleanupExpiredAPITokens,
   useProjects,
@@ -48,6 +49,7 @@ import {
   CircleCheck,
   CircleAlert,
   RotateCcw,
+  Coins,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import { isAPITokenExpired } from '@/lib/api-token-expiry';
@@ -73,6 +75,7 @@ export function APITokensPage() {
   const updateSetting = useUpdateSetting();
   const createToken = useCreateAPIToken();
   const updateToken = useUpdateAPIToken();
+  const rechargeQuota = useRechargeAPITokenQuota();
   const deleteToken = useDeleteAPIToken();
   const cleanupExpiredTokens = useCleanupExpiredAPITokens();
 
@@ -89,7 +92,11 @@ export function APITokensPage() {
   const [editingToken, setEditingToken] = useState<APIToken | null>(null);
   const [deletingToken, setDeletingToken] = useState<APIToken | null>(null);
   const [cleanupExpiredDialogOpen, setCleanupExpiredDialogOpen] = useState(false);
+  const [quotaRechargeDialogOpen, setQuotaRechargeDialogOpen] = useState(false);
+  const [selectedTokenIds, setSelectedTokenIds] = useState<number[]>([]);
+  const [quotaRechargeUsd, setQuotaRechargeUsd] = useState('');
   const [lastCleanupCount, setLastCleanupCount] = useState<number | null>(null);
+  const [lastQuotaRechargeCount, setLastQuotaRechargeCount] = useState<number | null>(null);
   const [lastReactivatedCount, setLastReactivatedCount] = useState<number | null>(null);
   const [isReactivatingExpired, setIsReactivatingExpired] = useState(false);
   const [newTokenDialog, setNewTokenDialog] = useState<{
@@ -118,6 +125,20 @@ export function APITokensPage() {
   const isExpired = (token: APIToken) => isAPITokenExpired(token);
   const expiredTokens = useMemo(() => (tokens ?? []).filter(isExpired), [tokens]);
   const expiredTokenCount = expiredTokens.length;
+  const allTokenIds = useMemo(() => (tokens ?? []).map((token) => token.id), [tokens]);
+  const allSelected = allTokenIds.length > 0 && selectedTokenIds.length === allTokenIds.length;
+
+  const formatQuotaBalance = (value: number) => `$${(value / 1_000_000_000).toFixed(6)}`;
+
+  const toggleTokenSelection = (id: number, checked: boolean) => {
+    setSelectedTokenIds((current) =>
+      checked ? Array.from(new Set([...current, id])) : current.filter((tokenId) => tokenId !== id),
+    );
+  };
+
+  const handleToggleAllSelected = (checked: boolean) => {
+    setSelectedTokenIds(checked ? allTokenIds : []);
+  };
 
   const resetForm = () => {
     setName('');
@@ -241,6 +262,22 @@ export function APITokensPage() {
         setLastCleanupCount(result.deletedCount);
       },
     });
+  };
+
+  const handleRechargeQuota = () => {
+    const amountUsd = Number(quotaRechargeUsd);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0 || selectedTokenIds.length === 0) return;
+    const amount = Math.round(amountUsd * 1_000_000_000);
+    rechargeQuota.mutate(
+      { ids: selectedTokenIds, amount },
+      {
+        onSuccess: (result) => {
+          setQuotaRechargeDialogOpen(false);
+          setQuotaRechargeUsd('');
+          setLastQuotaRechargeCount(result.updatedCount);
+        },
+      },
+    );
   };
 
   const handleEdit = (token: APIToken) => {
@@ -452,8 +489,28 @@ export function APITokensPage() {
                         })}
                       </p>
                     )}
+                    {lastQuotaRechargeCount !== null && (
+                      <p className="text-xs text-text-muted">
+                        {t('apiTokens.quotaRecharge.lastResult', {
+                          count: lastQuotaRechargeCount,
+                        })}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-2 self-start sm:self-auto md:flex-row">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setQuotaRechargeDialogOpen(true)}
+                      disabled={selectedTokenIds.length === 0 || rechargeQuota.isPending}
+                    >
+                      {rechargeQuota.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Coins className="mr-2 h-4 w-4" />
+                      )}
+                      {t('apiTokens.quotaRecharge.button', { count: selectedTokenIds.length })}
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -488,10 +545,19 @@ export function APITokensPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          aria-label={t('apiTokens.selectAll')}
+                          checked={allSelected}
+                          onChange={(event) => handleToggleAllSelected(event.target.checked)}
+                        />
+                      </TableHead>
                       <TableHead>{t('apiTokens.tokenName')}</TableHead>
                       <TableHead>{t('apiTokens.tokenPrefix')}</TableHead>
                       <TableHead>{t('apiTokens.project')}</TableHead>
                       <TableHead>{t('common.status')}</TableHead>
+                      <TableHead>{t('apiTokens.quotaBalance')}</TableHead>
                       <TableHead>{t('apiTokens.usage')}</TableHead>
                       <TableHead>{t('apiTokens.recentIP')}</TableHead>
                       <TableHead>{t('apiTokens.lastUsed')}</TableHead>
@@ -501,6 +567,16 @@ export function APITokensPage() {
                   <TableBody>
                     {tokens.map((token) => (
                       <TableRow key={token.id}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            aria-label={t('apiTokens.selectToken', { name: token.name })}
+                            checked={selectedTokenIds.includes(token.id)}
+                            onChange={(event) =>
+                              toggleTokenSelection(token.id, event.target.checked)
+                            }
+                          />
+                        </TableCell>
                         <TableCell>
                           <div>
                             <div className="font-medium">{token.name}</div>
@@ -571,6 +647,12 @@ export function APITokensPage() {
                                 {t('common.disabled')}
                               </Badge>
                             )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-sm text-text-secondary">
+                            <Coins className="h-3 w-3" />
+                            {formatQuotaBalance(token.quotaBalance ?? 0)}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -931,6 +1013,48 @@ export function APITokensPage() {
             >
               {cleanupExpiredTokens.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {t('apiTokens.cleanupExpired.confirm', { count: expiredTokenCount })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={quotaRechargeDialogOpen}
+        onOpenChange={(open: boolean) => !open && setQuotaRechargeDialogOpen(false)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('apiTokens.quotaRecharge.title')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="quota-recharge-amount">
+              {t('apiTokens.quotaRecharge.amount')}
+            </label>
+            <Input
+              id="quota-recharge-amount"
+              type="number"
+              min="0"
+              step="0.000001"
+              value={quotaRechargeUsd}
+              onChange={(event) => setQuotaRechargeUsd(event.target.value)}
+              placeholder="1.000000"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuotaRechargeDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleRechargeQuota}
+              disabled={
+                rechargeQuota.isPending ||
+                selectedTokenIds.length === 0 ||
+                !Number.isFinite(Number(quotaRechargeUsd)) ||
+                Number(quotaRechargeUsd) <= 0
+              }
+            >
+              {rechargeQuota.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {t('apiTokens.quotaRecharge.confirm', { count: selectedTokenIds.length })}
             </Button>
           </DialogFooter>
         </DialogContent>

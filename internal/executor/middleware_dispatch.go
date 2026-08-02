@@ -87,6 +87,17 @@ routeLoop:
 			proxyReq.RouteID = matchedRoute.Route.ID
 			proxyReq.ProviderID = matchedRoute.Provider.ID
 			proxyReq.MappedModel = mappedModel
+			if quotaErr := e.ensureAPITokenQuota(state, proxyReq, matchedRoute.Provider); quotaErr != nil {
+				rejectProxyRequestForQuota(proxyReq, quotaErr)
+				clearProxyRequestDetail(proxyReq, clearDetail)
+				_ = e.proxyRequestRepo.Update(proxyReq)
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastProxyRequest(proxyReq)
+				}
+				state.lastErr = quotaErr
+				c.Err = quotaErr
+				return
+			}
 			_ = e.proxyRequestRepo.Update(proxyReq)
 			if e.broadcaster != nil {
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
@@ -281,6 +292,7 @@ routeLoop:
 				attemptRecord.Error = ""
 
 				pricing.FinalizeAttemptCost(attemptRecord, multiplier)
+				e.deductAPITokenQuota(state, attemptRecord)
 
 				if clearDetail {
 					attemptRecord.RequestInfo = nil
@@ -355,6 +367,7 @@ routeLoop:
 			attemptRecord.Error = err.Error()
 
 			pricing.FinalizeAttemptCost(attemptRecord, multiplier)
+			e.deductAPITokenQuota(state, attemptRecord)
 
 			if clearDetail {
 				attemptRecord.RequestInfo = nil

@@ -507,6 +507,7 @@ type EditFormData = {
   cloakStrictMode?: boolean;
   cloakSensitiveWords?: string;
   responseModelMapping: Record<string, string>;
+  quotaEnabled?: boolean;
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
@@ -583,6 +584,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       cloakStrictMode: cc?.strictMode || false,
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
+      quotaEnabled: provider.config?.quotaEnabled ?? false,
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
       smartMappingRetryEnabled: provider.config?.smartMappingRetryEnabled ?? false,
       smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
@@ -698,6 +700,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         type: provider.type || 'custom', // Preserve the provider type
         maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
+          quotaEnabled: !!formData.quotaEnabled,
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
@@ -771,6 +774,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         logo: provider.logo,
         maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
         config: {
+          quotaEnabled: !!formData.quotaEnabled,
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
@@ -1355,6 +1359,20 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     setFormData((prev) => ({ ...prev, maxConcurrency }))
                   }
                 />
+
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.quotaEnabled')}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={!!formData.quotaEnabled}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, quotaEnabled: checked }))
+                    }
+                  />
+                </div>
 
                 <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
                   <div className="pr-4">

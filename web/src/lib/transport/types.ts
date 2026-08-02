@@ -236,6 +236,7 @@ export interface ProviderModelCheckResponse {
 }
 
 export interface ProviderConfig {
+  quotaEnabled?: boolean;
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
@@ -1223,6 +1224,16 @@ export interface APIToken {
   lastIP?: string;
   lastIPAt?: string;
   useCount: number;
+  quotaBalance: number;
+}
+
+export interface APITokenQuotaRechargeData {
+  ids: number[];
+  amount: number;
+}
+
+export interface APITokenQuotaRechargeResult {
+  updatedCount: number;
 }
 
 export interface APITokenCreateResult {

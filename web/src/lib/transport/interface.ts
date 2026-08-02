@@ -76,6 +76,8 @@ import type {
   APITokenCreateResult,
   APITokenUpdateData,
   CreateAPITokenData,
+  APITokenQuotaRechargeData,
+  APITokenQuotaRechargeResult,
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
   RouteBulkDeleteRequest,
@@ -316,6 +318,7 @@ export interface Transport {
   revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: APITokenUpdateData): Promise<APIToken>;
+  rechargeAPITokenQuota(data: APITokenQuotaRechargeData): Promise<APITokenQuotaRechargeResult>;
   deleteAPIToken(id: number): Promise<void>;
   cleanupExpiredAPITokens(): Promise<APITokenCleanupResult>;
 

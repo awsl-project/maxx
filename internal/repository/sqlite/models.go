@@ -174,19 +174,20 @@ func (RoutingStrategy) TableName() string { return "routing_strategies" }
 // APIToken model
 type APIToken struct {
 	SoftDeleteModel
-	TenantID    uint64 `gorm:"index"`
-	Token       string `gorm:"size:255;uniqueIndex"`
-	TokenPrefix string `gorm:"size:32"`
-	Name        string `gorm:"size:255"`
-	Description LongText
-	ProjectID   uint64
-	IsEnabled   int `gorm:"default:1"`
-	DevMode     int `gorm:"default:0"`
-	ExpiresAt   int64
-	LastUsedAt  int64
-	LastIP      string `gorm:"size:64"`
-	LastIPAt    int64
-	UseCount    uint64
+	TenantID     uint64 `gorm:"index"`
+	Token        string `gorm:"size:255;uniqueIndex"`
+	TokenPrefix  string `gorm:"size:32"`
+	Name         string `gorm:"size:255"`
+	Description  LongText
+	ProjectID    uint64
+	IsEnabled    int `gorm:"default:1"`
+	DevMode      int `gorm:"default:0"`
+	ExpiresAt    int64
+	LastUsedAt   int64
+	LastIP       string `gorm:"size:64"`
+	LastIPAt     int64
+	UseCount     uint64
+	QuotaBalance uint64 `gorm:"default:0"`
 }
 
 func (APIToken) TableName() string { return "api_tokens" }

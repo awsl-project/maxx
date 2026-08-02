@@ -1605,7 +1605,19 @@
       }
     },
     "reactivateToken": "Reset validity",
-    "reactivateHint": "Saving will clear expiration and inactivity state."
+    "reactivateHint": "Saving will clear expiration and inactivity state.",
+    "selectAll": "Select all tokens",
+    "selectToken": "Select {{name}}",
+    "quotaBalance": "Quota Balance",
+    "quotaRecharge": {
+      "button": "Recharge Quota ({{count}})",
+      "title": "Recharge Quota",
+      "description": "Add the same quota amount to {{count}} selected tokens.",
+      "amount": "Quota amount (USD)",
+      "amountHint": "Enter USD. It is saved in the smallest quota unit used by request cost.",
+      "confirm": "Recharge {{count}} tokens",
+      "lastResult": "Added quota to {{count}} tokens."
+    }
   },
   "app": {
     "title": "Maxx Next"
@@ -1776,7 +1788,9 @@
       "high": "High",
       "xhigh": "Extra High",
       "max": "Max"
-    }
+    },
+    "quotaEnabled": "Enable Quota Check",
+    "quotaEnabledDesc": "When enabled, requests through this provider require the matching API token to have quota; tokens without quota are rejected."
   },
   "cooldown": {
     "title": "Cooldown Protection",

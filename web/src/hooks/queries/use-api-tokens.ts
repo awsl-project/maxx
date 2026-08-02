@@ -3,7 +3,12 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTransport, type APITokenUpdateData, type CreateAPITokenData } from '@/lib/transport';
+import {
+  getTransport,
+  type APITokenQuotaRechargeData,
+  type APITokenUpdateData,
+  type CreateAPITokenData,
+} from '@/lib/transport';
 
 // Query Keys
 export const apiTokenKeys = {
@@ -59,6 +64,17 @@ export function useUpdateAPIToken() {
       getTransport().updateAPIToken(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: apiTokenKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: apiTokenKeys.lists() });
+    },
+  });
+}
+
+export function useRechargeAPITokenQuota() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: APITokenQuotaRechargeData) => getTransport().rechargeAPITokenQuota(data),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: apiTokenKeys.lists() });
     },
   });

@@ -79,9 +79,6 @@ export function APITokenLimitsPage() {
                     <Activity className="h-4 w-4 text-muted-foreground" />
                     {t('apiTokenLimits.concurrencyTitle')}
                   </CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('apiTokenLimits.concurrencyDesc')}
-                  </p>
                 </div>
                 <Button
                   onClick={handleSave}
@@ -114,7 +111,6 @@ export function APITokenLimitsPage() {
                   ({t('settings.defaultValue', { value: 5 })})
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">{t('apiTokenLimits.concurrencyHint')}</p>
               {!isLimitValid && initialized && (
                 <p className="text-xs text-destructive">
                   {t('apiTokenLimits.concurrentLimitInvalid')}
@@ -129,9 +125,6 @@ export function APITokenLimitsPage() {
                 <Activity className="h-4 w-4 text-muted-foreground" />
                 {t('apiTokenLimits.autoCooldownTitle')}
               </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                {t('apiTokenLimits.autoCooldownDesc')}
-              </p>
             </CardHeader>
             <CardContent className="p-6 space-y-1.5">
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
@@ -153,9 +146,6 @@ export function APITokenLimitsPage() {
                   ({t('settings.defaultValue', { value: 5 })})
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {t('apiTokenLimits.autoCooldownHint')}
-              </p>
               {!isAutoCooldownValid && initialized && (
                 <p className="text-xs text-destructive">
                   {t('apiTokenLimits.autoCooldownInvalid')}
