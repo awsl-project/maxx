@@ -317,6 +317,7 @@ export interface Transport {
   createUserPanelAPIToken(): Promise<APITokenCreateResult>;
   regenerateUserPanelAPIToken(): Promise<APITokenCreateResult>;
   revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult>;
+  getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult>;
   checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: APITokenUpdateData): Promise<APIToken>;

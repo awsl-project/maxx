@@ -1250,7 +1250,7 @@ export interface UserPanelAPITokenRevealResult {
 }
 
 export interface UserPanelDailyCheckInResult {
-  apiToken: APIToken;
+  apiToken?: APIToken;
   alreadyCheckedIn: boolean;
   checkedIn: boolean;
   checkInDate: string;

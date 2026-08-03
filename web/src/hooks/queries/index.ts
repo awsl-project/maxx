@@ -129,6 +129,7 @@ export {
   useCreateUserPanelAPIToken,
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
+  useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
 } from './use-user-panel-token';
 

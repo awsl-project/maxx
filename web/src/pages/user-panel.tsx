@@ -23,6 +23,7 @@ import {
   useProxyRequests,
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
+  useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
   useProxyRequestUpdates,
@@ -177,6 +178,8 @@ export function UserPanelPage() {
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const { data: userPanelRequests } = useProxyRequests({ limit: 25 });
   const { data: publicSettings } = usePublicSettings();
+  const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
+  const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(dailyCheckInEnabled);
   useProxyRequestUpdates();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
@@ -208,6 +211,7 @@ export function UserPanelPage() {
   const activeRequestCount =
     userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
+  const hasCheckedInToday = dailyCheckInStatus?.alreadyCheckedIn || dailyCheckInDone;
   const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
   const userPanelTokenValue = revealedUserPanelToken || maskedUserPanelToken;
   const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
@@ -230,6 +234,15 @@ export function UserPanelPage() {
     setRevealedUserPanelToken('');
     setRevealKeyError('');
   }, [userPanelToken?.id]);
+
+  useEffect(() => {
+    if (dailyCheckInStatus?.alreadyCheckedIn) {
+      setDailyCheckInDone(true);
+    } else if (!dailyCheckInEnabled) {
+      setDailyCheckInDone(false);
+      setDailyCheckInMessage('');
+    }
+  }, [dailyCheckInEnabled, dailyCheckInStatus?.alreadyCheckedIn]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -323,7 +336,6 @@ export function UserPanelPage() {
 
   const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
   const revealActionPending = revealUserPanelToken.isPending;
-  const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
 
   return (
     <main className="min-h-svh bg-muted/30 px-4 py-6 text-foreground sm:px-6 lg:px-8">
@@ -388,19 +400,19 @@ export function UserPanelPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {userPanelToken ? (
+                    {hasCheckedInToday ? (
                       <Badge variant="secondary">
-                        {formatQuotaBalance(userPanelToken.quotaBalance)}
+                        {t('userPanel.dailyCheckInDone')}
                       </Badge>
                     ) : null}
                     <Button
                       size="sm"
                       className="h-8 gap-2"
-                      disabled={dailyCheckIn.isPending || dailyCheckInDone}
+                      disabled={dailyCheckIn.isPending || hasCheckedInToday}
                       onClick={handleDailyCheckIn}
                     >
                       <Gift className="size-3.5" />
-                      {dailyCheckInDone
+                      {hasCheckedInToday
                         ? t('userPanel.dailyCheckInDone')
                         : dailyCheckIn.isPending
                           ? t('common.loading')
@@ -462,7 +474,7 @@ export function UserPanelPage() {
                       </Button>
                     </div>
 
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-center">
                       <div className="space-y-1">
                         <div className="relative">
                           <Input
@@ -495,7 +507,15 @@ export function UserPanelPage() {
                           <p className="text-xs text-muted-foreground">{t('userPanel.fullKeyVisible')}</p>
                         ) : null}
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
+                          <p className="text-[11px] text-muted-foreground">
+                            {t('userPanel.quotaBalance')}
+                          </p>
+                          <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
+                            {formatQuotaBalance(userPanelToken.quotaBalance)}
+                          </p>
+                        </div>
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
                             {t('userPanel.useCount')}

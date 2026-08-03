@@ -1623,6 +1623,13 @@ func (s *AdminService) CheckInUserPanelDailyQuota(tenantID uint64, userID uint64
 	return true, nil
 }
 
+func (s *AdminService) HasUserPanelDailyCheckIn(tenantID uint64, userID uint64, checkInDate string) (bool, error) {
+	if s.userPanelDailyCheckInRepo == nil || tenantID == 0 || userID == 0 || checkInDate == "" {
+		return false, domain.ErrInvalidInput
+	}
+	return s.userPanelDailyCheckInRepo.HasClaim(tenantID, userID, checkInDate)
+}
+
 func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
 	return s.apiTokenRepo.Delete(tenantID, id)
 }

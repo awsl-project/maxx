@@ -1133,6 +1133,13 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult> {
+    const { data } = await this.client.get<UserPanelDailyCheckInResult>(
+      '/user-panel/check-in',
+    );
+    return data;
+  }
+
   async checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult> {
     const { data } = await this.client.post<UserPanelDailyCheckInResult>(
       '/user-panel/check-in',
