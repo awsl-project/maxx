@@ -1852,20 +1852,20 @@ function MultiTenantUISection() {
                 disabled={updateSetting.isPending}
               />
             </div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <div>
-                <Label className="text-xs text-muted-foreground">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Label className="text-sm font-medium text-foreground sm:min-w-40">
                   {t('settings.userPanelDailyCheckInAmount')}
                 </Label>
                 <Input
-                  className="mt-1 sm:max-w-48"
+                  className="sm:w-48"
                   type="number"
                   min="0.000001"
                   step="0.01"
                   value={localDailyCheckInAmount}
                   onChange={(event) => setLocalDailyCheckInAmount(event.target.value)}
                   onBlur={handleDailyCheckInAmountSave}
-                  disabled={updateSetting.isPending}
+                  disabled={updateSetting.isPending || !localDailyCheckInEnabled}
                 />
               </div>
               <Button
@@ -1873,7 +1873,11 @@ function MultiTenantUISection() {
                 variant="outline"
                 size="sm"
                 onClick={handleDailyCheckInAmountSave}
-                disabled={updateSetting.isPending || localDailyCheckInAmount === settingsDailyCheckInAmount}
+                disabled={
+                  updateSetting.isPending ||
+                  !localDailyCheckInEnabled ||
+                  localDailyCheckInAmount === settingsDailyCheckInAmount
+                }
               >
                 {t('common.save')}
               </Button>
