@@ -138,6 +138,7 @@
     "noKeys": "No keys are available for this account.",
     "unnamedKey": "Unnamed key",
     "useCount": "Uses",
+    "quotaBalance": "Balance",
     "lastUsed": "Recent",
     "apiAccess": "API Access",
     "baseURL": "Base URL",

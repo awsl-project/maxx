@@ -15,6 +15,17 @@ func NewUserPanelDailyCheckInRepository(db *DB) *UserPanelDailyCheckInRepository
 	return &UserPanelDailyCheckInRepository{db: db}
 }
 
+func (r *UserPanelDailyCheckInRepository) HasClaim(tenantID uint64, userID uint64, date string) (bool, error) {
+	if tenantID == 0 || userID == 0 || date == "" {
+		return false, nil
+	}
+	var count int64
+	err := r.db.gorm.Model(&UserPanelDailyCheckIn{}).
+		Where("tenant_id = ? AND user_id = ? AND date = ?", tenantID, userID, date).
+		Count(&count).Error
+	return count > 0, err
+}
+
 func (r *UserPanelDailyCheckInRepository) Claim(tenantID uint64, userID uint64, date string) (bool, error) {
 	if tenantID == 0 || userID == 0 || date == "" {
 		return false, nil

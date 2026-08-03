@@ -536,6 +536,13 @@ type selfServiceDailyCheckInRepo struct {
 	claims map[string]bool
 }
 
+func (r *selfServiceDailyCheckInRepo) HasClaim(tenantID uint64, userID uint64, date string) (bool, error) {
+	if r.claims == nil {
+		return false, nil
+	}
+	return r.claims[fmt.Sprintf("%d:%d:%s", tenantID, userID, date)], nil
+}
+
 func (r *selfServiceDailyCheckInRepo) Claim(tenantID uint64, userID uint64, date string) (bool, error) {
 	if r.claims == nil {
 		r.claims = map[string]bool{}
@@ -2387,6 +2394,52 @@ func TestSelfServiceHandler_UserPanelDailyCheckInAddsTenDollarsOncePerDay(t *tes
 	}
 	if secondResult["checkedIn"] != false || secondResult["alreadyCheckedIn"] != true {
 		t.Fatalf("second response = %#v, want alreadyCheckedIn true", secondResult)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelDailyCheckInStatusReportsAlreadyCheckedIn(t *testing.T) {
+	dailyRepo := &selfServiceDailyCheckInRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled":                      "true",
+			"ui_multitenant_layout":                       "user_panel",
+			domain.SettingKeyUserPanelDailyCheckInEnabled: "true",
+			domain.SettingKeyTimezone:                     "UTC",
+		}},
+		apiTokenRepo:     &selfServiceAPITokenRepo{},
+		dailyCheckInRepo: dailyRepo,
+	})
+
+	before := httptest.NewRecorder()
+	handler.ServeHTTP(before, newSelfServiceRequest(http.MethodGet, "/user-panel/check-in"))
+	if before.Code != http.StatusOK {
+		t.Fatalf("before status = %d, want %d, body = %s", before.Code, http.StatusOK, before.Body.String())
+	}
+	var beforeResult map[string]any
+	if err := json.Unmarshal(before.Body.Bytes(), &beforeResult); err != nil {
+		t.Fatalf("decode before response: %v", err)
+	}
+	if beforeResult["alreadyCheckedIn"] != false {
+		t.Fatalf("before response = %#v, want not checked in", beforeResult)
+	}
+
+	claim := httptest.NewRecorder()
+	handler.ServeHTTP(claim, newSelfServiceRequest(http.MethodPost, "/user-panel/check-in"))
+	if claim.Code != http.StatusOK {
+		t.Fatalf("claim status = %d, want %d, body = %s", claim.Code, http.StatusOK, claim.Body.String())
+	}
+
+	after := httptest.NewRecorder()
+	handler.ServeHTTP(after, newSelfServiceRequest(http.MethodGet, "/user-panel/check-in"))
+	if after.Code != http.StatusOK {
+		t.Fatalf("after status = %d, want %d, body = %s", after.Code, http.StatusOK, after.Body.String())
+	}
+	var afterResult map[string]any
+	if err := json.Unmarshal(after.Body.Bytes(), &afterResult); err != nil {
+		t.Fatalf("decode after response: %v", err)
+	}
+	if afterResult["alreadyCheckedIn"] != true {
+		t.Fatalf("after response = %#v, want checked in", afterResult)
 	}
 }
 

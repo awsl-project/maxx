@@ -1380,7 +1380,7 @@ func (h *SelfServiceHandler) userPanelCheckInDate(now time.Time) string {
 }
 
 func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -1393,6 +1393,22 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 	userID := maxxctx.GetUserID(r.Context())
 	if tenantID == 0 || userID == 0 {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	checkInDate := h.userPanelCheckInDate(time.Now())
+	if r.Method == http.MethodGet {
+		alreadyCheckedIn, err := h.svc.HasUserPanelDailyCheckIn(tenantID, userID, checkInDate)
+		if err != nil {
+			writeSelfServiceInternalError(w, "HasUserPanelDailyCheckIn failed", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"alreadyCheckedIn": alreadyCheckedIn,
+			"checkedIn":        false,
+			"checkInDate":      checkInDate,
+			"rewardAmount":     userPanelDailyCheckInRewardAmount,
+		})
 		return
 	}
 
@@ -1421,7 +1437,6 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 		canonicalToken = result.APIToken
 	}
 
-	checkInDate := h.userPanelCheckInDate(time.Now())
 	claimed, err := h.svc.CheckInUserPanelDailyQuota(tenantID, userID, canonicalToken.ID, checkInDate, userPanelDailyCheckInRewardAmount)
 	if err != nil {
 		writeSelfServiceInternalError(w, "CheckInUserPanelDailyQuota failed", err)

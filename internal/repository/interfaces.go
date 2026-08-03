@@ -276,6 +276,7 @@ type SystemSettingRepository interface {
 }
 
 type UserPanelDailyCheckInRepository interface {
+	HasClaim(tenantID uint64, userID uint64, date string) (bool, error)
 	Claim(tenantID uint64, userID uint64, date string) (bool, error)
 	DeleteClaim(tenantID uint64, userID uint64, date string) error
 }

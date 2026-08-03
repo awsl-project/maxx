@@ -138,6 +138,7 @@
     "noKeys": "当前账号暂无可用 Key。",
     "unnamedKey": "未命名 Key",
     "useCount": "调用",
+    "quotaBalance": "余额",
     "lastUsed": "最近",
     "apiAccess": "接口接入",
     "baseURL": "基础地址",
