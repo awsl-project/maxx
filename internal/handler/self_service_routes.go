@@ -19,6 +19,8 @@ var protectedSelfServiceRoutePatterns = []string{
 	"/api/api-tokens/",
 	"/api/user-panel-token",
 	"/api/user-panel-token/",
+	"/api/user-panel/models",
+	"/api/user-panel/models/",
 	"/api/user-panel/check-in",
 	"/api/user-panel/check-in/",
 	"/api/model-mappings",

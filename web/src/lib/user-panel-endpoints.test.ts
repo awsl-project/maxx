@@ -10,7 +10,8 @@ describe('user panel endpoints', () => {
     const endpoints = buildUserPanelEndpointHints('https://maxx.example.com/');
 
     expect(endpoints).toEqual([
-      { id: 'openai-codex', url: 'https://maxx.example.com/v1' },
+      { id: 'openai', url: 'https://maxx.example.com/v1' },
+      { id: 'codex', url: 'https://maxx.example.com/v1' },
       { id: 'claude', url: 'https://maxx.example.com' },
     ]);
   });
@@ -36,7 +37,7 @@ describe('user panel endpoints', () => {
         proxy_route_gemini_enabled: 'true',
       }),
     ).toEqual([
-      { id: 'openai-codex', url: 'https://maxx.example.com/v1' },
+      { id: 'codex', url: 'https://maxx.example.com/v1' },
       {
         id: 'gemini',
         url: 'https://maxx.example.com/v1beta/models/{model}:generateContent',
@@ -44,7 +45,7 @@ describe('user panel endpoints', () => {
     ]);
   });
 
-  it('hides the combined OpenAI / Codex endpoint only when both routes are disabled', () => {
+  it('hides OpenAI and Codex endpoints independently', () => {
     expect(
       buildUserPanelEndpointHints('https://maxx.example.com', {
         proxy_route_openai_chat_enabled: 'false',

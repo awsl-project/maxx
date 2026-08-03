@@ -39,12 +39,17 @@ const defaultUserPanelDailyCheckInAmountUSD = "10"
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
 type SelfServiceHandler struct {
-	svc *service.AdminService
+	svc           *service.AdminService
+	modelsHandler *ModelsHandler
 }
 
 // NewSelfServiceHandler creates a new self-service handler.
-func NewSelfServiceHandler(svc *service.AdminService) *SelfServiceHandler {
-	return &SelfServiceHandler{svc: svc}
+func NewSelfServiceHandler(svc *service.AdminService, modelsHandler ...*ModelsHandler) *SelfServiceHandler {
+	var mh *ModelsHandler
+	if len(modelsHandler) > 0 {
+		mh = modelsHandler[0]
+	}
+	return &SelfServiceHandler{svc: svc, modelsHandler: mh}
 }
 
 func writeSelfServiceInternalError(w http.ResponseWriter, context string, err error) {
@@ -244,6 +249,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "user-panel":
 		switch {
+		case len(parts) == 3 && parts[2] == "models":
+			h.handleUserPanelModels(w, r)
 		case len(parts) == 3 && parts[2] == "check-in":
 			h.handleUserPanelDailyCheckIn(w, r)
 		default:
@@ -271,6 +278,57 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
+}
+
+func (h *SelfServiceHandler) handleUserPanelModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel models are not enabled"})
+		return
+	}
+	if h.modelsHandler == nil {
+		writeSelfServiceInternalError(w, "UserPanelModels failed", fmt.Errorf("models handler not configured"))
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		writeJSON(w, http.StatusOK, []string{})
+		return
+	}
+
+	names, err := h.modelsHandler.collectAvailableModelNames(
+		tenantID,
+		domain.ClientTypeOpenAI,
+		0,
+		0,
+		canonicalToken.ID,
+		"",
+	)
+	if err != nil {
+		writeSelfServiceInternalError(w, "CollectUserPanelModels failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, names)
 }
 
 func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Request, id uint64) {

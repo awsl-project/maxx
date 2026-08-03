@@ -167,14 +167,14 @@
     "dailyCheckInReward": "Claim {{amount}} quota each day",
     "dailyCheckInAction": "Check in",
     "dailyCheckInDone": "Claimed today",
-    "dailyCheckInSuccess": "Checked in. $10 quota added.",
+    "dailyCheckInSuccess": "Checked in. {{amount}} quota added.",
     "dailyCheckInAlreadyDone": "Already checked in today.",
     "dailyCheckInError": "Check-in failed. Try again later.",
     "noDedicatedKeyDescription": "Generate one to use it.",
     "createKey": "Generate",
     "quickStart": "Quick start",
     "noUsageHint": "No usage yet. Copy the key to start tracking.",
-    "routeOpenAI": "OpenAI compatible",
+    "routeOpenAI": "OpenAI",
     "routeClaude": "Claude",
     "routeGemini": "Gemini",
     "routeResponses": "Responses",
@@ -195,7 +195,12 @@
     "showKey": "Show key",
     "hideKey": "Hide key",
     "fullKeyVisible": "Full key is visible. Hide it when you are done.",
-    "revealKeyError": "Failed to reveal key. Please try again."
+    "revealKeyError": "Failed to reveal key. Please try again.",
+    "availableModelsCount": "{{count}} models",
+    "availableModelsLoadFailed": "Failed to load available models",
+    "noAvailableModels": "No available models. Contact an administrator to configure routes or models.",
+    "moreAvailableModels": "+{{count}} more",
+    "routeCodex": "Codex"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -1155,7 +1160,8 @@
     "usagesTitleWithCode": "Invite code {{codePrefix}} usages",
     "usageUser": "User",
     "usageTime": "Used At",
-    "usageIP": "IP Address"
+    "usageIP": "IP Address",
+    "statusUsed": "Used"
   },
   "users": {
     "title": "Users",

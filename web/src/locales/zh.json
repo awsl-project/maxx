@@ -167,14 +167,14 @@
     "dailyCheckInReward": "每日领取 {{amount}} 额度",
     "dailyCheckInAction": "签到领取",
     "dailyCheckInDone": "今日已领取",
-    "dailyCheckInSuccess": "签到成功，已增加 $10 额度。",
+    "dailyCheckInSuccess": "签到成功，已增加 {{amount}} 额度。",
     "dailyCheckInAlreadyDone": "今日已签到。",
     "dailyCheckInError": "签到失败，请稍后再试。",
     "noDedicatedKeyDescription": "生成后可直接使用。",
     "createKey": "生成",
     "quickStart": "快速示例",
     "noUsageHint": "暂无调用，复制 Key 后开始统计。",
-    "routeOpenAI": "OpenAI 兼容",
+    "routeOpenAI": "OpenAI",
     "routeClaude": "Claude",
     "routeGemini": "Gemini",
     "routeResponses": "Responses",
@@ -195,7 +195,12 @@
     "showKey": "显示密钥",
     "hideKey": "隐藏密钥",
     "fullKeyVisible": "完整密钥已显示，使用后请及时隐藏。",
-    "revealKeyError": "密钥显示失败，请重试。"
+    "revealKeyError": "密钥显示失败，请重试。",
+    "availableModelsCount": "{{count}} 个模型",
+    "availableModelsLoadFailed": "可用模型加载失败",
+    "noAvailableModels": "暂无可用模型，请联系管理员配置路由或模型。",
+    "moreAvailableModels": "+{{count}} 个更多",
+    "routeCodex": "Codex"
   },
   "dashboard": {
     "title": "仪表板",
@@ -1152,7 +1157,8 @@
     "usagesTitleWithCode": "邀请码 {{codePrefix}} 的使用记录",
     "usageUser": "用户",
     "usageTime": "使用时间",
-    "usageIP": "IP 地址"
+    "usageIP": "IP 地址",
+    "statusUsed": "已使用"
   },
   "users": {
     "title": "用户管理",

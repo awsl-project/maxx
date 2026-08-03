@@ -478,7 +478,6 @@ func main() {
 	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, settingRepo, tokenAuthMiddleware)
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
-	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	adminHandler.SetUserRepo(userRepo)
 	adminHandler.SetAuthEnabled(authEnabled)
 	authHandler := handler.NewAuthHandler(
@@ -498,6 +497,7 @@ func main() {
 
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo, r)
+	selfServiceHandler := handler.NewSelfServiceHandler(adminService, modelsHandler)
 	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, protectedModelsHandler, cachedProjectRepo, settingRepo)
 	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, protectedModelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo, settingRepo)

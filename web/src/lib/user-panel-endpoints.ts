@@ -1,7 +1,7 @@
 import { isProxyRouteVisible } from '@/lib/proxy-route-exposure';
 
 export interface UserPanelEndpointHint {
-  id: 'openai-codex' | 'claude' | 'gemini';
+  id: 'openai' | 'codex' | 'claude' | 'gemini';
   url: string;
 }
 
@@ -16,8 +16,11 @@ export function buildUserPanelEndpointHints(
   const baseUrl = trimTrailingSlash(origin);
   const endpoints: UserPanelEndpointHint[] = [];
 
-  if (isProxyRouteVisible(settings, 'openai') || isProxyRouteVisible(settings, 'codex')) {
-    endpoints.push({ id: 'openai-codex', url: `${baseUrl}/v1` });
+  if (isProxyRouteVisible(settings, 'openai')) {
+    endpoints.push({ id: 'openai', url: `${baseUrl}/v1` });
+  }
+  if (isProxyRouteVisible(settings, 'codex')) {
+    endpoints.push({ id: 'codex', url: `${baseUrl}/v1` });
   }
   if (isProxyRouteVisible(settings, 'claude')) {
     endpoints.push({ id: 'claude', url: baseUrl });

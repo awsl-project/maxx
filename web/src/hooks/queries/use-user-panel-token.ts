@@ -5,6 +5,7 @@ import { getTransport } from '@/lib/transport';
 export const userPanelTokenKeys = {
   all: ['user-panel-token'] as const,
   detail: () => [...userPanelTokenKeys.all, 'detail'] as const,
+  availableModels: () => [...userPanelTokenKeys.all, 'available-models'] as const,
   dailyCheckInStatus: () => [...userPanelTokenKeys.all, 'daily-check-in-status'] as const,
 };
 
@@ -47,6 +48,14 @@ export function useRegenerateUserPanelAPIToken() {
 export function useRevealUserPanelAPIToken() {
   return useMutation({
     mutationFn: () => getTransport().revealUserPanelAPIToken(),
+  });
+}
+
+export function useUserPanelAvailableModels(enabled = true) {
+  return useQuery({
+    queryKey: userPanelTokenKeys.availableModels(),
+    queryFn: () => getTransport().getUserPanelAvailableModels(),
+    enabled,
   });
 }
 
