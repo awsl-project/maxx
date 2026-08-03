@@ -197,8 +197,12 @@ export function InviteCodesPage() {
                       <TableCell className="font-medium">{code.codePrefix}</TableCell>
                       <TableCell>
                         <Badge
-                          variant={
-                            getInviteCodeDisplayStatus(code) === 'active' ? 'default' : 'outline'
+                          variant="default"
+                          className={getInviteCodeDisplayStatus(code) === 'active'
+                            ? 'bg-green-500/10 text-green-500 border-green-500/20'
+                            : getInviteCodeDisplayStatus(code) === 'used'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                              : 'bg-muted/40 text-muted-foreground border-border'
                           }
                         >
                           {inviteCodeStatusLabel(code)}
