@@ -135,6 +135,19 @@ export function InviteCodesPage() {
     return `${code.usedCount}/${code.maxUses}`;
   };
 
+  const getInviteCodeDisplayStatus = (code: InviteCode) => {
+    if (code.status === 'disabled') return 'disabled';
+    if (code.maxUses > 0 && code.usedCount >= code.maxUses) return 'used';
+    return 'active';
+  };
+
+  const inviteCodeStatusLabel = (code: InviteCode) => {
+    const status = getInviteCodeDisplayStatus(code);
+    if (status === 'used') return t('inviteCodes.statusUsed');
+    if (status === 'disabled') return t('inviteCodes.statusDisabled');
+    return t('inviteCodes.statusActive');
+  };
+
   const isBusy = useMemo(
     () => createInviteCodes.isPending || updateInviteCode.isPending || deleteInviteCode.isPending,
     [createInviteCodes.isPending, updateInviteCode.isPending, deleteInviteCode.isPending],
@@ -183,10 +196,12 @@ export function InviteCodesPage() {
                     <TableRow key={code.id}>
                       <TableCell className="font-medium">{code.codePrefix}</TableCell>
                       <TableCell>
-                        <Badge variant={code.status === 'active' ? 'default' : 'outline'}>
-                          {code.status === 'active'
-                            ? t('inviteCodes.statusActive')
-                            : t('inviteCodes.statusDisabled')}
+                        <Badge
+                          variant={
+                            getInviteCodeDisplayStatus(code) === 'active' ? 'default' : 'outline'
+                          }
+                        >
+                          {inviteCodeStatusLabel(code)}
                         </Badge>
                       </TableCell>
                       <TableCell>{maxUsesLabel(code)}</TableCell>

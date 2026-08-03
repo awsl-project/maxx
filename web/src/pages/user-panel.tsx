@@ -23,6 +23,7 @@ import {
   useProxyRequests,
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
+  useUserPanelAvailableModels,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
@@ -30,11 +31,7 @@ import {
   usePublicSettings,
 } from '@/hooks/queries';
 import type { APIToken, ProxyRequest } from '@/lib/transport';
-import { isProxyRouteVisible } from '@/lib/proxy-route-exposure';
-import {
-  buildUserPanelChatCompletionsExample,
-  buildUserPanelEndpointHints,
-} from '@/lib/user-panel-endpoints';
+import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import {
   getUserPanelTabStorageKey,
   resolveUserPanelTab,
@@ -53,6 +50,12 @@ function formatQuotaBalance(value: number) {
 function formatQuotaAmount(value: number) {
   const amount = (value || 0) / 1_000_000_000;
   return `$${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
+}
+
+function parseDailyCheckInAmountSetting(value?: string) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  return Math.round(amount * 1_000_000_000);
 }
 
 function formatDateTime(value?: string) {
@@ -183,6 +186,11 @@ export function UserPanelPage() {
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const { data: userPanelRequests } = useProxyRequests({ limit: 25 });
   const { data: publicSettings } = usePublicSettings();
+  const {
+    data: availableModels,
+    isLoading: availableModelsLoading,
+    isError: availableModelsError,
+  } = useUserPanelAvailableModels(Boolean(user));
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
   const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(dailyCheckInEnabled);
   useProxyRequestUpdates();
@@ -191,7 +199,6 @@ export function UserPanelPage() {
   const revealUserPanelToken = useRevealUserPanelAPIToken();
   const dailyCheckIn = useUserPanelDailyCheckIn();
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
-  const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
   const [revealedUserPanelToken, setRevealedUserPanelToken] = useState('');
@@ -217,7 +224,9 @@ export function UserPanelPage() {
     userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const hasCheckedInToday = dailyCheckInStatus?.alreadyCheckedIn || dailyCheckInDone;
-  const dailyCheckInRewardAmount = dailyCheckInStatus?.rewardAmount ?? 10_000_000_000;
+  const dailyCheckInRewardAmount =
+    dailyCheckInStatus?.rewardAmount ??
+    parseDailyCheckInAmountSetting(publicSettings?.user_panel_daily_checkin_amount);
   const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
   const userPanelTokenValue = revealedUserPanelToken || maskedUserPanelToken;
   const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
@@ -225,16 +234,16 @@ export function UserPanelPage() {
   const endpointHints = buildUserPanelEndpointHints(origin, publicSettings).map((endpoint) => ({
     ...endpoint,
     label:
-      endpoint.id === 'openai-codex'
-        ? t('userPanel.routeOpenAICodex')
-        : endpoint.id === 'claude'
-          ? t('userPanel.routeClaude')
-          : t('userPanel.routeGemini'),
+      endpoint.id === 'openai'
+        ? t('userPanel.routeOpenAI')
+        : endpoint.id === 'codex'
+          ? t('userPanel.routeCodex')
+          : endpoint.id === 'claude'
+            ? t('userPanel.routeClaude')
+            : t('userPanel.routeGemini'),
   }));
-  const showChatCompletionsExample = isProxyRouteVisible(publicSettings, 'openai');
-  const curlExample = showChatCompletionsExample
-    ? buildUserPanelChatCompletionsExample({ origin })
-    : '';
+  const visibleAvailableModels = (availableModels ?? []).slice(0, 12);
+  const hiddenAvailableModelCount = Math.max((availableModels?.length ?? 0) - visibleAvailableModels.length, 0);
 
   useEffect(() => {
     setRevealedUserPanelToken('');
@@ -302,13 +311,6 @@ export function UserPanelPage() {
     }
   };
 
-  const handleCopyExample = async () => {
-    if (!curlExample || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(curlExample);
-    setExampleCopied(true);
-    window.setTimeout(() => setExampleCopied(false), 1600);
-  };
-
   const handleCreateUserPanelToken = async () => {
     const result = await createUserPanelToken.mutateAsync();
     setOneTimeToken(result.token);
@@ -333,7 +335,7 @@ export function UserPanelPage() {
       setDailyCheckInMessage(
         result.alreadyCheckedIn
           ? t('userPanel.dailyCheckInAlreadyDone')
-          : t('userPanel.dailyCheckInSuccess'),
+          : t('userPanel.dailyCheckInSuccess', { amount: formatQuotaAmount(result.rewardAmount) }),
       );
     } catch {
       setDailyCheckInMessage(t('userPanel.dailyCheckInError'));
@@ -398,9 +400,11 @@ export function UserPanelPage() {
                         {t('userPanel.dailyCheckInTitle')}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {t('userPanel.dailyCheckInReward', {
-                          amount: formatQuotaAmount(dailyCheckInRewardAmount),
-                        })}
+                        {dailyCheckInRewardAmount
+                          ? t('userPanel.dailyCheckInReward', {
+                              amount: formatQuotaAmount(dailyCheckInRewardAmount),
+                            })
+                          : t('common.loading')}
                       </p>
                       {dailyCheckInMessage ? (
                         <p className="mt-1 text-xs text-muted-foreground">{dailyCheckInMessage}</p>
@@ -572,6 +576,38 @@ export function UserPanelPage() {
               </CardHeader>
               <CardContent className="space-y-4 p-5">
                 <div className="rounded-xl border border-border bg-muted/25 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t('userPanel.availableModels')}
+                    </p>
+                    {availableModels && availableModels.length > 0 ? (
+                      <Badge variant="secondary">
+                        {t('userPanel.availableModelsCount', { count: availableModels.length })}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  {availableModelsLoading ? (
+                    <p className="mt-3 text-sm text-muted-foreground">{t('common.loading')}</p>
+                  ) : availableModelsError ? (
+                    <p className="mt-3 text-sm text-destructive">{t('userPanel.availableModelsLoadFailed')}</p>
+                  ) : visibleAvailableModels.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {visibleAvailableModels.map((model) => (
+                        <Badge key={model} variant="outline" className="max-w-full truncate font-mono">
+                          {model}
+                        </Badge>
+                      ))}
+                      {hiddenAvailableModelCount > 0 ? (
+                        <Badge variant="secondary">
+                          {t('userPanel.moreAvailableModels', { count: hiddenAvailableModelCount })}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">{t('userPanel.noAvailableModels')}</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-border bg-muted/25 p-4">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {t('userPanel.baseURL')}
                   </p>
@@ -601,27 +637,6 @@ export function UserPanelPage() {
                     ))}
                   </div>
                 </div>
-                {showChatCompletionsExample && (
-                  <div className="rounded-xl border border-border bg-muted/25 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t('userPanel.quickStart')}
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-2"
-                        onClick={handleCopyExample}
-                      >
-                        <Copy className="size-3.5" />
-                        {exampleCopied ? t('common.copied') : t('common.copy')}
-                      </Button>
-                    </div>
-                    <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
-                      <code>{curlExample}</code>
-                    </pre>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </TabsContent>

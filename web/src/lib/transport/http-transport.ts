@@ -1133,6 +1133,11 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async getUserPanelAvailableModels(): Promise<string[]> {
+    const { data } = await this.client.get<string[]>('/user-panel/models');
+    return this.expectArray<string>(data, '/user-panel/models');
+  }
+
   async getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult> {
     const { data } = await this.client.get<UserPanelDailyCheckInResult>(
       '/user-panel/check-in',
