@@ -43,6 +43,7 @@ func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 		domain.SettingKeyOpenAIChatStreamTimeoutsEnabled,
 		domain.SettingKeyRequestFailureDetailsEnabled,
 		domain.SettingKeyProxyRequestsDisabled,
+		domain.SettingKeyUserPanelDailyCheckInEnabled,
 	}
 	tests := []struct {
 		name    string
@@ -71,6 +72,23 @@ func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestValidateUserPanelDailyCheckInAmount(t *testing.T) {
+	for _, value := range []string{"10", "12.5", "0.000001"} {
+		t.Run("valid "+value, func(t *testing.T) {
+			if err := validateSystemSettingValue(domain.SettingKeyUserPanelDailyCheckInAmount, value); err != nil {
+				t.Fatalf("validateSystemSettingValue() error = %v", err)
+			}
+		})
+	}
+	for _, value := range []string{"", "0", "-1", "not-a-number", "1000001"} {
+		t.Run("invalid "+value, func(t *testing.T) {
+			if err := validateSystemSettingValue(domain.SettingKeyUserPanelDailyCheckInAmount, value); !errors.Is(err, domain.ErrInvalidInput) {
+				t.Fatalf("validateSystemSettingValue() error = %v, want invalid input", err)
+			}
+		})
 	}
 }
 

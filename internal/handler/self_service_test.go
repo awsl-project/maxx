@@ -2397,6 +2397,47 @@ func TestSelfServiceHandler_UserPanelDailyCheckInAddsTenDollarsOncePerDay(t *tes
 	}
 }
 
+func TestSelfServiceHandler_UserPanelDailyCheckInUsesConfiguredAmount(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "user 9", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 0},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled":                      "true",
+			"ui_multitenant_layout":                       "user_panel",
+			domain.SettingKeyUserPanelDailyCheckInEnabled: "true",
+			domain.SettingKeyUserPanelDailyCheckInAmount:  "12.5",
+		}},
+		apiTokenRepo:     tokenRepo,
+		dailyCheckInRepo: &selfServiceDailyCheckInRepo{},
+	})
+
+	status := httptest.NewRecorder()
+	handler.ServeHTTP(status, newSelfServiceRequest(http.MethodGet, "/user-panel/check-in"))
+	if status.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d, body = %s", status.Code, http.StatusOK, status.Body.String())
+	}
+	var statusResult map[string]any
+	if err := json.Unmarshal(status.Body.Bytes(), &statusResult); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if got := uint64(statusResult["rewardAmount"].(float64)); got != 12_500_000_000 {
+		t.Fatalf("status rewardAmount = %d, want configured 12.5 dollars", got)
+	}
+
+	claim := httptest.NewRecorder()
+	handler.ServeHTTP(claim, newSelfServiceRequest(http.MethodPost, "/user-panel/check-in"))
+	if claim.Code != http.StatusOK {
+		t.Fatalf("claim status = %d, want %d, body = %s", claim.Code, http.StatusOK, claim.Body.String())
+	}
+	if tokenRepo.tokens[0].QuotaBalance != 12_500_000_000 {
+		t.Fatalf("quota after check-in = %d, want configured 12.5 dollars", tokenRepo.tokens[0].QuotaBalance)
+	}
+}
+
 func TestSelfServiceHandler_UserPanelDailyCheckInStatusReportsAlreadyCheckedIn(t *testing.T) {
 	dailyRepo := &selfServiceDailyCheckInRepo{}
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{

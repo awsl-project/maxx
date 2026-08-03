@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"ui_multitenant_layout":                          {},
 	domain.SettingKeyRequestFailureDetailsEnabled:    {},
 	domain.SettingKeyUserPanelDailyCheckInEnabled:    {},
+	domain.SettingKeyUserPanelDailyCheckInAmount:     {},
 	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},
 	domain.SettingKeyProxyRouteOpenAIChatEnabled:     {},
 	domain.SettingKeyProxyRouteResponsesEnabled:      {},
@@ -33,7 +35,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 }
 
 const userPanelAPITokenDescriptionPrefix = "managed-by=maxx-user-panel;user-id="
-const userPanelDailyCheckInRewardAmount uint64 = 10 * 1_000_000_000
+const defaultUserPanelDailyCheckInAmountUSD = "10"
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
 type SelfServiceHandler struct {
@@ -1379,6 +1381,18 @@ func (h *SelfServiceHandler) userPanelCheckInDate(now time.Time) string {
 	return now.In(loc).Format("2006-01-02")
 }
 
+func (h *SelfServiceHandler) userPanelDailyCheckInRewardAmount() uint64 {
+	value := defaultUserPanelDailyCheckInAmountUSD
+	if configured, err := h.svc.GetSetting(domain.SettingKeyUserPanelDailyCheckInAmount); err == nil && strings.TrimSpace(configured) != "" {
+		value = configured
+	}
+	amount, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || amount <= 0 {
+		amount, _ = strconv.ParseFloat(defaultUserPanelDailyCheckInAmountUSD, 64)
+	}
+	return uint64(math.Round(amount * 1_000_000_000))
+}
+
 func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -1397,6 +1411,7 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 	}
 
 	checkInDate := h.userPanelCheckInDate(time.Now())
+	rewardAmount := h.userPanelDailyCheckInRewardAmount()
 	if r.Method == http.MethodGet {
 		alreadyCheckedIn, err := h.svc.HasUserPanelDailyCheckIn(tenantID, userID, checkInDate)
 		if err != nil {
@@ -1407,7 +1422,7 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 			"alreadyCheckedIn": alreadyCheckedIn,
 			"checkedIn":        false,
 			"checkInDate":      checkInDate,
-			"rewardAmount":     userPanelDailyCheckInRewardAmount,
+			"rewardAmount":     rewardAmount,
 		})
 		return
 	}
@@ -1437,7 +1452,7 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 		canonicalToken = result.APIToken
 	}
 
-	claimed, err := h.svc.CheckInUserPanelDailyQuota(tenantID, userID, canonicalToken.ID, checkInDate, userPanelDailyCheckInRewardAmount)
+	claimed, err := h.svc.CheckInUserPanelDailyQuota(tenantID, userID, canonicalToken.ID, checkInDate, rewardAmount)
 	if err != nil {
 		writeSelfServiceInternalError(w, "CheckInUserPanelDailyQuota failed", err)
 		return
@@ -1455,7 +1470,7 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 		"alreadyCheckedIn": !claimed,
 		"checkedIn":        claimed,
 		"checkInDate":      checkInDate,
-		"rewardAmount":     userPanelDailyCheckInRewardAmount,
+		"rewardAmount":     rewardAmount,
 	})
 }
 

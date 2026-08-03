@@ -50,6 +50,11 @@ function formatQuotaBalance(value: number) {
   return `$${((value || 0) / 1_000_000_000).toFixed(6)}`;
 }
 
+function formatQuotaAmount(value: number) {
+  const amount = (value || 0) / 1_000_000_000;
+  return `$${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
+}
+
 function formatDateTime(value?: string) {
   if (!value) return '—';
   const date = new Date(value);
@@ -212,6 +217,7 @@ export function UserPanelPage() {
     userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const hasCheckedInToday = dailyCheckInStatus?.alreadyCheckedIn || dailyCheckInDone;
+  const dailyCheckInRewardAmount = dailyCheckInStatus?.rewardAmount ?? 10_000_000_000;
   const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
   const userPanelTokenValue = revealedUserPanelToken || maskedUserPanelToken;
   const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
@@ -392,7 +398,9 @@ export function UserPanelPage() {
                         {t('userPanel.dailyCheckInTitle')}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {t('userPanel.dailyCheckInReward')}
+                        {t('userPanel.dailyCheckInReward', {
+                          amount: formatQuotaAmount(dailyCheckInRewardAmount),
+                        })}
                       </p>
                       {dailyCheckInMessage ? (
                         <p className="mt-1 text-xs text-muted-foreground">{dailyCheckInMessage}</p>
@@ -400,11 +408,6 @@ export function UserPanelPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {hasCheckedInToday ? (
-                      <Badge variant="secondary">
-                        {t('userPanel.dailyCheckInDone')}
-                      </Badge>
-                    ) : null}
                     <Button
                       size="sm"
                       className="h-8 gap-2"
