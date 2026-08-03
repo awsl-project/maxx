@@ -74,6 +74,8 @@ const DEFAULT_STREAM_FIRST_EVENT_TIMEOUT_MS = '20000';
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
 const USER_PANEL_DAILY_CHECKIN_SETTING_KEY = 'user_panel_daily_checkin_enabled';
+const USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY = 'user_panel_daily_checkin_amount';
+const DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT = '10';
 type MultiTenantUILayout = 'current' | 'user_panel';
 
 interface ProxyRouteExposureSetting {
@@ -1699,17 +1701,22 @@ function MultiTenantUISection() {
     settings?.[MULTITENANT_UI_LAYOUT_SETTING_KEY] === 'user_panel' ? 'user_panel' : 'current';
   const settingsDailyCheckInEnabled =
     settings?.[USER_PANEL_DAILY_CHECKIN_SETTING_KEY] === 'true';
+  const settingsDailyCheckInAmount =
+    settings?.[USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY] ||
+    DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT;
   const [localEnabled, setLocalEnabled] = useState(settingsEnabled);
   const [localLayout, setLocalLayout] = useState<MultiTenantUILayout>(settingsLayout);
   const [localDailyCheckInEnabled, setLocalDailyCheckInEnabled] = useState(
     settingsDailyCheckInEnabled,
   );
+  const [localDailyCheckInAmount, setLocalDailyCheckInAmount] = useState(settingsDailyCheckInAmount);
 
   useEffect(() => {
     setLocalEnabled(settingsEnabled);
     setLocalLayout(settingsLayout);
     setLocalDailyCheckInEnabled(settingsDailyCheckInEnabled);
-  }, [settingsEnabled, settingsLayout, settingsDailyCheckInEnabled]);
+    setLocalDailyCheckInAmount(settingsDailyCheckInAmount);
+  }, [settingsEnabled, settingsLayout, settingsDailyCheckInEnabled, settingsDailyCheckInAmount]);
 
   const handleToggle = async (checked: boolean) => {
     const previous = localEnabled;
@@ -1752,6 +1759,19 @@ function MultiTenantUISection() {
       setLocalDailyCheckInEnabled(previous);
       throw error;
     }
+  };
+
+  const handleDailyCheckInAmountSave = async () => {
+    const trimmed = localDailyCheckInAmount.trim();
+    const amount = Number(trimmed);
+    if (!trimmed || !Number.isFinite(amount) || amount <= 0) {
+      setLocalDailyCheckInAmount(settingsDailyCheckInAmount);
+      return;
+    }
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY,
+      value: trimmed,
+    });
   };
 
   if (isLoading) return null;
@@ -1815,21 +1835,49 @@ function MultiTenantUISection() {
         )}
 
         {localEnabled && localLayout === 'user_panel' && (
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
-            <div>
-              <div className="text-sm font-medium text-foreground">
-                {t('settings.userPanelDailyCheckIn')}
+          <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  {t('settings.userPanelDailyCheckIn')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('settings.userPanelDailyCheckInDesc')}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {t('settings.userPanelDailyCheckInDesc')}
-              </p>
+              <Switch
+                aria-label={t('settings.userPanelDailyCheckIn')}
+                checked={localDailyCheckInEnabled}
+                onCheckedChange={handleDailyCheckInToggle}
+                disabled={updateSetting.isPending}
+              />
             </div>
-            <Switch
-              aria-label={t('settings.userPanelDailyCheckIn')}
-              checked={localDailyCheckInEnabled}
-              onCheckedChange={handleDailyCheckInToggle}
-              disabled={updateSetting.isPending}
-            />
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <div>
+                <Label className="text-xs text-muted-foreground">
+                  {t('settings.userPanelDailyCheckInAmount')}
+                </Label>
+                <Input
+                  className="mt-1 sm:max-w-48"
+                  type="number"
+                  min="0.000001"
+                  step="0.01"
+                  value={localDailyCheckInAmount}
+                  onChange={(event) => setLocalDailyCheckInAmount(event.target.value)}
+                  onBlur={handleDailyCheckInAmountSave}
+                  disabled={updateSetting.isPending}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDailyCheckInAmountSave}
+                disabled={updateSetting.isPending || localDailyCheckInAmount === settingsDailyCheckInAmount}
+              >
+                {t('common.save')}
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

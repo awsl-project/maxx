@@ -17,11 +17,25 @@ func validateSystemSettingValue(key, value string) error {
 		return validateBooleanSystemSetting(key, value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)
+	case domain.SettingKeyUserPanelDailyCheckInAmount:
+		return validateUserPanelDailyCheckInAmount(value)
 	case domain.SettingKeyOpenAIChatStreamFirstEventTimeoutMS, domain.SettingKeyOpenAIChatStreamIdleTimeoutMS:
 		return validateStreamTimeoutMilliseconds(key, value)
 	default:
 		return nil
 	}
+}
+
+func validateUserPanelDailyCheckInAmount(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("%w: %s cannot be empty", domain.ErrInvalidInput, domain.SettingKeyUserPanelDailyCheckInAmount)
+	}
+	amount, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || amount <= 0 || amount > 1000000 {
+		return fmt.Errorf("%w: %s must be a positive number no greater than 1000000", domain.ErrInvalidInput, domain.SettingKeyUserPanelDailyCheckInAmount)
+	}
+	return nil
 }
 
 func validateBooleanSystemSetting(key, value string) error {
