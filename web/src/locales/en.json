@@ -1342,6 +1342,8 @@
     "userPanelDailyCheckIn": "Daily check-in",
     "userPanelDailyCheckInDesc": "Allow users to claim the configured check-in quota once per day from the user console.",
     "userPanelDailyCheckInAmount": "Daily check-in amount (USD)",
+    "inviteRegistrationAutoApprove": "Auto-approve invite registrations",
+    "inviteRegistrationAutoApproveDesc": "When enabled, new users who register with a valid invite code become active immediately without manual admin approval. Disabled by default.",
     "forceProjectBinding": "Force Project Binding",
     "enableForceProjectBinding": "Enable Force Project Binding",
     "forceProjectBindingDesc": "When enabled, new sessions must select a project before executing requests",

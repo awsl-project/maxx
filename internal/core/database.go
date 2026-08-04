@@ -447,6 +447,7 @@ func InitializeServerComponents(
 		repos.TenantRepo,
 		repos.InviteCodeRepo,
 		repos.InviteCodeUsageRepo,
+		repos.SettingRepo,
 		authEnabled,
 	)
 

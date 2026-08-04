@@ -137,7 +137,7 @@ func TestHandleRegister_InvalidPasswordRejected(t *testing.T) {
 	}
 	userRepo := newRegisterTestUserRepo(admin)
 	authMiddleware := NewAuthMiddleware(nil)
-	handler := NewAuthHandler(authMiddleware, userRepo, &passkeyTestTenantRepo{}, nil, nil, true)
+	handler := NewAuthHandler(authMiddleware, userRepo, &passkeyTestTenantRepo{}, nil, nil, nil, true)
 
 	token, err := authMiddleware.GenerateToken(admin)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestHandleChangePassword_InvalidNewPasswordRejected(t *testing.T) {
 	}
 	userRepo := newRegisterTestUserRepo(admin)
 	authMiddleware := NewAuthMiddleware(nil)
-	handler := NewAuthHandler(authMiddleware, userRepo, &passkeyTestTenantRepo{}, nil, nil, true)
+	handler := NewAuthHandler(authMiddleware, userRepo, &passkeyTestTenantRepo{}, nil, nil, nil, true)
 
 	token, err := authMiddleware.GenerateToken(admin)
 	if err != nil {

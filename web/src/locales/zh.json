@@ -1339,6 +1339,8 @@
     "userPanelDailyCheckIn": "每日签到",
     "userPanelDailyCheckInDesc": "开启后用户每天可在用户控制台领取配置的签到额度。",
     "userPanelDailyCheckInAmount": "每日签到额度（美元）",
+    "inviteRegistrationAutoApprove": "邀请码注册自动通过",
+    "inviteRegistrationAutoApproveDesc": "开启后，通过有效邀请码注册的新用户会直接激活，不再需要后台手动同意。默认关闭。",
     "forceProjectBinding": "强制项目绑定",
     "enableForceProjectBinding": "启用强制项目绑定",
     "forceProjectBindingDesc": "开启后，新会话必须选择项目才能继续执行请求",

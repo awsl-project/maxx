@@ -95,6 +95,23 @@ type stubInviteUsageRepo struct {
 	createErr error
 }
 
+type stubInviteSettingRepo struct {
+	values map[string]string
+	err    error
+}
+
+func (r *stubInviteSettingRepo) Get(key string) (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	return r.values[key], nil
+}
+func (r *stubInviteSettingRepo) Set(key, value string) error { return nil }
+func (r *stubInviteSettingRepo) GetAll() ([]*domain.SystemSetting, error) {
+	return nil, nil
+}
+func (r *stubInviteSettingRepo) Delete(key string) error { return nil }
+
 func (r *stubInviteUsageRepo) Create(usage *domain.InviteCodeUsage) error {
 	if r.createErr != nil {
 		return r.createErr
@@ -117,7 +134,7 @@ func TestHandleApply_RollbackOnCreateFailure(t *testing.T) {
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 7, TenantID: 1, CodeHash: codeHash}}
 	usageRepo := &stubInviteUsageRepo{}
 
-	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, usageRepo, true)
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, usageRepo, nil, true)
 
 	payload := map[string]string{
 		"username":   "user1",
@@ -155,7 +172,7 @@ func TestHandleApply_InviteCodeExpired(t *testing.T) {
 		consumeErr: domain.ErrInviteCodeExpired,
 	}
 
-	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, nil, true)
 
 	payload := map[string]string{
 		"username":   "user2",
@@ -181,7 +198,7 @@ func TestHandleApply_InviteCodeSystemError(t *testing.T) {
 		consumeErr: errors.New("db down"),
 	}
 
-	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, nil, true)
 
 	payload := map[string]string{
 		"username":   "user3",
@@ -204,7 +221,7 @@ func TestHandleApply_RollbackWithoutUsageRepo(t *testing.T) {
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 9, TenantID: 1, CodeHash: codeHash}}
 
-	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, nil, true)
 
 	payload := map[string]string{
 		"username":   "user4",
@@ -231,7 +248,7 @@ func TestHandleApply_RollbackWhenUsageCreateFails(t *testing.T) {
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 10, TenantID: 1, CodeHash: codeHash}}
 	usageRepo := &stubInviteUsageRepo{createErr: errors.New("usage down")}
 
-	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, usageRepo, true)
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, usageRepo, nil, true)
 
 	payload := map[string]string{
 		"username":   "user6",
@@ -257,7 +274,7 @@ func TestHandleApply_ResolveTenantFromInvite(t *testing.T) {
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 11, TenantID: 42, CodeHash: codeHash}}
 
-	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, nil, true)
 
 	payload := map[string]string{
 		"username":   "user5",
@@ -290,7 +307,7 @@ func TestHandleApply_InvalidPasswordRejectedBeforeInviteConsume(t *testing.T) {
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 12, TenantID: 42, CodeHash: codeHash}}
 
-	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, nil, true)
 
 	payload := map[string]string{
 		"username":   "user7",
@@ -311,5 +328,76 @@ func TestHandleApply_InvalidPasswordRejectedBeforeInviteConsume(t *testing.T) {
 	}
 	if len(userRepo.users) != 0 {
 		t.Fatalf("unexpected users created: %d", len(userRepo.users))
+	}
+}
+
+func TestHandleApply_DefaultKeepsInviteRegistrationPending(t *testing.T) {
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 13, TenantID: 42, CodeHash: codeHash}}
+	settingsRepo := &stubInviteSettingRepo{values: map[string]string{}}
+
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, settingsRepo, true)
+
+	payload := map[string]string{
+		"username":   "pending-user",
+		"password":   "Pass8!aa",
+		"inviteCode": "CODE123",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/admin/auth/apply", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	created := userRepo.users["pending-user"]
+	if created == nil {
+		t.Fatalf("user not created")
+	}
+	if created.Status != domain.UserStatusPending {
+		t.Fatalf("status = %s, want %s", created.Status, domain.UserStatusPending)
+	}
+}
+
+func TestHandleApply_AutoApproveSettingCreatesActiveInviteRegistration(t *testing.T) {
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 14, TenantID: 42, CodeHash: codeHash}}
+	settingsRepo := &stubInviteSettingRepo{values: map[string]string{
+		domain.SettingKeyInviteRegistrationAutoApproveEnabled: "true",
+	}}
+
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, settingsRepo, true)
+
+	payload := map[string]string{
+		"username":   "active-user",
+		"password":   "Pass9!aa",
+		"inviteCode": "CODE123",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/admin/auth/apply", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	created := userRepo.users["active-user"]
+	if created == nil {
+		t.Fatalf("user not created")
+	}
+	if created.Status != domain.UserStatusActive {
+		t.Fatalf("status = %s, want %s", created.Status, domain.UserStatusActive)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["message"] != "registration approved, you can now sign in" {
+		t.Fatalf("message = %v", response["message"])
 	}
 }
