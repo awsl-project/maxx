@@ -177,7 +177,7 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 	// Create handlers
 	adminHandler := handler.NewAdminHandler(adminService, backupService, "")
 	adminHandler.SetUserRepo(userRepo)
-	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, inviteCodeRepo, inviteCodeUsageRepo, true)
+	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, inviteCodeRepo, inviteCodeUsageRepo, settingRepo, true)
 
 	// Create models handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)

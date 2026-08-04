@@ -486,6 +486,7 @@ func main() {
 		tenantRepo,
 		inviteCodeRepo,
 		inviteCodeUsageRepo,
+		settingRepo,
 		authEnabled,
 	)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)

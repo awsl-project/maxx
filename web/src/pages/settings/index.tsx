@@ -75,6 +75,7 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
 const USER_PANEL_DAILY_CHECKIN_SETTING_KEY = 'user_panel_daily_checkin_enabled';
 const USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY = 'user_panel_daily_checkin_amount';
+const INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY = 'invite_registration_auto_approve_enabled';
 const DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT = '10';
 type MultiTenantUILayout = 'current' | 'user_panel';
 
@@ -1704,19 +1705,30 @@ function MultiTenantUISection() {
   const settingsDailyCheckInAmount =
     settings?.[USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY] ||
     DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT;
+  const settingsInviteRegistrationAutoApproveEnabled =
+    settings?.[INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY] === 'true';
   const [localEnabled, setLocalEnabled] = useState(settingsEnabled);
   const [localLayout, setLocalLayout] = useState<MultiTenantUILayout>(settingsLayout);
   const [localDailyCheckInEnabled, setLocalDailyCheckInEnabled] = useState(
     settingsDailyCheckInEnabled,
   );
   const [localDailyCheckInAmount, setLocalDailyCheckInAmount] = useState(settingsDailyCheckInAmount);
+  const [localInviteRegistrationAutoApproveEnabled, setLocalInviteRegistrationAutoApproveEnabled] =
+    useState(settingsInviteRegistrationAutoApproveEnabled);
 
   useEffect(() => {
     setLocalEnabled(settingsEnabled);
     setLocalLayout(settingsLayout);
     setLocalDailyCheckInEnabled(settingsDailyCheckInEnabled);
     setLocalDailyCheckInAmount(settingsDailyCheckInAmount);
-  }, [settingsEnabled, settingsLayout, settingsDailyCheckInEnabled, settingsDailyCheckInAmount]);
+    setLocalInviteRegistrationAutoApproveEnabled(settingsInviteRegistrationAutoApproveEnabled);
+  }, [
+    settingsEnabled,
+    settingsLayout,
+    settingsDailyCheckInEnabled,
+    settingsDailyCheckInAmount,
+    settingsInviteRegistrationAutoApproveEnabled,
+  ]);
 
   const handleToggle = async (checked: boolean) => {
     const previous = localEnabled;
@@ -1757,6 +1769,20 @@ function MultiTenantUISection() {
       });
     } catch (error) {
       setLocalDailyCheckInEnabled(previous);
+      throw error;
+    }
+  };
+
+  const handleInviteRegistrationAutoApproveToggle = async (checked: boolean) => {
+    const previous = localInviteRegistrationAutoApproveEnabled;
+    setLocalInviteRegistrationAutoApproveEnabled(checked);
+    try {
+      await updateSetting.mutateAsync({
+        key: INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY,
+        value: checked ? 'true' : 'false',
+      });
+    } catch (error) {
+      setLocalInviteRegistrationAutoApproveEnabled(previous);
       throw error;
     }
   };
@@ -1831,6 +1857,25 @@ function MultiTenantUISection() {
                 </SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        )}
+
+        {localEnabled && (
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {t('settings.inviteRegistrationAutoApprove')}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('settings.inviteRegistrationAutoApproveDesc')}
+              </p>
+            </div>
+            <Switch
+              aria-label={t('settings.inviteRegistrationAutoApprove')}
+              checked={localInviteRegistrationAutoApproveEnabled}
+              onCheckedChange={handleInviteRegistrationAutoApproveToggle}
+              disabled={updateSetting.isPending}
+            />
           </div>
         )}
 

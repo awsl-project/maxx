@@ -24,6 +24,7 @@ type AuthHandler struct {
 	tenantRepo      repository.TenantRepository
 	inviteCodeRepo  repository.InviteCodeRepository
 	inviteUsageRepo repository.InviteCodeUsageRepository
+	settingRepo     repository.SystemSettingRepository
 	authEnabled     bool
 	passkeyStore    *passkeySessionStore
 }
@@ -74,6 +75,7 @@ func NewAuthHandler(
 	tenantRepo repository.TenantRepository,
 	inviteCodeRepo repository.InviteCodeRepository,
 	inviteUsageRepo repository.InviteCodeUsageRepository,
+	settingRepo repository.SystemSettingRepository,
 	authEnabled bool,
 ) *AuthHandler {
 	return &AuthHandler{
@@ -82,6 +84,7 @@ func NewAuthHandler(
 		tenantRepo:      tenantRepo,
 		inviteCodeRepo:  inviteCodeRepo,
 		inviteUsageRepo: inviteUsageRepo,
+		settingRepo:     settingRepo,
 		authEnabled:     authEnabled,
 		passkeyStore:    newPasskeySessionStore(),
 	}
@@ -336,11 +339,21 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userStatus := domain.UserStatusPending
+	autoApprove, err := h.inviteRegistrationAutoApproveEnabled()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if autoApprove {
+		userStatus = domain.UserStatusActive
+	}
+
 	user := &domain.User{
 		TenantID: tenantID,
 		Username: body.Username,
 		Role:     domain.UserRoleMember,
-		Status:   domain.UserStatusPending,
+		Status:   userStatus,
 	}
 
 	now := time.Now()
@@ -565,10 +578,29 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	message := "registration submitted, waiting for admin approval"
+	if autoApprove {
+		message = "registration approved, you can now sign in"
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"success": true,
-		"message": "registration submitted, waiting for admin approval",
+		"message": message,
 	})
+}
+
+func (h *AuthHandler) inviteRegistrationAutoApproveEnabled() (bool, error) {
+	if h.settingRepo == nil {
+		return false, nil
+	}
+
+	value, err := h.settingRepo.Get(domain.SettingKeyInviteRegistrationAutoApproveEnabled)
+	if err != nil {
+		log.Printf("[Auth] Failed to load %s: %v", domain.SettingKeyInviteRegistrationAutoApproveEnabled, err)
+		return false, err
+	}
+
+	return strings.TrimSpace(strings.ToLower(value)) == "true", nil
 }
 
 // handleChangePassword handles self-service password change
