@@ -256,3 +256,44 @@ func TestUserPanelAPITokenProjectBindingGuard(t *testing.T) {
 		t.Fatal("nil token should keep unauthenticated/default project behavior")
 	}
 }
+
+func TestResolveProxyProjectID(t *testing.T) {
+	regularGlobalToken := &domain.APIToken{Description: "global token"}
+	regularProjectToken := &domain.APIToken{Description: "project token", ProjectID: 42}
+	userPanelToken := &domain.APIToken{
+		Description: userPanelAPITokenDescription(123),
+		ProjectID:   42,
+	}
+
+	tests := []struct {
+		name        string
+		header      string
+		token       *domain.APIToken
+		wantProject uint64
+		wantErr     bool
+	}{
+		{name: "project proxy header with global token", header: "9", token: regularGlobalToken, wantProject: 9},
+		{name: "token-bound project without header", token: regularProjectToken, wantProject: 42},
+		{name: "project proxy header takes precedence", header: "9", token: regularProjectToken, wantProject: 9},
+		{name: "invalid header falls back to token binding", header: "invalid", token: regularProjectToken, wantProject: 42},
+		{name: "global token without project", token: regularGlobalToken},
+		{name: "user panel token cannot select header project", header: "9", token: userPanelToken, wantErr: true},
+		{name: "user panel token does not use token binding", token: userPanelToken},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://example.test/responses", nil)
+			if tt.header != "" {
+				req.Header.Set("X-Maxx-Project-ID", tt.header)
+			}
+			got, err := resolveProxyProjectID(req, tt.token)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantProject {
+				t.Fatalf("project ID = %d, want %d", got, tt.wantProject)
+			}
+		})
+	}
+}
