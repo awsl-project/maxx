@@ -3014,3 +3014,32 @@ func TestAdminHandler_UserPanelMemberUsageStatsFollowRegeneratedKeyHistory(t *te
 		t.Fatalf("filters = %+v, want one query per historical user panel token", usageRepo.filters)
 	}
 }
+
+func TestUserPanelModelClientTypesDefaultsIncludeCodex(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{}},
+	})
+
+	got := handler.userPanelModelClientTypes()
+	want := []domain.ClientType{domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeClaude}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("client types = %v, want %v", got, want)
+	}
+}
+
+func TestUserPanelModelClientTypesFollowVisibleRoutes(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			domain.SettingKeyProxyRouteOpenAIChatEnabled:     "false",
+			domain.SettingKeyProxyRouteResponsesEnabled:      "true",
+			domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
+			domain.SettingKeyProxyRouteGeminiEnabled:         "true",
+		}},
+	})
+
+	got := handler.userPanelModelClientTypes()
+	want := []domain.ClientType{domain.ClientTypeCodex, domain.ClientTypeGemini}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("client types = %v, want %v", got, want)
+	}
+}
