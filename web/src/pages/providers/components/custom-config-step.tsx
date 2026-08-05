@@ -351,6 +351,21 @@ export function CustomConfigStep() {
               }
               advancedCollapsed
             />
+
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.responsesPassthrough')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.responsesPassthroughDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={formData.responsesPassthrough !== false}
+                onCheckedChange={(checked) => updateFormData({ responsesPassthrough: checked })}
+              />
+            </div>
           </div>
 
           <details className="group rounded-xl border border-border bg-card/50 p-4">
@@ -359,103 +374,6 @@ export function CustomConfigStep() {
               <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform group-open:rotate-180" />
             </summary>
             <div className="mt-6 space-y-6">
-              <div className="space-y-6">
-                <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
-                  {t('provider.errorCooldownTitle')}
-                </h3>
-                <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                  <div className="pr-4">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('provider.disableErrorCooldown')}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {t('provider.disableErrorCooldownDesc')}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={!!formData.disableErrorCooldown}
-                    onCheckedChange={(checked) =>
-                      updateFormData({
-                        disableErrorCooldown: checked,
-                        smartMappingRetryEnabled: checked
-                          ? formData.smartMappingRetryEnabled
-                          : false,
-                      })
-                    }
-                  />
-                </div>
-                <SmartMappingRetrySettings
-                  disableErrorCooldown={!!formData.disableErrorCooldown}
-                  enabled={formData.smartMappingRetryEnabled}
-                  retryLimit={formData.smartMappingRetryLimit}
-                  mappingTargetCount={mappingTargetCount}
-                  onEnabledChange={(checked) =>
-                    updateFormData({ smartMappingRetryEnabled: checked })
-                  }
-                  onRetryLimitChange={(limit) => updateFormData({ smartMappingRetryLimit: limit })}
-                />
-                <ReasoningPolicySettings
-                  value={formData.reasoning}
-                  onChange={(reasoning) => updateFormData({ reasoning })}
-                />
-                <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                  <div className="pr-4">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('provider.responsesPassthrough')}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {t('provider.responsesPassthroughDesc')}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={formData.responsesPassthrough !== false}
-                    onCheckedChange={(checked) => updateFormData({ responsesPassthrough: checked })}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
-                  {t('provider.visibilityAndExport')}
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                    <div className="pr-4">
-                      <div className="text-sm font-medium text-foreground">
-                        {t('provider.blackBox')}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('provider.blackBoxDesc')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={!!formData.blackBox}
-                      onCheckedChange={(checked) =>
-                        updateFormData({
-                          blackBox: checked,
-                          excludeFromExport: checked ? true : formData.excludeFromExport,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                    <div className="pr-4">
-                      <div className="text-sm font-medium text-foreground">
-                        {t('provider.excludeFromExport')}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('provider.excludeFromExportDesc')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={!!formData.excludeFromExport || !!formData.blackBox}
-                      disabled={!!formData.blackBox}
-                      onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
-                    />
-                  </div>
-                </div>
-              </div>
-
               {/* Model Mapping Section */}
               <div className="space-y-6">
                 <div className="flex items-center justify-between border-b border-border pb-2">
@@ -543,6 +461,91 @@ export function CustomConfigStep() {
                   </div>
                 )}
               </div>
+
+              <div className="space-y-6">
+                <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+                  {t('provider.errorCooldownTitle')}
+                </h3>
+                <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.disableErrorCooldown')}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('provider.disableErrorCooldownDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!formData.disableErrorCooldown}
+                    onCheckedChange={(checked) =>
+                      updateFormData({
+                        disableErrorCooldown: checked,
+                        smartMappingRetryEnabled: checked
+                          ? formData.smartMappingRetryEnabled
+                          : false,
+                      })
+                    }
+                  />
+                </div>
+                <SmartMappingRetrySettings
+                  disableErrorCooldown={!!formData.disableErrorCooldown}
+                  enabled={formData.smartMappingRetryEnabled}
+                  retryLimit={formData.smartMappingRetryLimit}
+                  mappingTargetCount={mappingTargetCount}
+                  onEnabledChange={(checked) =>
+                    updateFormData({ smartMappingRetryEnabled: checked })
+                  }
+                  onRetryLimitChange={(limit) => updateFormData({ smartMappingRetryLimit: limit })}
+                />
+                <ReasoningPolicySettings
+                  value={formData.reasoning}
+                  onChange={(reasoning) => updateFormData({ reasoning })}
+                />
+              </div>
+
+              <div className="space-y-6">
+                <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+                  {t('provider.visibilityAndExport')}
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                    <div className="pr-4">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('provider.blackBox')}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('provider.blackBoxDesc')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!formData.blackBox}
+                      onCheckedChange={(checked) =>
+                        updateFormData({
+                          blackBox: checked,
+                          excludeFromExport: checked ? true : formData.excludeFromExport,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                    <div className="pr-4">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('provider.excludeFromExport')}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('provider.excludeFromExportDesc')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!formData.excludeFromExport || !!formData.blackBox}
+                      disabled={!!formData.blackBox}
+                      onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+
             </div>
           </details>
 

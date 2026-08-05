@@ -303,7 +303,7 @@ export function SelectTypeStep() {
               <Button
                 onClick={() => handleApplyTemplate('gemini-web2api')}
                 variant="ghost"
-                aria-label="Gemini Web2API OpenAI Codex Gemini"
+                aria-label="Gemini Web2API OpenAI"
                 className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                   formData.selectedTemplate === 'gemini-web2api'
                     ? 'border-provider-custom bg-provider-custom/10 shadow-sm'
@@ -322,11 +322,11 @@ export function SelectTypeStep() {
                     <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
                       {t(
                         'addProvider.templates.geminiWeb2Api.description',
-                        'OpenAI, Codex, and Gemini protocol relay backed by Gemini Web',
+                        'OpenAI-compatible relay backed by Gemini Web',
                       )}
                     </p>
                     <div className="flex flex-wrap gap-1.5 pt-1" aria-label="Enabled protocols">
-                      {['OpenAI', 'Codex', 'Gemini'].map((client) => (
+                      {['OpenAI'].map((client) => (
                         <span
                           key={client}
                           className="rounded-full border border-provider-custom/30 bg-provider-custom/10 px-2 py-0.5 text-[11px] font-medium text-provider-custom"

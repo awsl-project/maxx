@@ -219,11 +219,11 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'gemini-web2api',
     name: 'Gemini Web2API',
-    description: 'OpenAI + Codex + Gemini via Gemini Web relay',
+    description: 'OpenAI-compatible relay backed by Gemini Web',
     nameKey: 'addProvider.templates.geminiWeb2Api.name',
     descriptionKey: 'addProvider.templates.geminiWeb2Api.description',
     icon: 'layers',
-    supportedClients: ['openai', 'codex', 'gemini'],
+    supportedClients: ['openai'],
     clientBaseURLs: {},
     baseURL: '',
     apiKey: 'sk-gemini',

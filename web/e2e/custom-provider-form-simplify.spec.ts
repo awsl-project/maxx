@@ -135,12 +135,19 @@ test.describe('custom provider form simplification', () => {
     await page.getByRole('button', { name: /Gemini Web2API/i }).click();
 
     await expect(page).toHaveURL(/\/providers\/create\/custom/);
-    await expect(page.getByDisplayValue('Gemini Web2API')).toBeVisible();
-    await expect(page.getByDisplayValue('sk-gemini')).toBeVisible();
+    await expect(page.locator('input').first()).toHaveValue('Gemini Web2API');
+    await expect(page.locator('input[type="password"]').first()).toHaveValue('sk-gemini');
     await expect(page.getByText(/Do not append \/v1/i)).toBeVisible();
-    await expect(page.getByText(/^OpenAI$/)).toBeVisible();
-    await expect(page.getByText(/^Codex$/)).toBeVisible();
-    await expect(page.getByText(/^Gemini$/)).toBeVisible();
+    await expect(page.getByRole('main').getByText('OpenAI', { exact: true })).toBeVisible();
+    const switches = await page.locator('[role="switch"]').evaluateAll((elements) =>
+      elements.map((element) => ({
+        checked: element.getAttribute('aria-checked'),
+        text: element.closest('div')?.parentElement?.textContent?.replace(/\s+/g, ' ').trim(),
+      })),
+    );
+    expect(switches).toContainEqual(expect.objectContaining({ checked: 'true', text: 'OpenAI' }));
+    expect(switches).toContainEqual(expect.objectContaining({ checked: 'false', text: 'Codex' }));
+    expect(switches).toContainEqual(expect.objectContaining({ checked: 'false', text: 'Gemini' }));
     await expect(
       page.getByRole('heading', { name: /Automatic Error Freeze|错误自动冻结/i }),
     ).not.toBeVisible();

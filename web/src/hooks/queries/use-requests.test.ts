@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ProxyRequest } from '@/lib/transport';
-import { isProxyRequestError, mergeProxyRequestAttemptUpdate } from './use-requests';
+import {
+  isProxyRequestError,
+  mergeProxyRequestAttemptUpdate,
+  shouldRefetchCleanupFailedCount,
+} from './use-requests';
 
 const baseRequest = {
   id: 1,
@@ -57,6 +61,35 @@ describe('isProxyRequestError', () => {
     expect(isProxyRequestError(request('FAILED'))).toBe(true);
     expect(isProxyRequestError(request('REJECTED'))).toBe(true);
     expect(isProxyRequestError(request('COMPLETED', 503))).toBe(true);
+  });
+});
+
+describe('shouldRefetchCleanupFailedCount', () => {
+  it('refetches when a new request is an error record', () => {
+    expect(shouldRefetchCleanupFailedCount(undefined, request('FAILED'))).toBe(true);
+  });
+
+  it('does not refetch when a new request is not an error record', () => {
+    expect(shouldRefetchCleanupFailedCount(undefined, request('COMPLETED'))).toBe(false);
+  });
+
+  it('refetches when an existing request leaves the cleanup-failed set', () => {
+    expect(shouldRefetchCleanupFailedCount(request('FAILED'), request('COMPLETED'))).toBe(true);
+  });
+
+  it('refetches when an existing request enters the cleanup-failed set', () => {
+    expect(shouldRefetchCleanupFailedCount(request('IN_PROGRESS'), request('COMPLETED', 500))).toBe(
+      true,
+    );
+  });
+
+  it('does not refetch when the cleanup-failed membership stays unchanged', () => {
+    expect(shouldRefetchCleanupFailedCount(request('FAILED'), request('COMPLETED', 503))).toBe(
+      false,
+    );
+    expect(shouldRefetchCleanupFailedCount(request('IN_PROGRESS'), request('COMPLETED'))).toBe(
+      false,
+    );
   });
 });
 
