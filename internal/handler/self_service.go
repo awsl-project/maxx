@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -316,19 +317,61 @@ func (h *SelfServiceHandler) handleUserPanelModels(w http.ResponseWriter, r *htt
 		return
 	}
 
-	names, err := h.modelsHandler.collectAvailableModelNames(
-		tenantID,
-		domain.ClientTypeOpenAI,
-		0,
-		0,
-		canonicalToken.ID,
-		"",
-	)
+	names, err := h.collectUserPanelAvailableModelNames(tenantID, canonicalToken.ID)
 	if err != nil {
 		writeSelfServiceInternalError(w, "CollectUserPanelModels failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, names)
+}
+
+func (h *SelfServiceHandler) collectUserPanelAvailableModelNames(tenantID, apiTokenID uint64) ([]string, error) {
+	if h.modelsHandler == nil {
+		return nil, fmt.Errorf("models handler not configured")
+	}
+
+	merged := make(map[string]struct{})
+	for _, clientType := range h.userPanelModelClientTypes() {
+		names, err := h.modelsHandler.collectAvailableModelNames(tenantID, clientType, 0, 0, apiTokenID, "")
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			addModelName(merged, name)
+		}
+	}
+
+	names := make([]string, 0, len(merged))
+	for name := range merged {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func (h *SelfServiceHandler) userPanelModelClientTypes() []domain.ClientType {
+	clientTypes := make([]domain.ClientType, 0, 4)
+	if h.proxyRouteSettingEnabled(domain.SettingKeyProxyRouteOpenAIChatEnabled, true) {
+		clientTypes = append(clientTypes, domain.ClientTypeOpenAI)
+	}
+	if h.proxyRouteSettingEnabled(domain.SettingKeyProxyRouteResponsesEnabled, true) {
+		clientTypes = append(clientTypes, domain.ClientTypeCodex)
+	}
+	if h.proxyRouteSettingEnabled(domain.SettingKeyProxyRouteClaudeMessagesEnabled, true) {
+		clientTypes = append(clientTypes, domain.ClientTypeClaude)
+	}
+	if h.proxyRouteSettingEnabled(domain.SettingKeyProxyRouteGeminiEnabled, false) {
+		clientTypes = append(clientTypes, domain.ClientTypeGemini)
+	}
+	return clientTypes
+}
+
+func (h *SelfServiceHandler) proxyRouteSettingEnabled(key string, defaultEnabled bool) bool {
+	value, err := h.svc.GetSetting(key)
+	if err != nil || strings.TrimSpace(value) == "" {
+		return defaultEnabled
+	}
+	return strings.EqualFold(strings.TrimSpace(value), "true")
 }
 
 func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Request, id uint64) {
