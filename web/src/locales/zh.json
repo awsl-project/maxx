@@ -2004,6 +2004,11 @@
       "deepseek": {
         "name": "DeepSeek",
         "description": "Claude + OpenAI"
+      },
+      "geminiWeb2Api": {
+        "name": "Gemini Web2API",
+        "description": "基于 Gemini Web 的 OpenAI 兼容转接服务",
+        "baseUrlHint": "填写 Gemini Web2API 服务根地址，例如 http://localhost:8081。不要追加 /v1；maxx 会自动拼接 OpenAI 兼容的 /v1 路径。"
       }
     },
     "grok": {

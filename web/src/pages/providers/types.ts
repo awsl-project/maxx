@@ -211,9 +211,28 @@ export type QuickTemplate = {
   supportedClients: ClientType[];
   clientBaseURLs: Partial<Record<ClientType, string>>;
   modelMappings?: TemplateModelMapping[]; // 可选的模型映射
+  baseURL?: string;
+  apiKey?: string;
 };
 
 export const quickTemplates: QuickTemplate[] = [
+  {
+    id: 'gemini-web2api',
+    name: 'Gemini Web2API',
+    description: 'OpenAI-compatible relay backed by Gemini Web',
+    nameKey: 'addProvider.templates.geminiWeb2Api.name',
+    descriptionKey: 'addProvider.templates.geminiWeb2Api.description',
+    icon: 'layers',
+    supportedClients: ['openai'],
+    clientBaseURLs: {},
+    baseURL: '',
+    apiKey: 'sk-gemini',
+    modelMappings: [
+      { pattern: 'gpt-4*', target: 'gemini-3.6-flash' },
+      { pattern: 'gpt-5*', target: 'gemini-3.5-flash-thinking' },
+      { pattern: '*', target: 'gemini-3.6-flash' },
+    ],
+  },
   {
     id: '88code',
     name: '88 Code',

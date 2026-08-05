@@ -6,23 +6,44 @@ const editFlowSource = readFileSync(
   join(process.cwd(), 'src/pages/providers/components/provider-edit-flow.tsx'),
   'utf8',
 );
+const createFlowSource = readFileSync(
+  join(process.cwd(), 'src/pages/providers/components/custom-config-step.tsx'),
+  'utf8',
+);
 
-describe('ProviderEditFlow section layout', () => {
-  it('keeps visibility and export in the same relative position as custom provider creation', () => {
-    const connectionSection = editFlowSource.indexOf('id="provider-connection"');
-    const clientSection = editFlowSource.indexOf('id="provider-clients"');
-    const modelSection = editFlowSource.indexOf('id="provider-models"');
-    const supportModels = editFlowSource.indexOf('<ProviderSupportModels');
-    const policySection = editFlowSource.indexOf('id="provider-policies"');
-    const quotaEnabled = editFlowSource.indexOf("t('provider.quotaEnabled')");
-    const dangerSection = editFlowSource.indexOf('id="provider-danger"');
+function expectOrder(source: string, tokens: string[]) {
+  let previous = -1;
+  for (const token of tokens) {
+    const index = source.indexOf(token);
+    expect(index, token).toBeGreaterThan(-1);
+    expect(index, token).toBeGreaterThan(previous);
+    previous = index;
+  }
+}
 
-    expect(connectionSection).toBeGreaterThan(-1);
-    expect(clientSection).toBeGreaterThan(connectionSection);
-    expect(modelSection).toBeGreaterThan(clientSection);
-    expect(supportModels).toBeGreaterThan(modelSection);
-    expect(policySection).toBeGreaterThan(supportModels);
-    expect(quotaEnabled).toBeGreaterThan(policySection);
-    expect(dangerSection).toBeGreaterThan(policySection);
+describe('Provider create/edit section layout', () => {
+  it('keeps edit provider sections in the expected order', () => {
+    expectOrder(editFlowSource, [
+      'id="provider-connection"',
+      'id="provider-clients"',
+      "t('provider.responsesPassthrough')",
+      'id="provider-models"',
+      '<ProviderSupportModels',
+      'id="provider-policies"',
+      "t('provider.quotaEnabled')",
+      'id="provider-danger"',
+      "t('provider.excludeFromExport')",
+    ]);
+  });
+
+  it('keeps custom provider creation aligned with edit provider section order', () => {
+    expectOrder(createFlowSource, [
+      "t('provider.clientConfig')",
+      "t('provider.responsesPassthrough')",
+      '{/* Model Mapping Section */}',
+      "t('provider.errorCooldownTitle')",
+      "t('provider.visibilityAndExport')",
+      "t('provider.excludeFromExport')",
+    ]);
   });
 });
