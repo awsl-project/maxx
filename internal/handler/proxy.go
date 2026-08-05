@@ -65,6 +65,24 @@ func apiTokenProjectBinding(apiToken *domain.APIToken, currentProjectID uint64) 
 	return apiToken.ProjectID, true
 }
 
+func resolveProxyProjectID(r *http.Request, apiToken *domain.APIToken) (uint64, error) {
+	var projectID uint64
+	if r != nil {
+		if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
+			if isUserPanelAPIToken(apiToken) {
+				return 0, errors.New("user panel token cannot select project")
+			}
+			if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
+				projectID = pid
+			}
+		}
+	}
+	if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
+		projectID = tokenProjectID
+	}
+	return projectID, nil
+}
+
 // NewProxyHandler creates a new proxy handler
 func NewProxyHandler(
 	clientAdapter *client.Adapter,
@@ -101,9 +119,10 @@ func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isResponsesWebSocketUpgrade(r) {
 		tenantID := domain.DefaultTenantID
-		var projectID uint64
+		var apiToken *domain.APIToken
 		if h.tokenAuth != nil {
-			apiToken, err := h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex)
+			var err error
+			apiToken, err = h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex)
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, err.Error())
 				return
@@ -112,9 +131,16 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if apiToken.TenantID > 0 {
 					tenantID = apiToken.TenantID
 				}
-				// Token-bound project is known before upgrade; session binding is not.
-				projectID = apiToken.ProjectID
 			}
+		}
+		// ProjectProxyHandler resolves /project/{slug}/... before this point and
+		// passes the project ID in X-Maxx-Project-ID. Session binding is not
+		// available until after the WebSocket upgrade, so use the same initial
+		// header/token binding rules as HTTP/SSE requests.
+		projectID, err := resolveProxyProjectID(r, apiToken)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
 		}
 
 		// Codex only immediately falls back to HTTP/SSE when the WebSocket
@@ -295,24 +321,18 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	c.Set(flow.KeyIsStream, stream)
 	c.Set(flow.KeyAPITokenID, apiTokenID)
 
-	var projectID uint64
-	if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
-		if isUserPanelAPIToken(apiToken) {
-			writeError(w, http.StatusForbidden, "user panel token cannot select project")
-			c.Abort()
-			return
-		}
-		if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
-			projectID = pid
-			log.Printf("[Proxy] Using project ID from header: %d", projectID)
-		}
+	projectID, err := resolveProxyProjectID(r, apiToken)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		c.Abort()
+		return
+	}
+	if projectID != 0 {
+		log.Printf("[Proxy] Using initial project ID: %d", projectID)
 	}
 	c.Set(flow.KeyProjectID, projectID)
 
 	if apiToken != nil {
-		if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
-			c.Set(flow.KeyProjectID, tokenProjectID)
-		}
 		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
 			log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
 			h.executor.RecordRejectedProxyRequest(c, apiToken, http.StatusTooManyRequests, err.Error())
