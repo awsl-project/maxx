@@ -2008,6 +2008,11 @@
       "deepseek": {
         "name": "DeepSeek",
         "description": "Claude + OpenAI"
+      },
+      "geminiWeb2Api": {
+        "name": "Gemini Web2API",
+        "description": "OpenAI + Codex + Gemini relay backed by Gemini Web",
+        "baseUrlHint": "Enter the Gemini Web2API service root, for example http://localhost:8081. Do not append /v1; maxx adds /v1 and /v1beta paths per protocol."
       }
     },
     "grok": {

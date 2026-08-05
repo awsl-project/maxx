@@ -54,7 +54,8 @@ async function installProviderMocks(page: Page) {
       if (method === 'POST') return json(route, { ...provider, id: 2 });
       return json(route, [provider]);
     }
-    if (path === '/api/providers/1' || path === '/api/admin/providers/1') return json(route, provider);
+    if (path === '/api/providers/1' || path === '/api/admin/providers/1')
+      return json(route, provider);
     if (path.includes('/runtime-models')) return json(route, { models: ['claude-sonnet-4-5'] });
     if (
       path === '/api/admin/routes' ||
@@ -77,19 +78,34 @@ test.describe('custom provider form simplification', () => {
     await installProviderMocks(page);
   });
 
-  test('create flow keeps advanced provider settings collapsed until requested', async ({ page }) => {
+  test('create flow keeps advanced provider settings collapsed until requested', async ({
+    page,
+  }) => {
     await page.goto('/providers/create/custom');
 
     await expect(page.getByRole('heading', { name: /Basic Information|基本信息/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Client Configuration|客户端配置/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Automatic Error Freeze|错误自动冻结/i })).not.toBeVisible();
-    await expect(page.getByRole('heading', { name: /Visibility and Export|可见性与导出/i })).not.toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Client Configuration|客户端配置/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Automatic Error Freeze|错误自动冻结/i }),
+    ).not.toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Visibility and Export|可见性与导出/i }),
+    ).not.toBeVisible();
     await expect(page.getByRole('heading', { name: /Model Mappings|模型映射/i })).not.toBeVisible();
 
-    await page.locator('summary').filter({ hasText: /^Advanced settings$/ }).click();
+    await page
+      .locator('summary')
+      .filter({ hasText: /^Advanced settings$/ })
+      .click();
 
-    await expect(page.getByRole('heading', { name: /Automatic Error Freeze|错误自动冻结/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Visibility and Export|可见性与导出/i })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Automatic Error Freeze|错误自动冻结/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Visibility and Export|可见性与导出/i }),
+    ).toBeVisible();
     await expect(page.getByRole('heading', { name: /Model Mappings|模型映射/i })).toBeVisible();
   });
 
@@ -103,10 +119,30 @@ test.describe('custom provider form simplification', () => {
     await expect(page.locator('#provider-policies')).not.toBeVisible();
     await expect(page.locator('#provider-danger')).not.toBeVisible();
 
-    await page.locator('summary').filter({ hasText: /^Advanced settings$/ }).click();
+    await page
+      .locator('summary')
+      .filter({ hasText: /^Advanced settings$/ })
+      .click();
 
     await expect(page.locator('#provider-models')).toBeVisible();
     await expect(page.locator('#provider-policies')).toBeVisible();
     await expect(page.locator('#provider-danger')).toBeVisible();
+  });
+
+  test('Gemini Web2API preset opens the custom form with relay-safe defaults', async ({ page }) => {
+    await page.goto('/providers/create');
+
+    await page.getByRole('button', { name: /Gemini Web2API/i }).click();
+
+    await expect(page).toHaveURL(/\/providers\/create\/custom/);
+    await expect(page.getByDisplayValue('Gemini Web2API')).toBeVisible();
+    await expect(page.getByDisplayValue('sk-gemini')).toBeVisible();
+    await expect(page.getByText(/Do not append \/v1/i)).toBeVisible();
+    await expect(page.getByText(/^OpenAI$/)).toBeVisible();
+    await expect(page.getByText(/^Codex$/)).toBeVisible();
+    await expect(page.getByText(/^Gemini$/)).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Automatic Error Freeze|错误自动冻结/i }),
+    ).not.toBeVisible();
   });
 });

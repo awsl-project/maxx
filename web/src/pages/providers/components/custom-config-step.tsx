@@ -278,7 +278,9 @@ export function CustomConfigStep() {
                     className="w-full"
                   />
                   <p className="text-xs text-text-secondary mt-1">
-                    {t('provider.optionalUrlNote')}
+                    {formData.selectedTemplate === 'gemini-web2api'
+                      ? t('addProvider.templates.geminiWeb2Api.baseUrlHint')
+                      : t('provider.optionalUrlNote')}
                   </p>
                 </div>
 
@@ -301,7 +303,9 @@ export function CustomConfigStep() {
                       placeholder={
                         formData.backend === 'ollama'
                           ? t('provider.keyPlaceholderOptional')
-                          : t('provider.keyPlaceholder')
+                          : formData.selectedTemplate === 'gemini-web2api'
+                            ? 'sk-gemini'
+                            : t('provider.keyPlaceholder')
                       }
                       className="w-full pr-10"
                     />
