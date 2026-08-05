@@ -12,6 +12,7 @@ import {
 import { ClientIcon } from '@/components/icons/client-icons';
 import type { ClientType } from '@/lib/transport';
 import type { ClientConfig } from '../types';
+import { ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export type DisguiseTypeValue = 'none' | 'claude-code' | 'bedrock';
@@ -32,6 +33,7 @@ interface ClientsConfigSectionProps {
   /** Codex client-level: allow Responses WebSocket upstream (custom providers). */
   responsesWebSocket?: boolean;
   onUpdateResponsesWebSocket?: (checked: boolean) => void;
+  advancedCollapsed?: boolean;
 }
 
 // Separate component for multiplier input to manage local state
@@ -87,6 +89,7 @@ export function ClientsConfigSection({
   onUpdateDisguise,
   responsesWebSocket,
   onUpdateResponsesWebSocket,
+  advancedCollapsed = false,
 }: ClientsConfigSectionProps) {
   const { t } = useTranslation();
   return (
@@ -116,13 +119,18 @@ export function ClientsConfigSection({
               </div>
             </div>
 
-            {/* Expandable/Visible Content */}
-            <div
-              className={`pt-4 transition-all duration-200 ${
+            {/* Advanced per-client fields are collapsed by default for custom providers. */}
+            <details
+              className={`group mt-4 transition-all duration-200 ${
                 client.enabled ? 'opacity-100' : 'opacity-50 grayscale pointer-events-none'
               }`}
+              open={!advancedCollapsed}
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
+                <span>{t('provider.advancedClientSettings', 'Advanced client settings')}</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5 uppercase tracking-wide">
                     {t('provider.endpointOverride')}
@@ -175,9 +183,7 @@ export function ClientsConfigSection({
                         <SelectItem value="claude-code">
                           {t('provider.disguiseTypeClaudeCode')}
                         </SelectItem>
-                        <SelectItem value="bedrock">
-                          {t('provider.disguiseTypeBedrock')}
-                        </SelectItem>
+                        <SelectItem value="bedrock">{t('provider.disguiseTypeBedrock')}</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -255,7 +261,6 @@ export function ClientsConfigSection({
                 </div>
               )}
 
-
               {client.id === 'codex' && onUpdateResponsesWebSocket && (
                 <div className="mt-5 space-y-4">
                   <div className="border-t border-border/60" />
@@ -276,7 +281,7 @@ export function ClientsConfigSection({
                   </div>
                 </div>
               )}
-            </div>
+            </details>
           </div>
         ))}
       </div>
