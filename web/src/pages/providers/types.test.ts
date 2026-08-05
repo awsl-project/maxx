@@ -65,20 +65,6 @@ describe('provider type helpers', () => {
     expect(zhipuTemplate?.clientBaseURLs.openai).toBe('https://open.bigmodel.cn/api/paas/v4');
   });
 
-  it('configures Gemini Web2API as an OpenAI-only custom relay preset for now', () => {
-    const geminiWeb2Api = quickTemplates.find((template) => template.id === 'gemini-web2api');
-
-    expect(geminiWeb2Api?.name).toBe('Gemini Web2API');
-    expect(geminiWeb2Api?.supportedClients).toEqual(['openai']);
-    expect(geminiWeb2Api?.baseURL).toBe('');
-    expect(geminiWeb2Api?.apiKey).toBe('sk-gemini');
-    expect(geminiWeb2Api?.clientBaseURLs).toEqual({});
-    expect(geminiWeb2Api?.modelMappings).toContainEqual({
-      pattern: '*',
-      target: 'gemini-3.6-flash',
-    });
-  });
-
   it('enables both Claude and OpenAI for the DeepSeek quick template', () => {
     const deepseek = quickTemplates.find((template) => template.id === 'deepseek');
 

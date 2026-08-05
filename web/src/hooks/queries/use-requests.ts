@@ -76,16 +76,6 @@ function matchesRequestTimeRange(
   return true;
 }
 
-export function shouldRefetchCleanupFailedCount(
-  previous: ProxyRequest | undefined,
-  next: ProxyRequest,
-): boolean {
-  if (!previous) {
-    return isProxyRequestError(next);
-  }
-  return isProxyRequestError(previous) !== isProxyRequestError(next);
-}
-
 export function mergeProxyRequestAttemptUpdate(
   request: ProxyRequest,
   attempt: ProxyUpstreamAttempt,
@@ -473,7 +463,6 @@ export function useProxyRequestUpdates() {
       for (const updatedRequest of updates) {
         const requestId = updatedRequest.id;
         let isKnown = knownRequestIds.has(requestId);
-        let shouldRefetchFailedCount = isProxyRequestError(updatedRequest);
 
         // 仅当详情查询正在被观察时才更新详情缓存，避免列表页“写缓存造内存”
         const detailKey = requestKeys.detail(requestId);
@@ -482,7 +471,6 @@ export function useProxyRequestUpdates() {
           // 后端可能会对 WS 广播做“瘦身”（不带 requestInfo/responseInfo 大字段），
           // 这里合并旧值，避免把详情页已加载的内容覆盖成空。
           queryClient.setQueryData<ProxyRequest>(detailKey, (old) => {
-            shouldRefetchFailedCount ||= shouldRefetchCleanupFailedCount(old, updatedRequest);
             if (!old) {
               return updatedRequest;
             }
@@ -563,10 +551,6 @@ export function useProxyRequestUpdates() {
             const index = old.items.findIndex((r) => r.id === requestId);
             if (index >= 0) {
               isKnown = true;
-              shouldRefetchFailedCount ||= shouldRefetchCleanupFailedCount(
-                old.items[index],
-                updatedRequest,
-              );
               if (!matchesFilter(updatedRequest)) {
                 const newItems = old.items.filter((r) => r.id !== requestId);
                 return normalizePage(newItems);
@@ -639,10 +623,6 @@ export function useProxyRequestUpdates() {
               }
 
               hasExisting = true;
-              shouldRefetchFailedCount ||= shouldRefetchCleanupFailedCount(
-                page.items[index],
-                updatedRequest,
-              );
 
               if (!matchesFilter(updatedRequest)) {
                 const newItems = page.items.filter((r) => r.id !== requestId);
@@ -737,7 +717,7 @@ export function useProxyRequestUpdates() {
           invalidateProviderStats = true;
           invalidateCooldowns = true;
         }
-        if (shouldRefetchFailedCount) {
+        if (isProxyRequestError(updatedRequest)) {
           refetchCleanupFailedCount = true;
         }
       }

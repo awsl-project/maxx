@@ -9,7 +9,6 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
-  ChevronDown,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -278,9 +277,7 @@ export function CustomConfigStep() {
                     className="w-full"
                   />
                   <p className="text-xs text-text-secondary mt-1">
-                    {formData.selectedTemplate === 'gemini-web2api'
-                      ? t('addProvider.templates.geminiWeb2Api.baseUrlHint')
-                      : t('provider.optionalUrlNote')}
+                    {t('provider.optionalUrlNote')}
                   </p>
                 </div>
 
@@ -303,9 +300,7 @@ export function CustomConfigStep() {
                       placeholder={
                         formData.backend === 'ollama'
                           ? t('provider.keyPlaceholderOptional')
-                          : formData.selectedTemplate === 'gemini-web2api'
-                            ? 'sk-gemini'
-                            : t('provider.keyPlaceholder')
+                          : t('provider.keyPlaceholder')
                       }
                       className="w-full pr-10"
                     />
@@ -349,9 +344,44 @@ export function CustomConfigStep() {
               onUpdateResponsesWebSocket={(checked) =>
                 updateFormData({ responsesWebSocket: checked })
               }
-              advancedCollapsed
             />
+          </div>
 
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.errorCooldownTitle')}
+            </h3>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.disableErrorCooldown')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.disableErrorCooldownDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={!!formData.disableErrorCooldown}
+                onCheckedChange={(checked) =>
+                  updateFormData({
+                    disableErrorCooldown: checked,
+                    smartMappingRetryEnabled: checked ? formData.smartMappingRetryEnabled : false,
+                  })
+                }
+              />
+            </div>
+            <SmartMappingRetrySettings
+              disableErrorCooldown={!!formData.disableErrorCooldown}
+              enabled={formData.smartMappingRetryEnabled}
+              retryLimit={formData.smartMappingRetryLimit}
+              mappingTargetCount={mappingTargetCount}
+              onEnabledChange={(checked) => updateFormData({ smartMappingRetryEnabled: checked })}
+              onRetryLimitChange={(limit) => updateFormData({ smartMappingRetryLimit: limit })}
+            />
+            <ReasoningPolicySettings
+              value={formData.reasoning}
+              onChange={(reasoning) => updateFormData({ reasoning })}
+            />
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">
                 <div className="text-sm font-medium text-foreground">
@@ -368,186 +398,127 @@ export function CustomConfigStep() {
             </div>
           </div>
 
-          <details className="group rounded-xl border border-border bg-card/50 p-4">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-semibold text-foreground [&::-webkit-details-marker]:hidden">
-              <span>{t('provider.advancedSettings', 'Advanced settings')}</span>
-              <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform group-open:rotate-180" />
-            </summary>
-            <div className="mt-6 space-y-6">
-              {/* Model Mapping Section */}
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-border pb-2">
-                  <h3 className="text-lg font-semibold text-text-primary">
-                    {t('modelMappings.title')}
-                  </h3>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const newMappings = [
-                        ...(formData.modelMappings || []),
-                        { pattern: '', target: '' },
-                      ];
-                      updateFormData({ modelMappings: newMappings });
-                    }}
-                  >
-                    <Plus size={14} />
-                    {t('routes.modelMapping.addMapping')}
-                  </Button>
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.visibilityAndExport')}
+            </h3>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.blackBox')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('provider.blackBoxDesc')}</p>
                 </div>
-
-                {formData.modelMappings && formData.modelMappings.length > 0 ? (
-                  <div className="space-y-3">
-                    {formData.modelMappings.map((mapping, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg"
-                      >
-                        <div className="flex-1">
-                          <label className="text-xs text-muted-foreground mb-1 block">
-                            {t('settings.matchPattern')}
-                          </label>
-                          <Input
-                            type="text"
-                            value={mapping.pattern}
-                            onChange={(e) => {
-                              const newMappings = [...(formData.modelMappings || [])];
-                              newMappings[index] = {
-                                ...newMappings[index],
-                                pattern: e.target.value,
-                              };
-                              updateFormData({ modelMappings: newMappings });
-                            }}
-                            placeholder="*claude*, *sonnet*, *"
-                            className="font-mono text-sm"
-                          />
-                        </div>
-                        <ArrowRight size={16} className="text-muted-foreground shrink-0 mt-5" />
-                        <div className="flex-1">
-                          <label className="text-xs text-muted-foreground mb-1 block">
-                            {t('settings.targetModel')}
-                          </label>
-                          <ModelInput
-                            value={mapping.target}
-                            onChange={(value) => {
-                              const newMappings = [...(formData.modelMappings || [])];
-                              newMappings[index] = { ...newMappings[index], target: value };
-                              updateFormData({ modelMappings: newMappings });
-                            }}
-                            placeholder={t('modelInput.selectOrEnter')}
-                            extraModels={runtimeModelOptions}
-                            openSearchValue=""
-                          />
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="shrink-0 mt-5 text-muted-foreground hover:text-destructive"
-                          onClick={() => {
-                            const newMappings = (formData.modelMappings || []).filter(
-                              (_, i) => i !== index,
-                            );
-                            updateFormData({ modelMappings: newMappings });
-                          }}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground p-4 bg-muted/30 rounded-lg text-center">
-                    {t('modelMappings.noMappings')}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-6">
-                <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
-                  {t('provider.errorCooldownTitle')}
-                </h3>
-                <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                  <div className="pr-4">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('provider.disableErrorCooldown')}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {t('provider.disableErrorCooldownDesc')}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={!!formData.disableErrorCooldown}
-                    onCheckedChange={(checked) =>
-                      updateFormData({
-                        disableErrorCooldown: checked,
-                        smartMappingRetryEnabled: checked
-                          ? formData.smartMappingRetryEnabled
-                          : false,
-                      })
-                    }
-                  />
-                </div>
-                <SmartMappingRetrySettings
-                  disableErrorCooldown={!!formData.disableErrorCooldown}
-                  enabled={formData.smartMappingRetryEnabled}
-                  retryLimit={formData.smartMappingRetryLimit}
-                  mappingTargetCount={mappingTargetCount}
-                  onEnabledChange={(checked) =>
-                    updateFormData({ smartMappingRetryEnabled: checked })
+                <Switch
+                  checked={!!formData.blackBox}
+                  onCheckedChange={(checked) =>
+                    updateFormData({
+                      blackBox: checked,
+                      excludeFromExport: checked ? true : formData.excludeFromExport,
+                    })
                   }
-                  onRetryLimitChange={(limit) => updateFormData({ smartMappingRetryLimit: limit })}
-                />
-                <ReasoningPolicySettings
-                  value={formData.reasoning}
-                  onChange={(reasoning) => updateFormData({ reasoning })}
                 />
               </div>
-
-              <div className="space-y-6">
-                <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
-                  {t('provider.visibilityAndExport')}
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                    <div className="pr-4">
-                      <div className="text-sm font-medium text-foreground">
-                        {t('provider.blackBox')}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('provider.blackBoxDesc')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={!!formData.blackBox}
-                      onCheckedChange={(checked) =>
-                        updateFormData({
-                          blackBox: checked,
-                          excludeFromExport: checked ? true : formData.excludeFromExport,
-                        })
-                      }
-                    />
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.excludeFromExport')}
                   </div>
-                  <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                    <div className="pr-4">
-                      <div className="text-sm font-medium text-foreground">
-                        {t('provider.excludeFromExport')}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('provider.excludeFromExportDesc')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={!!formData.excludeFromExport || !!formData.blackBox}
-                      disabled={!!formData.blackBox}
-                      onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
-                    />
-                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.excludeFromExportDesc')}
+                  </p>
                 </div>
+                <Switch
+                  checked={!!formData.excludeFromExport || !!formData.blackBox}
+                  disabled={!!formData.blackBox}
+                  onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
+                />
               </div>
-
-
             </div>
-          </details>
+          </div>
+
+          {/* Model Mapping Section */}
+          <div className="space-y-6">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <h3 className="text-lg font-semibold text-text-primary">
+                {t('modelMappings.title')}
+              </h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const newMappings = [
+                    ...(formData.modelMappings || []),
+                    { pattern: '', target: '' },
+                  ];
+                  updateFormData({ modelMappings: newMappings });
+                }}
+              >
+                <Plus size={14} />
+                {t('routes.modelMapping.addMapping')}
+              </Button>
+            </div>
+
+            {formData.modelMappings && formData.modelMappings.length > 0 ? (
+              <div className="space-y-3">
+                {formData.modelMappings.map((mapping, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <div className="flex-1">
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {t('settings.matchPattern')}
+                      </label>
+                      <Input
+                        type="text"
+                        value={mapping.pattern}
+                        onChange={(e) => {
+                          const newMappings = [...(formData.modelMappings || [])];
+                          newMappings[index] = { ...newMappings[index], pattern: e.target.value };
+                          updateFormData({ modelMappings: newMappings });
+                        }}
+                        placeholder="*claude*, *sonnet*, *"
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                    <ArrowRight size={16} className="text-muted-foreground shrink-0 mt-5" />
+                    <div className="flex-1">
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {t('settings.targetModel')}
+                      </label>
+                      <ModelInput
+                        value={mapping.target}
+                        onChange={(value) => {
+                          const newMappings = [...(formData.modelMappings || [])];
+                          newMappings[index] = { ...newMappings[index], target: value };
+                          updateFormData({ modelMappings: newMappings });
+                        }}
+                        placeholder={t('modelInput.selectOrEnter')}
+                        extraModels={runtimeModelOptions}
+                        openSearchValue=""
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 mt-5 text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        const newMappings = (formData.modelMappings || []).filter(
+                          (_, i) => i !== index,
+                        );
+                        updateFormData({ modelMappings: newMappings });
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground p-4 bg-muted/30 rounded-lg text-center">
+                {t('modelMappings.noMappings')}
+              </div>
+            )}
+          </div>
 
           {saveStatus === 'error' && (
             <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
