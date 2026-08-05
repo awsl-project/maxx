@@ -41,11 +41,8 @@ export function SelectTypeStep() {
       });
 
       updateFormData({
-        type: 'custom',
         selectedTemplate: templateId,
         name: template.name,
-        baseURL: template.baseURL ?? '',
-        apiKey: template.apiKey ?? '',
         backend: 'http',
         clients: updatedClients,
         modelMappings: template.modelMappings,
@@ -285,9 +282,7 @@ export function SelectTypeStep() {
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-1">
-                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
-                        Grok
-                      </h3>
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">Grok</h3>
                       <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
                         Import xAI OAuth JSON from CLIProxyAPI
                       </p>
@@ -300,48 +295,6 @@ export function SelectTypeStep() {
                 </Button>
               )}
 
-              <Button
-                onClick={() => handleApplyTemplate('gemini-web2api')}
-                variant="ghost"
-                aria-label="Gemini Web2API OpenAI"
-                className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                  formData.selectedTemplate === 'gemini-web2api'
-                    ? 'border-provider-custom bg-provider-custom/10 shadow-sm'
-                    : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
-                }`}
-              >
-                <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
-                  <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-custom/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
-                    <Sparkles className="size-5 md:size-6 text-provider-custom" />
-                  </div>
-
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
-                      {t('addProvider.templates.geminiWeb2Api.name', 'Gemini Web2API')}
-                    </h3>
-                    <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
-                      {t(
-                        'addProvider.templates.geminiWeb2Api.description',
-                        'OpenAI-compatible relay backed by Gemini Web',
-                      )}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5 pt-1" aria-label="Enabled protocols">
-                      {['OpenAI'].map((client) => (
-                        <span
-                          key={client}
-                          className="rounded-full border border-provider-custom/30 bg-provider-custom/10 px-2 py-0.5 text-[11px] font-medium text-provider-custom"
-                        >
-                          {client}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {formData.selectedTemplate === 'gemini-web2api' && (
-                    <CheckCircle2 className="size-5 text-provider-custom shrink-0 self-center animate-in zoom-in-50 duration-200" />
-                  )}
-                </div>
-              </Button>
 
               <Button
                 onClick={() => handleSelectType('custom')}
@@ -469,71 +422,69 @@ export function SelectTypeStep() {
                   </div>
                 </Button>
 
-                {quickTemplates
-                  .filter((template) => template.id !== 'gemini-web2api')
-                  .map((template) => {
-                    const Icon = template.icon === 'grid' ? Grid3X3 : Layers;
-                    const isSelected = formData.selectedTemplate === template.id;
-                    const templateName = template.nameKey ? t(template.nameKey) : template.name;
-                    const templateDescription = template.descriptionKey
-                      ? t(template.descriptionKey)
-                      : template.description;
+                {quickTemplates.map((template) => {
+                  const Icon = template.icon === 'grid' ? Grid3X3 : Layers;
+                  const isSelected = formData.selectedTemplate === template.id;
+                  const templateName = template.nameKey ? t(template.nameKey) : template.name;
+                  const templateDescription = template.descriptionKey
+                    ? t(template.descriptionKey)
+                    : template.description;
 
-                    return (
-                      <Button
-                        key={template.id}
-                        onClick={() => handleApplyTemplate(template.id)}
-                        variant="ghost"
-                        className={`group p-0 rounded-xl border text-left h-full w-full min-h-36 sm:min-h-40 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                          isSelected
-                            ? 'border-primary bg-primary/10 shadow-sm'
-                            : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
-                        }`}
-                      >
-                        <div className="p-4 sm:p-5 flex flex-col gap-3 sm:gap-4 h-full w-full">
-                          <div className="flex items-center justify-between w-full">
-                            <div
-                              className={`size-9 sm:size-10 rounded-lg flex items-center justify-center overflow-hidden transition-all duration-200 group-hover:scale-105 ${
-                                isSelected ? 'bg-primary/15' : 'bg-muted group-hover:bg-primary/10'
-                              }`}
-                            >
-                              {template.logoUrl ? (
-                                <img
-                                  src={template.logoUrl}
-                                  alt={templateName}
-                                  className="w-full h-full object-contain"
-                                />
-                              ) : (
-                                <Icon
-                                  className={`size-4 sm:size-5 ${
-                                    isSelected
-                                      ? 'text-primary'
-                                      : 'text-muted-foreground group-hover:text-primary transition-colors'
-                                  }`}
-                                />
-                              )}
-                            </div>
-                            {isSelected && (
-                              <CheckCircle2 className="size-4 sm:size-[18px] text-primary animate-in zoom-in-50 duration-200" />
+                  return (
+                    <Button
+                      key={template.id}
+                      onClick={() => handleApplyTemplate(template.id)}
+                      variant="ghost"
+                      className={`group p-0 rounded-xl border text-left h-full w-full min-h-36 sm:min-h-40 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                        isSelected
+                          ? 'border-primary bg-primary/10 shadow-sm'
+                          : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                      }`}
+                    >
+                      <div className="p-4 sm:p-5 flex flex-col gap-3 sm:gap-4 h-full w-full">
+                        <div className="flex items-center justify-between w-full">
+                          <div
+                            className={`size-9 sm:size-10 rounded-lg flex items-center justify-center overflow-hidden transition-all duration-200 group-hover:scale-105 ${
+                              isSelected ? 'bg-primary/15' : 'bg-muted group-hover:bg-primary/10'
+                            }`}
+                          >
+                            {template.logoUrl ? (
+                              <img
+                                src={template.logoUrl}
+                                alt={templateName}
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <Icon
+                                className={`size-4 sm:size-5 ${
+                                  isSelected
+                                    ? 'text-primary'
+                                    : 'text-muted-foreground group-hover:text-primary transition-colors'
+                                }`}
+                              />
                             )}
                           </div>
-
-                          <div className="flex-1 space-y-1">
-                            <h4
-                              className={`text-sm font-semibold leading-tight truncate transition-colors ${
-                                isSelected ? 'text-primary' : 'text-foreground'
-                              }`}
-                            >
-                              {templateName}
-                            </h4>
-                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                              {templateDescription}
-                            </p>
-                          </div>
+                          {isSelected && (
+                            <CheckCircle2 className="size-4 sm:size-[18px] text-primary animate-in zoom-in-50 duration-200" />
+                          )}
                         </div>
-                      </Button>
-                    );
-                  })}
+
+                        <div className="flex-1 space-y-1">
+                          <h4
+                            className={`text-sm font-semibold leading-tight truncate transition-colors ${
+                              isSelected ? 'text-primary' : 'text-foreground'
+                            }`}
+                          >
+                            {templateName}
+                          </h4>
+                          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+                            {templateDescription}
+                          </p>
+                        </div>
+                      </div>
+                    </Button>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Globe,
   ChevronLeft,
-  ChevronDown,
   Key,
   Check,
   Trash2,
@@ -1294,7 +1293,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   onUpdateResponsesWebSocket={(checked) =>
                     setFormData((prev) => ({ ...prev, responsesWebSocket: checked }))
                   }
-                  advancedCollapsed
                 />
 
                 <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
@@ -1315,169 +1313,155 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 </div>
               </ProviderEditSection>
 
-              <details className="group rounded-xl border border-border bg-card/50 p-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-semibold text-foreground [&::-webkit-details-marker]:hidden">
-                  <span>{t('provider.advancedSettings', 'Advanced settings')}</span>
-                  <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="mt-6 space-y-6">
-                  <ProviderEditSection
-                    id="provider-models"
-                    title={t('provider.infoSections.models')}
-                    description={t('provider.infoSections.modelsDesc')}
-                    icon={<Filter size={18} />}
-                  >
-                    <ProviderSupportModels
-                      supportModels={formData.supportModels}
-                      onChange={(models) =>
-                        setFormData((prev) => ({ ...prev, supportModels: models }))
-                      }
-                    />
+              <ProviderEditSection
+                id="provider-models"
+                title={t('provider.infoSections.models')}
+                description={t('provider.infoSections.modelsDesc')}
+                icon={<Filter size={18} />}
+              >
+                <ProviderSupportModels
+                  supportModels={formData.supportModels}
+                  onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
+                />
 
-                    <ProviderExposedModels
-                      enabled={formData.exposedModelsEnabled}
-                      exposedModels={formData.exposedModels}
-                      onEnabledChange={(enabled) =>
-                        setFormData((prev) => ({ ...prev, exposedModelsEnabled: enabled }))
-                      }
-                      onChange={(models) =>
-                        setFormData((prev) => ({ ...prev, exposedModels: models }))
-                      }
-                    />
+                <ProviderExposedModels
+                  enabled={formData.exposedModelsEnabled}
+                  exposedModels={formData.exposedModels}
+                  onEnabledChange={(enabled) =>
+                    setFormData((prev) => ({ ...prev, exposedModelsEnabled: enabled }))
+                  }
+                  onChange={(models) => setFormData((prev) => ({ ...prev, exposedModels: models }))}
+                />
 
-                    <ProviderModelMappings
-                      provider={provider}
-                      runtimeModelsPreview={runtimeModelsPreview}
-                    />
+                <ProviderModelMappings
+                  provider={provider}
+                  runtimeModelsPreview={runtimeModelsPreview}
+                />
 
-                    <ResponseModelMappings
-                      mappings={formData.responseModelMapping}
-                      onChange={(mappings) =>
-                        setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
-                      }
-                      disabled={saving}
-                    />
-                  </ProviderEditSection>
+                <ResponseModelMappings
+                  mappings={formData.responseModelMapping}
+                  onChange={(mappings) =>
+                    setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
+                  }
+                  disabled={saving}
+                />
+              </ProviderEditSection>
 
-                  <ProviderEditSection
-                    id="provider-policies"
-                    title={t('provider.infoSections.policies')}
-                    description={t('provider.infoSections.policiesDesc')}
-                    icon={<Zap size={18} />}
-                  >
-                    <ProviderMaxConcurrencyField
-                      value={formData.maxConcurrency}
-                      onChange={(maxConcurrency) =>
-                        setFormData((prev) => ({ ...prev, maxConcurrency }))
-                      }
-                    />
+              <ProviderEditSection
+                id="provider-policies"
+                title={t('provider.infoSections.policies')}
+                description={t('provider.infoSections.policiesDesc')}
+                icon={<Zap size={18} />}
+              >
+                <ProviderMaxConcurrencyField
+                  value={formData.maxConcurrency}
+                  onChange={(maxConcurrency) =>
+                    setFormData((prev) => ({ ...prev, maxConcurrency }))
+                  }
+                />
 
-                    <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
-                      <div className="pr-4">
-                        <div className="text-sm font-medium text-foreground">
-                          {t('provider.quotaEnabled')}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={!!formData.quotaEnabled}
-                        onCheckedChange={(checked) =>
-                          setFormData((prev) => ({ ...prev, quotaEnabled: checked }))
-                        }
-                      />
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.quotaEnabled')}
                     </div>
-
-                    <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
-                      <div className="pr-4">
-                        <div className="text-sm font-medium text-foreground">
-                          {t('provider.disableErrorCooldown')}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {t('provider.disableErrorCooldownDesc')}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={!!formData.disableErrorCooldown}
-                        onCheckedChange={(checked) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            disableErrorCooldown: checked,
-                            smartMappingRetryEnabled: checked
-                              ? prev.smartMappingRetryEnabled
-                              : false,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <SmartMappingRetrySettings
-                      disableErrorCooldown={!!formData.disableErrorCooldown}
-                      enabled={formData.smartMappingRetryEnabled}
-                      retryLimit={formData.smartMappingRetryLimit}
-                      mappingTargetCount={providerMappingTargetCount}
-                      onEnabledChange={(checked) =>
-                        setFormData((prev) => ({ ...prev, smartMappingRetryEnabled: checked }))
-                      }
-                      onRetryLimitChange={(limit) =>
-                        setFormData((prev) => ({ ...prev, smartMappingRetryLimit: limit }))
-                      }
-                    />
-                    <ReasoningPolicySettings
-                      value={formData.reasoning}
-                      onChange={(reasoning) => setFormData((prev) => ({ ...prev, reasoning }))}
-                    />
-                  </ProviderEditSection>
-
-                  <ProviderEditSection
-                    id="provider-danger"
-                    title={t('provider.infoSections.danger')}
-                    description={t('provider.infoSections.dangerDesc')}
-                    icon={<Trash2 size={18} />}
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
-                        <div className="pr-4">
-                          <div className="text-sm font-medium text-foreground">
-                            {t('provider.blackBox')}
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {t('provider.blackBoxDesc')}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={!!formData.blackBox}
-                          onCheckedChange={(checked) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              blackBox: checked,
-                              excludeFromExport: checked ? true : prev.excludeFromExport,
-                            }))
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
-                        <div className="pr-4">
-                          <div className="text-sm font-medium text-foreground">
-                            {t('provider.excludeFromExport')}
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {excludeFromExportLocked
-                              ? t('provider.excludeFromExportLockedDesc')
-                              : t('provider.excludeFromExportDesc')}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={effectiveExcludeFromExport}
-                          disabled={excludeFromExportLocked || !!formData.blackBox}
-                          onCheckedChange={(checked) =>
-                            setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
-                          }
-                        />
-                      </div>
-                    </div>
-                  </ProviderEditSection>
+                  </div>
+                  <Switch
+                    checked={!!formData.quotaEnabled}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, quotaEnabled: checked }))
+                    }
+                  />
                 </div>
-              </details>
+
+                <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('provider.disableErrorCooldown')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('provider.disableErrorCooldownDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!formData.disableErrorCooldown}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        disableErrorCooldown: checked,
+                        smartMappingRetryEnabled: checked ? prev.smartMappingRetryEnabled : false,
+                      }))
+                    }
+                  />
+                </div>
+
+                <SmartMappingRetrySettings
+                  disableErrorCooldown={!!formData.disableErrorCooldown}
+                  enabled={formData.smartMappingRetryEnabled}
+                  retryLimit={formData.smartMappingRetryLimit}
+                  mappingTargetCount={providerMappingTargetCount}
+                  onEnabledChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, smartMappingRetryEnabled: checked }))
+                  }
+                  onRetryLimitChange={(limit) =>
+                    setFormData((prev) => ({ ...prev, smartMappingRetryLimit: limit }))
+                  }
+                />
+                <ReasoningPolicySettings
+                  value={formData.reasoning}
+                  onChange={(reasoning) => setFormData((prev) => ({ ...prev, reasoning }))}
+                />
+              </ProviderEditSection>
+
+              <ProviderEditSection
+                id="provider-danger"
+                title={t('provider.infoSections.danger')}
+                description={t('provider.infoSections.dangerDesc')}
+                icon={<Trash2 size={18} />}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                    <div className="pr-4">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('provider.blackBox')}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t('provider.blackBoxDesc')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!formData.blackBox}
+                      onCheckedChange={(checked) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          blackBox: checked,
+                          excludeFromExport: checked ? true : prev.excludeFromExport,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+                    <div className="pr-4">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('provider.excludeFromExport')}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {excludeFromExportLocked
+                          ? t('provider.excludeFromExportLockedDesc')
+                          : t('provider.excludeFromExportDesc')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={effectiveExcludeFromExport}
+                      disabled={excludeFromExportLocked || !!formData.blackBox}
+                      onCheckedChange={(checked) =>
+                        setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
+                      }
+                    />
+                  </div>
+                </div>
+              </ProviderEditSection>
 
               {saveStatus === 'error' && (
                 <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
