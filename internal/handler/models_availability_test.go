@@ -102,13 +102,51 @@ func (r *modelAvailabilityProjectRepo) List(tenantID uint64) ([]*domain.Project,
 	return append([]*domain.Project(nil), r.projects...), nil
 }
 
-func newModelAvailabilityRouter(t *testing.T, providers []*domain.Provider, routes []*domain.Route, projects []*domain.Project) (*router.Router, *cached.ProviderRepository) {
+type modelAvailabilitySettingRepo struct{ values map[string]string }
+
+func (r *modelAvailabilitySettingRepo) Get(key string) (string, error) {
+	if r == nil || r.values == nil {
+		return "", domain.ErrNotFound
+	}
+	value, ok := r.values[key]
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	return value, nil
+}
+
+func (r *modelAvailabilitySettingRepo) Set(key, value string) error {
+	if r.values == nil {
+		r.values = map[string]string{}
+	}
+	r.values[key] = value
+	return nil
+}
+
+func (r *modelAvailabilitySettingRepo) GetAll() ([]*domain.SystemSetting, error) {
+	result := make([]*domain.SystemSetting, 0, len(r.values))
+	for key, value := range r.values {
+		result = append(result, &domain.SystemSetting{Key: key, Value: value})
+	}
+	return result, nil
+}
+
+func (r *modelAvailabilitySettingRepo) Delete(key string) error {
+	delete(r.values, key)
+	return nil
+}
+
+func newModelAvailabilityRouter(t *testing.T, providers []*domain.Provider, routes []*domain.Route, projects []*domain.Project, settings ...*modelAvailabilitySettingRepo) (*router.Router, *cached.ProviderRepository) {
 	t.Helper()
 	providerRepo := cached.NewProviderRepository(&modelAvailabilityProviderRepo{providers: providers})
 	routeRepo := cached.NewRouteRepository(&modelAvailabilityRouteRepo{routes: routes})
 	strategyRepo := cached.NewRoutingStrategyRepository(&modelAvailabilityStrategyRepo{})
 	retryRepo := cached.NewRetryConfigRepository(&modelAvailabilityRetryRepo{})
 	projectRepo := cached.NewProjectRepository(&modelAvailabilityProjectRepo{projects: projects})
+	settingRepo := &modelAvailabilitySettingRepo{values: map[string]string{domain.SettingKeyStrictSupportModelsRoutingEnabled: "true"}}
+	if len(settings) > 0 {
+		settingRepo = settings[0]
+	}
 	for _, loader := range []struct {
 		name string
 		load func() error
@@ -123,7 +161,7 @@ func newModelAvailabilityRouter(t *testing.T, providers []*domain.Provider, rout
 			t.Fatalf("load %s: %v", loader.name, err)
 		}
 	}
-	r := router.NewRouter(routeRepo, providerRepo, strategyRepo, retryRepo, projectRepo)
+	r := router.NewRouter(routeRepo, providerRepo, strategyRepo, retryRepo, projectRepo, settingRepo)
 	if err := r.InitAdapters(); err != nil {
 		t.Fatalf("InitAdapters: %v", err)
 	}

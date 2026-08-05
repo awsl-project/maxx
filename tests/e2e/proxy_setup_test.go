@@ -131,7 +131,7 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 	wsHub := handler.NewWebSocketHub()
 
 	// Create Router (for proxy pipeline)
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo)
+	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo, settingRepo)
 
 	// Create admin service with Router as adapter refresher
 	adminService := service.NewAdminService(
