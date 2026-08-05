@@ -245,3 +245,47 @@ func TestModelsHandlerFiltersProjectScopedModelList(t *testing.T) {
 		t.Fatalf("ids = %v, want only project model", ids)
 	}
 }
+
+func TestUserPanelAvailableModelsIncludesCodexOnlyVisibleRoute(t *testing.T) {
+	providers := []*domain.Provider{{
+		ID:                   10,
+		TenantID:             1,
+		Name:                 "codex-only",
+		Type:                 "custom",
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex},
+		SupportModels:        []string{"gpt-codex-panel"},
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: "https://example.invalid/v1",
+			APIKey:  "test-key",
+		}},
+	}}
+	routes := []*domain.Route{{
+		ID:         1,
+		TenantID:   1,
+		ProviderID: 10,
+		ClientType: domain.ClientTypeCodex,
+		ProjectID:  0,
+		IsEnabled:  true,
+		Position:   1,
+		Weight:     1,
+	}}
+	r, providerRepo := newModelAvailabilityRouter(t, providers, routes, nil)
+	modelsHandler := NewModelsHandler(&fakeResponseModelRepo{names: []string{"gpt-codex-panel"}}, providerRepo, nil, r)
+	selfServiceHandler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			domain.SettingKeyProxyRouteOpenAIChatEnabled:     "false",
+			domain.SettingKeyProxyRouteResponsesEnabled:      "true",
+			domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
+			domain.SettingKeyProxyRouteGeminiEnabled:         "false",
+		}},
+	})
+	selfServiceHandler.modelsHandler = modelsHandler
+
+	names, err := selfServiceHandler.collectUserPanelAvailableModelNames(1, 0)
+	if err != nil {
+		t.Fatalf("collectUserPanelAvailableModelNames: %v", err)
+	}
+	if !containsModel(names, "gpt-codex-panel") {
+		t.Fatalf("names = %v, want Codex-only model", names)
+	}
+}
