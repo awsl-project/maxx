@@ -144,7 +144,7 @@ export function ClientRoutesPage() {
   const isClaudePage = activeClientType === 'claude';
   const isCodexPage = activeClientType === 'codex';
 
-  const { data: projects } = useProjects();
+  const { data: projects, isLoading: isProjectsLoading } = useProjects();
   const { data: allRoutes } = useRoutes();
   const { data: providers = [] } = useProviders();
   const sortedProjects = useMemo(
@@ -172,6 +172,16 @@ export function ClientRoutesPage() {
       if (panelTimerRef.current) clearTimeout(panelTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (selectedProjectId === '0' || !projects) return;
+    const selectedProjectExists = projects.some(
+      (project) => String(project.id) === selectedProjectId,
+    );
+    if (!selectedProjectExists) {
+      setSelectedProjectId('0');
+    }
+  }, [projects, selectedProjectId]);
 
   // Check if there are any Antigravity/Codex routes in the current scope (Global routes, projectID=0)
   const { hasAntigravityRoutes, hasCodexRoutes } = useMemo(() => {
@@ -292,71 +302,72 @@ export function ClientRoutesPage() {
         onValueChange={setSelectedProjectId}
         className="flex-1 min-h-0 flex flex-col"
       >
-        {/* Only show tab bar when there are projects */}
-        {sortedProjects.length > 0 && (
-          <div className="relative px-6 py-3 border-b border-border bg-card">
-            <div className="mx-auto max-w-[1400px] flex items-center justify-between gap-6">
-              <div className="flex min-w-0 flex-1 items-center gap-6">
-                {/* Global Group */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    {t('common.global')}
-                  </span>
-                  <TabsList className="h-8 shrink-0">
-                    <TabsTrigger value="0" className="h-7 px-3 text-xs flex items-center gap-1.5">
-                      <Globe className="h-3.5 w-3.5" />
-                      <span>{t('common.default')}</span>
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
+        <div className="relative px-6 py-3 border-b border-border bg-card">
+          <div className="mx-auto max-w-[1400px] flex items-center justify-between gap-6">
+            <div className="flex min-w-0 flex-1 items-center gap-6">
+              {/* Global Group */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  {t('common.global')}
+                </span>
+                <TabsList className="h-8 shrink-0">
+                  <TabsTrigger value="0" className="h-7 px-3 text-xs flex items-center gap-1.5">
+                    <Globe className="h-3.5 w-3.5" />
+                    <span>{t('common.default')}</span>
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
+              {sortedProjects.length > 0 ? (
                 <ProjectTabBar
                   projects={sortedProjects}
                   selectedProjectId={selectedProjectId}
                   onHoverStart={handleProjectHoverStart}
                   onHoverEnd={handleProjectHoverEnd}
                 />
-              </div>
-
-              {/* Sort Buttons */}
-              {sortButtons}
+              ) : (
+                <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-medium uppercase tracking-wider select-none">
+                    {t('nav.projects')}
+                  </span>
+                  <span>{isProjectsLoading ? t('common.loading') : t('projects.noProjects')}</span>
+                </div>
+              )}
             </div>
 
-            {/* Full-width hover panel: all projects */}
-            {showProjectPanel && (
-              <div
-                className="absolute left-0 right-0 top-full z-50 border-b border-border bg-card shadow-md"
-                onMouseEnter={handleProjectHoverStart}
-                onMouseLeave={handleProjectHoverEnd}
-              >
-                <div className="mx-auto max-w-[1400px] px-6 py-3 flex flex-wrap gap-2">
-                  {sortedProjects.map((project) => (
-                    <button
-                      key={project.id}
-                      onClick={() => {
-                        setSelectedProjectId(String(project.id));
-                        setShowProjectPanel(false);
-                      }}
-                      className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
-                        selectedProjectId === String(project.id) &&
-                          'bg-accent text-accent-foreground',
-                      )}
-                    >
-                      <FolderKanban className="h-3.5 w-3.5 shrink-0" />
-                      <span>{project.name}</span>
-                    </button>
-                  ))}
-                </div>
+            {/* Sort Buttons */}
+            {sortButtons}
+          </div>
+
+          {/* Full-width hover panel: all projects */}
+          {showProjectPanel && sortedProjects.length > 0 && (
+            <div
+              className="absolute left-0 right-0 top-full z-50 border-b border-border bg-card shadow-md"
+              onMouseEnter={handleProjectHoverStart}
+              onMouseLeave={handleProjectHoverEnd}
+            >
+              <div className="mx-auto max-w-[1400px] px-6 py-3 flex flex-wrap gap-2">
+                {sortedProjects.map((project) => (
+                  <button
+                    key={project.id}
+                    onClick={() => {
+                      setSelectedProjectId(String(project.id));
+                      setShowProjectPanel(false);
+                    }}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                      selectedProjectId === String(project.id) &&
+                        'bg-accent text-accent-foreground',
+                    )}
+                  >
+                    <FolderKanban className="h-3.5 w-3.5 shrink-0" />
+                    <span>{project.name}</span>
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-        )}
-        {sortedProjects.length === 0 && (
-          <div className="px-6 py-3 border-b border-border bg-card">
-            <div className="mx-auto max-w-[1400px] flex justify-end">{sortButtons}</div>
-          </div>
-        )}
+            </div>
+          )}
+        </div>
 
         {/* Global Tab Content */}
         <TabsContent value="0" className="flex-1 min-h-0 overflow-hidden m-0">
