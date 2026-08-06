@@ -1186,6 +1186,9 @@ func TestProxyRouteWithoutConfiguredProviderRecordsRejectedRequest(t *testing.T)
 
 func TestProxyMatchedRouteWithUnsupportedProviderModelRecordsRejectedRequest(t *testing.T) {
 	env := NewProxyTestEnv(t)
+	settingResp := env.AdminPut("/api/admin/settings/strict_support_models_routing_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, settingResp, http.StatusOK)
+	settingResp.Body.Close()
 	providerID := createProvider(t, env, "mock-openai-model-filter", "http://127.0.0.1:1", []string{"openai"})
 
 	providerResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", providerID), map[string]any{

@@ -1,11 +1,13 @@
 package systemsettingcache
 
 import (
+	"errors"
 	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
@@ -24,8 +26,16 @@ var (
 )
 
 func GetBoolean(repo repository.SystemSettingRepository, key string) bool {
+	return getBoolean(repo, key, false)
+}
+
+func GetBooleanDefault(repo repository.SystemSettingRepository, key string, defaultValue bool) bool {
+	return getBoolean(repo, key, defaultValue)
+}
+
+func getBoolean(repo repository.SystemSettingRepository, key string, defaultValue bool) bool {
 	if repo == nil {
-		return false
+		return defaultValue
 	}
 
 	now := time.Now()
@@ -35,6 +45,10 @@ func GetBoolean(repo repository.SystemSettingRepository, key string) bool {
 
 	rawValue, err := repo.Get(key)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			storeBoolean(key, defaultValue, now)
+			return defaultValue
+		}
 		if value, ok := getCachedBoolean(key); ok {
 			log.Printf("[SystemSettingCache] Failed to refresh %s, using cached value: %v", key, err)
 			return value

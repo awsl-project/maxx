@@ -277,7 +277,7 @@ func main() {
 	log.Printf("[Startup] Caches loaded (%v)", time.Since(startupStep))
 
 	// Create router
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo)
+	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo, settingRepo)
 
 	// Initialize provider adapters
 	startupStep = time.Now()

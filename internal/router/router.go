@@ -17,8 +17,10 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/sticky"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
 
 // MatchedRoute contains all data needed to execute a proxy request
@@ -60,6 +62,7 @@ type MatchContext struct {
 	SessionID                 string
 	RequireResponsesWebSocket bool
 	RequiredProviderID        uint64
+	StrictSupportModels       bool
 }
 
 // Router handles route matching and selection
@@ -69,6 +72,7 @@ type Router struct {
 	routingStrategyRepo *cached.RoutingStrategyRepository
 	retryConfigRepo     *cached.RetryConfigRepository
 	projectRepo         *cached.ProjectRepository
+	settingRepo         repository.SystemSettingRepository
 
 	// Adapter cache
 	adapters map[uint64]provider.ProviderAdapter
@@ -86,13 +90,19 @@ func NewRouter(
 	routingStrategyRepo *cached.RoutingStrategyRepository,
 	retryConfigRepo *cached.RetryConfigRepository,
 	projectRepo *cached.ProjectRepository,
+	settingRepo ...repository.SystemSettingRepository,
 ) *Router {
+	var settings repository.SystemSettingRepository
+	if len(settingRepo) > 0 {
+		settings = settingRepo[0]
+	}
 	return &Router{
 		routeRepo:           routeRepo,
 		providerRepo:        providerRepo,
 		routingStrategyRepo: routingStrategyRepo,
 		retryConfigRepo:     retryConfigRepo,
 		projectRepo:         projectRepo,
+		settingRepo:         settings,
 		adapters:            make(map[uint64]provider.ProviderAdapter),
 		limiter:             NewProviderLimiter(),
 		cooldownManager:     cooldown.Default(),
@@ -324,7 +334,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		// OpenAI chat route targeting a Claude provider) map the model later in
 		// dispatch, so applying provider-native SupportModels to the pre-mapped
 		// request model here would incorrectly drop valid cross-protocol routes.
-		if adapterSupportsClientType(adp, clientType) && len(prov.SupportModels) > 0 && requestModel != "" {
+		if (r.strictSupportModelsRoutingEnabled() || ctx.StrictSupportModels) && adapterSupportsClientType(adp, clientType) && len(prov.SupportModels) > 0 && requestModel != "" {
 			if !r.isModelSupported(requestModel, prov.SupportModels) {
 				sawModelReject = true
 				continue
@@ -534,6 +544,10 @@ func (r *Router) CloseResponsesWebSocketConnection(connectionID string) {
 	for _, cleaner := range cleaners {
 		cleaner.CloseResponsesWebSocketConnection(connectionID)
 	}
+}
+
+func (r *Router) strictSupportModelsRoutingEnabled() bool {
+	return systemsettingcache.GetBooleanDefault(r.settingRepo, domain.SettingKeyStrictSupportModelsRoutingEnabled, false)
 }
 
 // isModelSupported checks if a model matches any pattern in the support list

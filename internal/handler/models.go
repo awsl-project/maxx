@@ -168,11 +168,12 @@ func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.Clie
 		return false
 	}
 	result, err := h.router.Match(&router.MatchContext{
-		TenantID:     tenantID,
-		ClientType:   clientType,
-		ProjectID:    projectID,
-		RequestModel: model,
-		APITokenID:   apiTokenID,
+		TenantID:            tenantID,
+		ClientType:          clientType,
+		ProjectID:           projectID,
+		RequestModel:        model,
+		APITokenID:          apiTokenID,
+		StrictSupportModels: true,
 	})
 	if err != nil || result == nil {
 		return false
