@@ -98,6 +98,7 @@ type Provider struct {
 	ExposedModelsEnabled int `gorm:"default:0"`
 	ExposedModels        LongText
 	MaxConcurrency       int `gorm:"default:0"`
+	ForceHTTP502         int `gorm:"default:0"`
 	ExcludeFromExport    int `gorm:"default:0"`
 	BlackBox             int `gorm:"default:0"`
 }
