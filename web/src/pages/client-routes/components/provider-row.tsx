@@ -21,6 +21,10 @@ import { useUpdateRoute } from '@/hooks/queries';
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog';
 import { useEffect, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  getAntigravityAvailabilityBadgeClass,
+  getAntigravityAvailabilityInfo,
+} from '@/lib/antigravity-availability';
 
 // Inline weight editor, shown on each route row only when the effective routing
 // strategy is weighted_random. Commits on blur / Enter and is debounced by the
@@ -365,6 +369,9 @@ function ProviderRowContentBase({
         : providerCooldowns.some((cd) => cd.clientType && !cd.model)
           ? 'limited'
           : 'degraded';
+  const antigravityAvailability = isAntigravity
+    ? getAntigravityAvailabilityInfo(quota, healthLevel)
+    : null;
 
   const handleContentClick = (e: React.MouseEvent) => {
     // 所有状态都打开详情弹窗
@@ -494,6 +501,17 @@ function ProviderRowContentBase({
               ) : (
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
                   <RefreshCw size={10} /> CONV
+                </span>
+              )}
+              {antigravityAvailability && (
+                <span
+                  className={cn(
+                    'flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border',
+                    getAntigravityAvailabilityBadgeClass(antigravityAvailability.tone),
+                  )}
+                  title={t(antigravityAvailability.descriptionKey)}
+                >
+                  {t(antigravityAvailability.labelKey)}
                 </span>
               )}
             </div>
