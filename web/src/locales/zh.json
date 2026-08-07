@@ -72,6 +72,7 @@
     "dashboard": "仪表板",
     "documentation": "文档",
     "console": "控制台",
+    "testField": "测试场",
     "providers": "提供商",
     "projects": "项目",
     "sessions": "会话",
@@ -201,6 +202,12 @@
     "noAvailableModels": "暂无可用模型，请联系管理员配置路由或模型。",
     "moreAvailableModels": "+{{count}} 个更多",
     "routeCodex": "Codex"
+  },
+  "testField": {
+    "title": "测试场",
+    "description": "用于模型和交互环境测试的实验入口。",
+    "readyTitle": "测试场已开启",
+    "readyDescription": "这个 tab 默认隐藏，只有在设置中开启后才会显示。后续测试工具应放在这里，不要误把入口暴露给普通使用流。"
   },
   "dashboard": {
     "title": "仪表板",
@@ -1391,6 +1398,10 @@
     "strictSupportModelsRoutingDesc": "控制请求模型不在提供商支持模型列表内时，是否跳过该提供商继续尝试下一个。",
     "strictSupportModelsRoutingLabel": "不匹配支持模型时跳过提供商",
     "strictSupportModelsRoutingHint": "开启后，如果提供商配置了支持模型且请求模型不匹配，路由会跳过当前提供商并继续匹配后续提供商；全部不匹配时才返回模型不支持。",
+    "testFieldTab": "测试场 tab",
+    "testFieldTabDesc": "控制侧边栏是否显示实验性的测试场 tab。默认关闭。",
+    "testFieldTabLabel": "显示测试场 tab",
+    "testFieldTabHint": "关闭时隐藏测试场 tab，直接访问测试场路径也会被重定向。",
     "enhancedFailureDetails": "增强失败详情",
     "enhancedFailureDetailsDesc": "在请求元数据中展示结构化失败摘要和可展开技术细节。关闭时，请求详情保持原本的紧凑失败状态视图。",
     "defaultOff": "默认：关闭",

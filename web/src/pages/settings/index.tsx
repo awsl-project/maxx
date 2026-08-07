@@ -69,6 +69,7 @@ function parseRetentionInteger(value: string): number | null {
 const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
 const STRICT_SUPPORT_MODELS_ROUTING_SETTING_KEY = 'strict_support_models_routing_enabled';
 const OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'openai_chat_stream_timeouts_enabled';
+const TEST_FIELD_TAB_SETTING_KEY = 'ui_test_field_tab_enabled';
 const OPENAI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY =
   'openai_chat_stream_first_event_timeout_ms';
 const OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY = 'openai_chat_stream_idle_timeout_ms';
@@ -141,6 +142,7 @@ export function SettingsPage() {
           {isAdmin && (
             <>
               <SupportModelRoutingSection />
+              <TestFieldTabSection />
               <MultiTenantUISection />
               <TimezoneSection />
             </>
@@ -1086,6 +1088,52 @@ export function SupportModelRoutingSection() {
         <p className="text-xs text-muted-foreground">
           {t('settings.strictSupportModelsRoutingHint')}
         </p>
+        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function TestFieldTabSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+
+  const enabled = settings?.[TEST_FIELD_TAB_SETTING_KEY] === 'true';
+
+  const handleToggle = async (checked: boolean) => {
+    await updateSetting.mutateAsync({
+      key: TEST_FIELD_TAB_SETTING_KEY,
+      value: checked ? 'true' : 'false',
+    });
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <FolderOpen className="h-4 w-4 text-muted-foreground" />
+              {t('settings.testFieldTab')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.testFieldTabDesc')}</p>
+          </div>
+          <Switch
+            aria-label={t('settings.testFieldTab')}
+            checked={enabled}
+            onCheckedChange={handleToggle}
+            disabled={updateSetting.isPending}
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-2">
+        <Label className="text-sm font-medium text-foreground">
+          {t('settings.testFieldTabLabel')}
+        </Label>
+        <p className="text-xs text-muted-foreground">{t('settings.testFieldTabHint')}</p>
         <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
       </CardContent>
     </Card>

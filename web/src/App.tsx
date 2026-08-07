@@ -16,6 +16,7 @@ import { RetryConfigsPage } from '@/pages/retry-configs';
 import { RoutingStrategiesPage } from '@/pages/routing-strategies';
 import { ConsolePage } from '@/pages/console';
 import { SettingsPage } from '@/pages/settings';
+import { TestFieldPage } from '@/pages/test-field';
 import { DataManagementPage } from '@/pages/data-management';
 import { ProxyAccessPage } from '@/pages/proxy-access';
 import { DiagnosticsPage } from '@/pages/diagnostics';
@@ -50,6 +51,25 @@ function MultiTenantUIRoute({ children }: { children: ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+function TestFieldRoute() {
+  const { t } = useTranslation();
+  const { data: settings, isLoading } = usePublicSettings();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-muted-foreground">{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (settings?.ui_test_field_tab_enabled !== 'true') {
+    return <Navigate to="/" replace />;
+  }
+
+  return <TestFieldPage />;
 }
 
 function AppRoutes() {
@@ -105,6 +125,7 @@ function AppRoutes() {
           <Route path="documentation" element={<DocumentationPage />} />
           <Route path="requests" element={<RequestsPage />} />
           <Route path="requests/:id" element={<RequestDetailPage />} />
+          <Route path="test-field" element={<TestFieldRoute />} />
           <Route path="console" element={<ConsolePage />} />
           <Route path="providers" element={<ProvidersPage />} />
           <Route path="providers/create/*" element={<ProviderCreateLayout />} />

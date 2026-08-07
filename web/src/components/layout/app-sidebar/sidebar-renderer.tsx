@@ -69,6 +69,7 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
   const publicSettings = usePublicSettings();
   const isAdmin = !user || user.role === 'admin';
   const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
+  const testFieldTabEnabled = publicSettings.data?.ui_test_field_tab_enabled === 'true';
 
   return (
     <>
@@ -79,6 +80,9 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
             item.type === 'standard' &&
             (item.key === 'invite-codes' || item.key === 'users')
           ) {
+            return false;
+          }
+          if (item.type === 'standard' && item.key === 'test-field' && !testFieldTabEnabled) {
             return false;
           }
           if (item.type === 'standard' && item.adminOnly && !isAdmin) {

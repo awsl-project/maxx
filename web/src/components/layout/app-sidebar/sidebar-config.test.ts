@@ -44,4 +44,13 @@ describe('sidebarConfig', () => {
     expect(item).not.toHaveProperty('authOnly', true);
   });
 
+  it('defines the test field tab as its own sidebar entry', () => {
+    const item = findItem('test-field');
+
+    expect(item).toMatchObject({
+      type: 'standard',
+      to: '/test-field',
+      labelKey: 'nav.testField',
+    });
+  });
 });
