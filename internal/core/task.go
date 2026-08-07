@@ -268,16 +268,16 @@ func (d *BackgroundTaskDeps) checkDetailCleanupIndexHealth() {
 		// v13 索引存在但 v14 缺失。v13 列序只让 ~10% 行有效过滤,大 batch 等同全扫。
 		// 退到保守批次,并提示运维补 v14。
 		sqlite.SetDetailCleanupIndexMissing(true)
-		log.Printf("[Task] WARNING: MySQL proxy_requests has only the v13 detail-cleanup index "+
-			"(created_at, id). v14 reorder is the actual perf fix; cleanup batch falls back to "+
-			"conservative size (200/50ms) until you apply:\n"+
-			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);\n"+
-			"  -- then optionally:\n"+
+		log.Printf("[Task] WARNING: MySQL proxy_requests has only the v13 detail-cleanup index " +
+			"(created_at, id). v14 reorder is the actual perf fix; cleanup batch falls back to " +
+			"conservative size (200/50ms) until you apply:\n" +
+			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);\n" +
+			"  -- then optionally:\n" +
 			"  -- DROP INDEX idx_proxy_requests_detail_cleanup ON proxy_requests;")
 	default:
 		sqlite.SetDetailCleanupIndexMissing(true)
-		log.Printf("[Task] WARNING: MySQL proxy_requests has NO detail-cleanup index. "+
-			"Cleanup batch falls back to conservative size (200/50ms) until you apply:\n"+
+		log.Printf("[Task] WARNING: MySQL proxy_requests has NO detail-cleanup index. " +
+			"Cleanup batch falls back to conservative size (200/50ms) until you apply:\n" +
 			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);")
 	}
 }
@@ -410,7 +410,8 @@ func (d *BackgroundTaskDeps) maybeSQLiteCheckpointAndVacuum(deletedRequests int6
 	log.Printf("[Task] SQLite maintenance completed (best-effort)")
 }
 
-// 成功 / 失败 状态分组（用于 split 模式下的按状态清理）
+// 成功 / 失败 状态分组（用于 split 模式下的按状态清理）。
+// CANCELLED 表示客户端主动断开，是中性终态，不按失败桶清理。
 //
 // 故意不把 PENDING / IN_PROGRESS 纳入任一桶——长流式请求可能在飞超过
 // failed 保留时间，若按 created_at < cutoff 误判会把仍在写入的 body 清空。
@@ -418,7 +419,7 @@ func (d *BackgroundTaskDeps) maybeSQLiteCheckpointAndVacuum(deletedRequests int6
 // 转成 FAILED，从而被失败桶覆盖；接受这点权衡换在飞行的安全。
 var (
 	successRequestStatuses = []string{"COMPLETED"}
-	failedRequestStatuses  = []string{"FAILED", "CANCELLED", "REJECTED"}
+	failedRequestStatuses  = []string{"FAILED", "REJECTED"}
 )
 
 // requestDetailRetentionConfig 解析当前生效的请求详情保留配置

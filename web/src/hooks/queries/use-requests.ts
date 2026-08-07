@@ -50,12 +50,7 @@ export const requestKeys = {
 };
 
 export function isProxyRequestError(request: ProxyRequest): boolean {
-  return (
-    request.status === 'FAILED' ||
-    request.status === 'CANCELLED' ||
-    request.status === 'REJECTED' ||
-    request.statusCode >= 400
-  );
+  return request.status === 'FAILED' || request.status === 'REJECTED' || request.statusCode >= 400;
 }
 
 function matchesRequestTimeRange(

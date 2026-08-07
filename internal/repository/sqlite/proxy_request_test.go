@@ -1091,15 +1091,15 @@ func TestProxyRequestErrorModeFiltersStatusAndHTTPFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountWithFilter only failed: %v", err)
 	}
-	if errorCount != 4 {
-		t.Fatalf("error count = %d, want 4", errorCount)
+	if errorCount != 3 {
+		t.Fatalf("error count = %d, want 3", errorCount)
 	}
 
 	errorItems, err := repo.ListCursor(1, 10, 0, 0, errorFilter)
 	if err != nil {
 		t.Fatalf("ListCursor only failed: %v", err)
 	}
-	expectedErrorIDs := []uint64{requests[4].ID, requests[3].ID, requests[2].ID, requests[1].ID}
+	expectedErrorIDs := []uint64{requests[3].ID, requests[2].ID, requests[1].ID}
 	if got := collectRequestIDs(errorItems); fmt.Sprint(got) != fmt.Sprint(expectedErrorIDs) {
 		t.Fatalf("error ids = %v, want %v", got, expectedErrorIDs)
 	}
@@ -1109,15 +1109,15 @@ func TestProxyRequestErrorModeFiltersStatusAndHTTPFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountWithFilter exclude failed: %v", err)
 	}
-	if nonErrorCount != 1 {
-		t.Fatalf("non-error count = %d, want 1", nonErrorCount)
+	if nonErrorCount != 2 {
+		t.Fatalf("non-error count = %d, want 2", nonErrorCount)
 	}
 
 	nonErrorItems, err := repo.ListCursor(1, 10, 0, 0, excludeFilter)
 	if err != nil {
 		t.Fatalf("ListCursor exclude failed: %v", err)
 	}
-	expectedNonErrorIDs := []uint64{requests[0].ID}
+	expectedNonErrorIDs := []uint64{requests[4].ID, requests[0].ID}
 	if got := collectRequestIDs(nonErrorItems); fmt.Sprint(got) != fmt.Sprint(expectedNonErrorIDs) {
 		t.Fatalf("non-error ids = %v, want %v", got, expectedNonErrorIDs)
 	}
@@ -1162,18 +1162,18 @@ func TestProxyRequestErrorStatsAggregatesCurrentFilter(t *testing.T) {
 	if stats.TotalRequests != 5 {
 		t.Fatalf("total requests = %d, want 5", stats.TotalRequests)
 	}
-	if stats.ErrorRequests != 4 {
-		t.Fatalf("error requests = %d, want 4", stats.ErrorRequests)
+	if stats.ErrorRequests != 3 {
+		t.Fatalf("error requests = %d, want 3", stats.ErrorRequests)
 	}
-	if stats.ErrorRate != 0.8 {
-		t.Fatalf("error rate = %v, want 0.8", stats.ErrorRate)
+	if stats.ErrorRate != 0.6 {
+		t.Fatalf("error rate = %v, want 0.6", stats.ErrorRate)
 	}
 
 	statusCounts := map[string]int64{}
 	for _, item := range stats.StatusCounts {
 		statusCounts[item.Name] = item.Count
 	}
-	if statusCounts["FAILED"] != 1 || statusCounts["REJECTED"] != 1 || statusCounts["COMPLETED"] != 1 || statusCounts["CANCELLED"] != 1 {
+	if statusCounts["FAILED"] != 1 || statusCounts["REJECTED"] != 1 || statusCounts["COMPLETED"] != 1 || statusCounts["CANCELLED"] != 0 {
 		t.Fatalf("unexpected status counts: %#v", statusCounts)
 	}
 
@@ -1189,7 +1189,7 @@ func TestProxyRequestErrorStatsAggregatesCurrentFilter(t *testing.T) {
 	for _, item := range stats.ProviderCounts {
 		providerCounts[item.ProviderID] = item.Count
 	}
-	if providerCounts[7] != 2 || providerCounts[8] != 1 || providerCounts[9] != 1 {
+	if providerCounts[7] != 2 || providerCounts[8] != 1 || providerCounts[9] != 0 {
 		t.Fatalf("unexpected provider counts: %#v", providerCounts)
 	}
 
@@ -1197,7 +1197,7 @@ func TestProxyRequestErrorStatsAggregatesCurrentFilter(t *testing.T) {
 	for _, item := range stats.ModelCounts {
 		modelCounts[item.Name] = item.Count
 	}
-	if modelCounts["claude-sonnet"] != 2 || modelCounts["gpt-5"] != 1 || modelCounts["cancelled-model"] != 1 {
+	if modelCounts["claude-sonnet"] != 2 || modelCounts["gpt-5"] != 1 || modelCounts["cancelled-model"] != 0 {
 		t.Fatalf("unexpected model counts: %#v", modelCounts)
 	}
 	if len(stats.Trend) == 0 {
@@ -1246,32 +1246,29 @@ func TestProxyRequestDeleteFailedWithFilterDeletesAttemptsAndPreservesNonErrors(
 	if err != nil {
 		t.Fatalf("CountFailedWithFilter: %v", err)
 	}
-	if candidateCount != 2 {
-		t.Fatalf("cleanup candidate count = %d, want 2", candidateCount)
+	if candidateCount != 1 {
+		t.Fatalf("cleanup candidate count = %d, want 1", candidateCount)
 	}
 
 	deletedRequests, deletedAttempts, err := repo.DeleteFailedWithFilter(1, filter)
 	if err != nil {
 		t.Fatalf("DeleteFailedWithFilter: %v", err)
 	}
-	if deletedRequests != 2 || deletedAttempts != 2 {
-		t.Fatalf("deleted requests/attempts = %d/%d, want 2/2", deletedRequests, deletedAttempts)
+	if deletedRequests != 1 || deletedAttempts != 1 {
+		t.Fatalf("deleted requests/attempts = %d/%d, want 1/1", deletedRequests, deletedAttempts)
 	}
 
 	if _, err := repo.GetByID(1, failed.ID); err == nil {
 		t.Fatalf("failed request still exists after cleanup")
 	}
-	if _, err := repo.GetByID(1, cancelled.ID); err == nil {
-		t.Fatalf("cancelled request still exists after cleanup")
-	}
-	for _, req := range []*domain.ProxyRequest{completed, active, rejectedOtherProject} {
+	for _, req := range []*domain.ProxyRequest{cancelled, completed, active, rejectedOtherProject} {
 		if _, err := repo.GetByID(req.TenantID, req.ID); err != nil {
 			t.Fatalf("request %d (%s) should be preserved: %v", req.ID, req.Status, err)
 		}
 	}
 
 	var orphanAttempts int64
-	if err := db.gorm.Model(&ProxyUpstreamAttempt{}).Where("proxy_request_id IN ?", []uint64{failed.ID, cancelled.ID}).Count(&orphanAttempts).Error; err != nil {
+	if err := db.gorm.Model(&ProxyUpstreamAttempt{}).Where("proxy_request_id = ?", failed.ID).Count(&orphanAttempts).Error; err != nil {
 		t.Fatalf("count deleted attempts: %v", err)
 	}
 	if orphanAttempts != 0 {
@@ -1280,12 +1277,12 @@ func TestProxyRequestDeleteFailedWithFilterDeletesAttemptsAndPreservesNonErrors(
 
 	var retainedAttempts int64
 	if err := db.gorm.Model(&ProxyUpstreamAttempt{}).
-		Where("proxy_request_id IN ?", []uint64{completed.ID, active.ID, rejectedOtherProject.ID}).
+		Where("proxy_request_id IN ?", []uint64{cancelled.ID, completed.ID, active.ID, rejectedOtherProject.ID}).
 		Count(&retainedAttempts).Error; err != nil {
 		t.Fatalf("count retained attempts: %v", err)
 	}
-	if retainedAttempts != 3 {
-		t.Fatalf("retained attempts = %d, want 3", retainedAttempts)
+	if retainedAttempts != 4 {
+		t.Fatalf("retained attempts = %d, want 4", retainedAttempts)
 	}
 }
 

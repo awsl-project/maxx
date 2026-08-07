@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Clock3, Copy, Eye, EyeOff, Gift, KeyRound, ListChecks, LogOut, Server, UserRound } from 'lucide-react';
+import {
+  Clock3,
+  Copy,
+  Eye,
+  EyeOff,
+  Gift,
+  KeyRound,
+  ListChecks,
+  LogOut,
+  Server,
+  UserRound,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Badge,
@@ -90,11 +101,7 @@ function isActiveUserPanelRequest(request: ProxyRequest) {
 function getRequestStatusVariant(request: ProxyRequest) {
   if (request.status === 'COMPLETED' && request.statusCode < 400) return 'success';
   if (request.status === 'PENDING' || request.status === 'IN_PROGRESS') return 'warning';
-  if (
-    request.status === 'FAILED' ||
-    request.status === 'CANCELLED' ||
-    request.status === 'REJECTED'
-  ) {
+  if (request.status === 'FAILED' || request.status === 'REJECTED') {
     return 'danger';
   }
   if (request.statusCode >= 400) return 'danger';
@@ -243,7 +250,10 @@ export function UserPanelPage() {
             : t('userPanel.routeGemini'),
   }));
   const visibleAvailableModels = (availableModels ?? []).slice(0, 12);
-  const hiddenAvailableModelCount = Math.max((availableModels?.length ?? 0) - visibleAvailableModels.length, 0);
+  const hiddenAvailableModelCount = Math.max(
+    (availableModels?.length ?? 0) - visibleAvailableModels.length,
+    0,
+  );
 
   useEffect(() => {
     setRevealedUserPanelToken('');
@@ -497,8 +507,12 @@ export function UserPanelPage() {
                             size="icon"
                             className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
                             disabled={tokenActionPending || revealActionPending}
-                            aria-label={t(userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey')}
-                            title={t(userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey')}
+                            aria-label={t(
+                              userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey',
+                            )}
+                            title={t(
+                              userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey',
+                            )}
                             onClick={handleToggleUserPanelTokenReveal}
                           >
                             {userPanelTokenRevealed ? (
@@ -511,7 +525,9 @@ export function UserPanelPage() {
                         {revealKeyError ? (
                           <p className="text-xs text-destructive">{revealKeyError}</p>
                         ) : userPanelTokenRevealed ? (
-                          <p className="text-xs text-muted-foreground">{t('userPanel.fullKeyVisible')}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {t('userPanel.fullKeyVisible')}
+                          </p>
                         ) : null}
                       </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -589,11 +605,17 @@ export function UserPanelPage() {
                   {availableModelsLoading ? (
                     <p className="mt-3 text-sm text-muted-foreground">{t('common.loading')}</p>
                   ) : availableModelsError ? (
-                    <p className="mt-3 text-sm text-destructive">{t('userPanel.availableModelsLoadFailed')}</p>
+                    <p className="mt-3 text-sm text-destructive">
+                      {t('userPanel.availableModelsLoadFailed')}
+                    </p>
                   ) : visibleAvailableModels.length > 0 ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {visibleAvailableModels.map((model) => (
-                        <Badge key={model} variant="outline" className="max-w-full truncate font-mono">
+                        <Badge
+                          key={model}
+                          variant="outline"
+                          className="max-w-full truncate font-mono"
+                        >
                           {model}
                         </Badge>
                       ))}
@@ -604,7 +626,9 @@ export function UserPanelPage() {
                       ) : null}
                     </div>
                   ) : (
-                    <p className="mt-3 text-sm text-muted-foreground">{t('userPanel.noAvailableModels')}</p>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      {t('userPanel.noAvailableModels')}
+                    </p>
                   )}
                 </div>
                 <div className="rounded-xl border border-border bg-muted/25 p-4">
