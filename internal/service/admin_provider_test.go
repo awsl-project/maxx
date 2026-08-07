@@ -10,6 +10,40 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
+func TestAdminServiceProviderForceHTTP502IsPersisted(t *testing.T) {
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("NewDBWithDSN() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := sqlite.NewProviderRepository(db)
+	svc := NewAdminService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
+	provider := &domain.Provider{Name: "faulty", Type: "custom", ForceHTTP502: true}
+	if err := svc.CreateProvider(domain.DefaultTenantID, provider); err != nil {
+		t.Fatalf("CreateProvider() error = %v", err)
+	}
+	created, err := repo.GetByID(domain.DefaultTenantID, provider.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if !created.ForceHTTP502 {
+		t.Fatalf("created ForceHTTP502 = false, want true")
+	}
+
+	created.ForceHTTP502 = false
+	if err := svc.UpdateProvider(domain.DefaultTenantID, created); err != nil {
+		t.Fatalf("UpdateProvider() error = %v", err)
+	}
+	updated, err := repo.GetByID(domain.DefaultTenantID, created.ID)
+	if err != nil {
+		t.Fatalf("GetByID() after update error = %v", err)
+	}
+	if updated.ForceHTTP502 {
+		t.Fatalf("updated ForceHTTP502 = true, want false")
+	}
+}
+
 func TestAdminServiceProviderMaxConcurrencyIsPersistedAndNormalized(t *testing.T) {
 	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

@@ -126,6 +126,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			ExposedModelsEnabled: p.ExposedModelsEnabled,
 			ExposedModels:        p.ExposedModels,
 			MaxConcurrency:       p.MaxConcurrency,
+			ForceHTTP502:         p.ForceHTTP502,
 		})
 	}
 
@@ -543,6 +544,7 @@ func (s *BackupService) importProviders(tenantID uint64, providers []domain.Back
 			ExposedModelsEnabled: bp.ExposedModelsEnabled,
 			ExposedModels:        bp.ExposedModels,
 			MaxConcurrency:       bp.MaxConcurrency,
+			ForceHTTP502:         bp.ForceHTTP502,
 		}
 		if p.MaxConcurrency < 0 {
 			p.MaxConcurrency = 0

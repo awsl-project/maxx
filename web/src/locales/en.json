@@ -1788,6 +1788,8 @@
     "displayName": "Display Name",
     "maxConcurrency": "Max concurrency",
     "maxConcurrencyDesc": "Active upstream sessions cap. 0 = unlimited.",
+    "forceHTTP502": "Force 502",
+    "forceHTTP502Desc": "Fault-injection switch. When enabled, this provider fails with a synthetic 502 before any real upstream call. Disabled by default.",
     "customBackend": "Backend",
     "customBackendHttp": "HTTP relay (pass-through)",
     "customBackendHttpDesc": "Forward requests to an upstream that already speaks the selected client protocol.",

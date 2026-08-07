@@ -261,6 +261,9 @@ routeLoop:
 			}
 
 			err := executeWithProviderSlot(releaseProvider, func() error {
+				if matchedRoute.Provider.ForceHTTP502 {
+					return forcedProviderHTTP502Error(matchedRoute.Provider)
+				}
 				return matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
 			})
 			c.Writer = originalWriter
@@ -471,7 +474,7 @@ routeLoop:
 			if ok && ctx.Err() != context.Canceled {
 				log.Printf("[Executor] ProxyError - Scope: %s, Reason: %s, Retryable: %v, Provider: %d",
 					proxyErr.Scope, proxyErr.Reason, proxyErr.Retryable, matchedRoute.Provider.ID)
-				if !shouldSkipErrorCooldown(matchedRoute.Provider) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, retryConfig) {
+				if !shouldSkipErrorCooldownUpdate(matchedRoute.Provider, proxyErr) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, retryConfig) {
 					e.handleCooldown(proxyErr, matchedRoute.Provider, currentClientType, mappedModel)
 					if e.broadcaster != nil {
 						e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
@@ -594,6 +597,19 @@ func clearProxyRequestDetail(req *domain.ProxyRequest, clearDetail bool) {
 	}
 	req.RequestInfo = nil
 	req.ResponseInfo = nil
+}
+
+func forcedProviderHTTP502Error(provider *domain.Provider) *domain.ProxyError {
+	name := "provider"
+	if provider != nil && provider.Name != "" {
+		name = provider.Name
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "forced provider 502: "+name)
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	proxyErr.HTTPStatusCode = http.StatusBadGateway
+	proxyErr.Code = "provider_forced_502"
+	return proxyErr
 }
 
 func asProxyError(err error) (*domain.ProxyError, bool) {
