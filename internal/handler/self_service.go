@@ -27,6 +27,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"ui_multitenant_enabled":                         {},
 	"ui_multitenant_layout":                          {},
 	domain.SettingKeyRequestFailureDetailsEnabled:    {},
+	domain.SettingKeyTestFieldTabEnabled:             {},
 	domain.SettingKeyUserPanelDailyCheckInEnabled:    {},
 	domain.SettingKeyUserPanelDailyCheckInAmount:     {},
 	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},

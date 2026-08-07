@@ -391,6 +391,48 @@ export interface RouteSyncResult {
   routes: Route[];
 }
 
+export interface TestFieldModelBenchmarkRequest {
+  providerIDs: number[];
+  prompt?: string;
+  concurrency?: number;
+  timeoutMs?: number;
+  maxModelsPerProvider?: number;
+}
+
+export interface TestFieldModelBenchmarkProviderSummary {
+  providerID: number;
+  providerName: string;
+  providerType: string;
+  available: boolean;
+  modelCount: number;
+  testedCount: number;
+  error?: string;
+}
+
+export interface TestFieldModelBenchmarkResult {
+  providerID: number;
+  providerName: string;
+  providerType: string;
+  model: string;
+  available: boolean;
+  durationMs: number;
+  statusCode?: number;
+  error?: string;
+  response?: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface TestFieldModelBenchmarkResponse {
+  prompt: string;
+  concurrency: number;
+  timeoutMs: number;
+  startedAt: string;
+  finishedAt: string;
+  providers: TestFieldModelBenchmarkProviderSummary[];
+  results: TestFieldModelBenchmarkResult[];
+}
+
 export type ClaudeProviderBatchPersistMode = 'none' | 'passed' | 'all_disabled';
 
 export interface ClaudeProviderBatchRequest {

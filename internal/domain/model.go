@@ -975,6 +975,7 @@ const (
 	SettingKeyOpenAIChatStreamFirstEventTimeoutMS  = "openai_chat_stream_first_event_timeout_ms" // OpenAI Chat 路由 provider 首事件超时毫秒数，默认 20000，仅启用 openai_chat_stream_timeouts_enabled 时生效
 	SettingKeyOpenAIChatStreamIdleTimeoutMS        = "openai_chat_stream_idle_timeout_ms"        // OpenAI Chat 路由 provider 事件间 idle 超时毫秒数，默认 45000，仅启用 openai_chat_stream_timeouts_enabled 时生效
 	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"           // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
+	SettingKeyTestFieldTabEnabled                  = "ui_test_field_tab_enabled"                 // 是否显示测试场 tab，"true" 或 "false"，默认 "false"
 	SettingKeyStrictSupportModelsRoutingEnabled    = "strict_support_models_routing_enabled"     // 是否按提供商支持模型严格跳过不匹配路由，"true" 或 "false"，默认 "false"
 	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                   // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
 	SettingKeyUserPanelDailyCheckInEnabled         = "user_panel_daily_checkin_enabled"          // 用户控制台每日签到，"true" 或 "false"，默认 "false"

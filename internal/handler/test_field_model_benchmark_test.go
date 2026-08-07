@@ -1,0 +1,86 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/awsl-project/maxx/internal/domain"
+)
+
+func TestCallTestFieldOpenAIChatBenchmark(t *testing.T) {
+	var receivedModel string
+	var receivedPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var payload struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		receivedModel = payload.Model
+		if len(payload.Messages) != 1 {
+			t.Fatalf("expected one message, got %d", len(payload.Messages))
+		}
+		receivedPrompt = payload.Messages[0].Content
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{ID: 7, Name: "local", Type: "custom"}
+	result := callTestFieldOpenAIChatBenchmark(context.Background(), testFieldBenchmarkTarget{
+		provider: provider,
+		model:    "gpt-test",
+		endpoint: server.URL + "/v1/chat/completions",
+		apiKey:   "sk-test",
+	}, "ping")
+
+	if !result.Available || result.Response != "ok" || result.Error != "" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if receivedModel != "gpt-test" || receivedPrompt != "ping" {
+		t.Fatalf("unexpected request model/prompt: %q %q", receivedModel, receivedPrompt)
+	}
+}
+
+func TestRunTestFieldBenchmarkTargetsSortsAvailableByLatencyOutsideCaller(t *testing.T) {
+	fast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"fast"}}]}`))
+	}))
+	defer fast.Close()
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"slow"}}]}`))
+	}))
+	defer slow.Close()
+
+	provider := &domain.Provider{ID: 1, Name: "p", Type: "custom"}
+	results := runTestFieldBenchmarkTargets(context.Background(), []testFieldBenchmarkTarget{
+		{provider: provider, model: "slow", endpoint: slow.URL, apiKey: ""},
+		{provider: provider, model: "fast", endpoint: fast.URL, apiKey: ""},
+	}, "ping", 2, time.Second)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if !results[0].Available || !results[1].Available {
+		t.Fatalf("expected available results: %+v", results)
+	}
+}
+
+func TestTestFieldOpenAICompatibleEndpointRejectsUnsupportedProvider(t *testing.T) {
+	_, _, ok, errText := testFieldOpenAICompatibleEndpoint(&domain.Provider{Type: "claude", Config: &domain.ProviderConfig{}})
+	if ok || errText == "" {
+		t.Fatalf("expected unsupported provider rejection, ok=%v err=%q", ok, errText)
+	}
+}

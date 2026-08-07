@@ -18,6 +18,7 @@ import {
   Activity,
   ShieldCheck,
   Database,
+  FlaskConical,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -65,6 +66,13 @@ export const sidebarConfig: SidebarConfig = {
           type: 'custom',
           key: 'requests',
           component: RequestsNavItem,
+        },
+        {
+          type: 'standard',
+          key: 'test-field',
+          to: '/test-field',
+          icon: FlaskConical,
+          labelKey: 'nav.testField',
         },
       ],
     },
