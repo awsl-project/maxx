@@ -96,6 +96,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			h.handleProviders(w, r, id)
 		}
+	case "test-field":
+		h.handleTestField(w, r, parts)
 	case "routes":
 		if len(parts) > 2 && parts[2] == "batch-positions" {
 			h.handleBatchUpdateRoutePositions(w, r)

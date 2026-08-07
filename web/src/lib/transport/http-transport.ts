@@ -89,6 +89,8 @@ import type {
   RoutePositionUpdate,
   ClaudeProviderBatchRequest,
   ClaudeProviderBatchResponse,
+  TestFieldModelBenchmarkRequest,
+  TestFieldModelBenchmarkResponse,
   RouteTTFTProbeRequest,
   RouteTTFTProbeResponse,
   UsageStats,
@@ -295,6 +297,21 @@ export class HttpTransport implements Transport {
     return this.expectObject<ProviderModelCheckResponse>(
       data,
       `/admin/providers/${providerId}/model-check`,
+    );
+  }
+
+  async runTestFieldModelBenchmark(
+    payload: TestFieldModelBenchmarkRequest,
+    signal?: AbortSignal,
+  ): Promise<TestFieldModelBenchmarkResponse> {
+    const { data } = await this.client.post<TestFieldModelBenchmarkResponse>(
+      '/admin/test-field/model-benchmark',
+      payload,
+      { signal },
+    );
+    return this.expectObject<TestFieldModelBenchmarkResponse>(
+      data,
+      '/admin/test-field/model-benchmark',
     );
   }
 
@@ -1139,16 +1156,12 @@ export class HttpTransport implements Transport {
   }
 
   async getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult> {
-    const { data } = await this.client.get<UserPanelDailyCheckInResult>(
-      '/user-panel/check-in',
-    );
+    const { data } = await this.client.get<UserPanelDailyCheckInResult>('/user-panel/check-in');
     return data;
   }
 
   async checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult> {
-    const { data } = await this.client.post<UserPanelDailyCheckInResult>(
-      '/user-panel/check-in',
-    );
+    const { data } = await this.client.post<UserPanelDailyCheckInResult>('/user-panel/check-in');
     return data;
   }
 
