@@ -39,17 +39,23 @@ func isClientDisconnectError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+
+	var proxyErr *domain.ProxyError
+	if errors.As(err, &proxyErr) {
+		if errors.Is(proxyErr.Err, context.DeadlineExceeded) {
+			return false
+		}
+		if isClientDisconnectText(proxyErr.Message) || isClientDisconnectText(proxyErr.Code) {
+			return true
+		}
+		if !errors.Is(proxyErr.Err, context.Canceled) && isClientDisconnectText(proxyErr.Err) {
+			return true
+		}
 		return false
 	}
 
-	if proxyErr, ok := err.(*domain.ProxyError); ok {
-		if errors.Is(proxyErr.Err, context.Canceled) || errors.Is(proxyErr.Err, context.DeadlineExceeded) {
-			return false
-		}
-		if isClientDisconnectText(proxyErr.Message) || isClientDisconnectText(proxyErr.Code) || isClientDisconnectText(proxyErr.Err) {
-			return true
-		}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
 	}
 
 	return isClientDisconnectText(err)

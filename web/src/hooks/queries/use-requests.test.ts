@@ -45,8 +45,8 @@ function request(status: ProxyRequest['status'], statusCode = 200): ProxyRequest
 }
 
 describe('isProxyRequestError', () => {
-  it('treats cancelled requests as error records', () => {
-    expect(isProxyRequestError(request('CANCELLED'))).toBe(true);
+  it('keeps cancelled requests out of error records', () => {
+    expect(isProxyRequestError(request('CANCELLED'))).toBe(false);
   });
 
   it('keeps completed 2xx requests out of error records', () => {

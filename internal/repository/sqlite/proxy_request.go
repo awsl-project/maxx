@@ -21,7 +21,7 @@ type ProxyRequestRepository struct {
 
 var activeProxyRequestStatuses = []string{"PENDING", "IN_PROGRESS"}
 
-var proxyRequestErrorStatuses = []string{"FAILED", "CANCELLED", "REJECTED"}
+var proxyRequestErrorStatuses = []string{"FAILED", "REJECTED"}
 
 func cloneProxyRequestFilter(filter *repository.ProxyRequestFilter) *repository.ProxyRequestFilter {
 	if filter == nil {
