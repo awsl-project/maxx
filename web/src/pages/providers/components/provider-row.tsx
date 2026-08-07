@@ -19,6 +19,10 @@ import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-co
 import { useCodexQuotaFromContext } from '@/contexts/codex-quotas-context';
 import { useKiroQuota } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
+import {
+  getAntigravityAvailabilityBadgeClass,
+  getAntigravityAvailabilityInfo,
+} from '@/lib/antigravity-availability';
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -243,6 +247,9 @@ export function ProviderRow({
   const { getCooldownsForProvider, getProviderHealthLevel } = useCooldowns();
   const providerCooldowns = getCooldownsForProvider(provider.id);
   const healthLevel = getProviderHealthLevel(provider.id);
+  const antigravityAvailability = isAntigravity
+    ? getAntigravityAvailabilityInfo(antigravityQuota, healthLevel)
+    : null;
   const worstCooldown = providerCooldowns[0];
   const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
 
@@ -347,6 +354,17 @@ export function ProviderRow({
           {provider.blackBox && (
             <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
               {t('provider.blackBoxBadge')}
+            </span>
+          )}
+          {antigravityAvailability && (
+            <span
+              className={cn(
+                'shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold border',
+                getAntigravityAvailabilityBadgeClass(antigravityAvailability.tone),
+              )}
+              title={t(antigravityAvailability.descriptionKey)}
+            >
+              {t(antigravityAvailability.labelKey)}
             </span>
           )}
         </div>

@@ -11,9 +11,9 @@ function heading(page: Page, name: RegExp) {
 }
 
 async function expectCustomProviderSectionOrder(page: Page) {
-  const clientConfig = heading(page, /Client Configuration|客户端配置/);
-  const errorCooldown = heading(page, /Automatic Error Freeze|错误自动冻结/);
-  const visibilityAndExport = heading(page, /Visibility and Export|可见性与导出/);
+  const clientConfig = heading(page, /Client Configuration|客户端配置|客户端协议/);
+  const errorCooldown = heading(page, /Automatic Error Freeze|错误自动冻结|请求策略/);
+  const visibilityAndExport = heading(page, /Visibility and Export|可见性与导出|导出与危险区/);
 
   await expect(clientConfig).toBeVisible();
   await expect(errorCooldown).toBeVisible();

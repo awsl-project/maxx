@@ -94,8 +94,15 @@ import {
   SelectValue,
 } from '../ui';
 import { cn } from '@/lib/utils';
-import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
-import { CooldownsProvider } from '@/contexts/cooldowns-context';
+import {
+  AntigravityQuotasProvider,
+  useAntigravityQuotasContext,
+} from '@/contexts/antigravity-quotas-context';
+import { CooldownsProvider, useCooldownsContext } from '@/contexts/cooldowns-context';
+import {
+  getAntigravityAvailabilityBadgeClass,
+  getAntigravityAvailabilityInfo,
+} from '@/lib/antigravity-availability';
 import {
   PROVIDER_TYPE_CONFIGS,
   PROVIDER_TYPE_ORDER,
@@ -478,6 +485,8 @@ function ClientTypeRoutesContentInner({
   searchQuery = '',
 }: ClientTypeRoutesContentProps) {
   const { t } = useTranslation();
+  const { getQuotaForProvider } = useAntigravityQuotasContext();
+  const { getProviderHealthLevel } = useCooldownsContext();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedRouteIds, setSelectedRouteIds] = useState<Set<number>>(() => new Set());
   const [selectedAvailableProviderIds, setSelectedAvailableProviderIds] = useState<Set<number>>(
@@ -1243,6 +1252,13 @@ function ClientTypeRoutesContentInner({
                             clientType,
                           );
                           const providerColor = getProviderColor(provider.type as ProviderType);
+                          const antigravityAvailability =
+                            provider.type === 'antigravity'
+                              ? getAntigravityAvailabilityInfo(
+                                  getQuotaForProvider(Number(provider.id)),
+                                  getProviderHealthLevel(Number(provider.id), clientType),
+                                )
+                              : null;
                           return (
                             <div
                               key={provider.id}
@@ -1292,6 +1308,19 @@ function ClientTypeRoutesContentInner({
                                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-destructive/15 text-destructive whitespace-nowrap">
                                         <AlertTriangle size={10} />
                                         {t('routes.bulkAddProviderFailedBadge')}
+                                      </span>
+                                    )}
+                                    {antigravityAvailability && (
+                                      <span
+                                        className={cn(
+                                          'flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap',
+                                          getAntigravityAvailabilityBadgeClass(
+                                            antigravityAvailability.tone,
+                                          ),
+                                        )}
+                                        title={t(antigravityAvailability.descriptionKey)}
+                                      >
+                                        {t(antigravityAvailability.labelKey)}
                                       </span>
                                     )}
                                   </div>
