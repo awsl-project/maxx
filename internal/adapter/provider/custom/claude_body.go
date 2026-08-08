@@ -95,9 +95,9 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 	// 4. Ensure minimum thinking budget if present
 	body = ensureMinThinkingBudget(body)
 
-	// 4b. For bedrock disguise: re-check the `max_tokens > thinking.budget_tokens`
-	// invariant. ensureMinThinkingBudget may have just raised budget_tokens to 1024,
-	// which can violate Bedrock's constraint even though the body looked valid at step 2.
+	// 4b. For bedrock disguise classic fallback: re-check the
+	// `max_tokens > thinking.budget_tokens` invariant. The adaptive-first
+	// path is a no-op here.
 	if bedrockMode {
 		body = bedrock.EnsureMaxTokensAboveThinkingBudget(body)
 	}

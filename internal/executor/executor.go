@@ -382,6 +382,9 @@ func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
 	if proxyErr == nil {
 		return false
 	}
+	if isBedrockAdaptiveThinkingSchemaError(proxyErr) {
+		return false
+	}
 	if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
 		return true
 	}
@@ -414,6 +417,21 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 
 func shouldRetryCommittedResponseError(proxyErr *domain.ProxyError) bool {
 	return proxyErr != nil && proxyErr.Retryable && isCommittedStreamReadRetryableError(proxyErr)
+}
+
+func isBedrockAdaptiveThinkingSchemaError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil || proxyErr.Scope != domain.ScopeRequest || proxyErr.HTTPStatusCode != http.StatusBadRequest {
+		return false
+	}
+	text := strings.ToLower(proxyErr.Message)
+	if proxyErr.Err != nil {
+		text += " " + strings.ToLower(proxyErr.Err.Error())
+	}
+	return strings.Contains(text, "bedrock runtime") &&
+		strings.Contains(text, "validationexception") &&
+		strings.Contains(text, "enabled") &&
+		strings.Contains(text, "adaptive") &&
+		strings.Contains(text, "output_config.effort")
 }
 
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers

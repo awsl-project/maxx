@@ -176,6 +176,103 @@ func TestErrorFixer_ExtraBodyFields(t *testing.T) {
 	assertStatus(t, resp, http.StatusOK)
 }
 
+func TestErrorFixer_BedrockAdaptiveThinking(t *testing.T) {
+	mock := newErrorThenSuccessUpstream(t, 400,
+		map[string]any{
+			"type": "error",
+			"error": map[string]any{
+				"type":    "invalid_request_error",
+				"message": `InvokeModelWithResponseStream: operation error Bedrock Runtime: InvokeModelWithResponseStream, https response error StatusCode: 400, ValidationException: "thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`,
+			},
+		},
+		func(t *testing.T, body []byte) {
+			t.Helper()
+			if got := gjson.GetBytes(body, "thinking.type").String(); got != "adaptive" {
+				t.Fatalf("thinking.type = %q, want adaptive", got)
+			}
+			if gjson.GetBytes(body, "thinking.budget_tokens").Exists() {
+				t.Fatal("thinking.budget_tokens should be removed on retry")
+			}
+			if got := gjson.GetBytes(body, "output_config.effort").String(); got != "high" {
+				t.Fatalf("output_config.effort = %q, want high", got)
+			}
+			for _, field := range []string{"temperature", "top_p", "top_k"} {
+				if gjson.GetBytes(body, field).Exists() {
+					t.Fatalf("%s should be stripped on adaptive-thinking retry", field)
+				}
+			}
+		},
+	)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "bedrock-mock-adaptive-thinking", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages", map[string]any{
+		"model":       "claude-opus-4-7",
+		"max_tokens":  64000,
+		"temperature": 0.2,
+		"top_p":       0.9,
+		"top_k":       10,
+		"thinking": map[string]any{
+			"type":          "enabled",
+			"budget_tokens": 32000,
+		},
+		"messages": []map[string]any{
+			{"role": "user", "content": "Hello"},
+		},
+	}, nil)
+	defer resp.Body.Close()
+
+	assertStatus(t, resp, http.StatusOK)
+}
+
+func TestErrorFixer_BedrockClassicThinkingFallback(t *testing.T) {
+	mock := newErrorThenSuccessUpstream(t, 400,
+		map[string]any{
+			"type": "error",
+			"error": map[string]any{
+				"type":    "invalid_request_error",
+				"message": `InvokeModel: operation error Bedrock Runtime: InvokeModel, https response error StatusCode: 400, ValidationException: output_config.effort: Extra inputs are not permitted`,
+			},
+		},
+		func(t *testing.T, body []byte) {
+			t.Helper()
+			if got := gjson.GetBytes(body, "thinking.type").String(); got != "enabled" {
+				t.Fatalf("thinking.type = %q, want enabled", got)
+			}
+			if got := gjson.GetBytes(body, "thinking.budget_tokens").Int(); got != 8192 {
+				t.Fatalf("thinking.budget_tokens = %d, want 8192", got)
+			}
+			if gjson.GetBytes(body, "output_config").Exists() {
+				t.Fatal("output_config should be removed on classic fallback")
+			}
+			if got := gjson.GetBytes(body, "max_tokens").Int(); got != 8193 {
+				t.Fatalf("max_tokens = %d, want 8193", got)
+			}
+		},
+	)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "bedrock-mock-classic-thinking", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages", map[string]any{
+		"model":         "claude-sonnet-4-5",
+		"max_tokens":    200,
+		"thinking":      map[string]any{"type": "adaptive"},
+		"output_config": map[string]any{"effort": "medium"},
+		"messages": []map[string]any{
+			{"role": "user", "content": "Hello"},
+		},
+	}, nil)
+	defer resp.Body.Close()
+
+	assertStatus(t, resp, http.StatusOK)
+}
+
 func TestErrorFixer_ToolCustomFields(t *testing.T) {
 	mock := newErrorThenSuccessUpstream(t, 400,
 		map[string]any{
@@ -499,4 +596,3 @@ func TestErrorFixer_BedrockStripAll(t *testing.T) {
 		t.Errorf("expected 2 upstream calls (bedrock fixer in 1 retry), got %d", count)
 	}
 }
-

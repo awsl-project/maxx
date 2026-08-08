@@ -14,7 +14,7 @@ func TestSanitizeForBedrockCompatStripsRejectedTopLevelFields(t *testing.T) {
 		"model":"claude-sonnet-4-5",
 		"stream":true,
 		"betas":["claude-code-20250219"],
-		"output_config":{"foo":"bar"},
+		"output_config":{"effort":"high","foo":"bar"},
 		"context_management":{"x":1},
 		"reasoning":{"effort":"high"},
 		"max_tokens":1024,
@@ -23,10 +23,16 @@ func TestSanitizeForBedrockCompatStripsRejectedTopLevelFields(t *testing.T) {
 
 	result := SanitizeForBedrockCompat(body)
 
-	for _, f := range []string{"betas", "output_config", "context_management", "reasoning"} {
+	for _, f := range []string{"betas", "context_management", "reasoning"} {
 		if gjson.GetBytes(result, f).Exists() {
 			t.Errorf("expected %s to be stripped, still present", f)
 		}
+	}
+	if got := gjson.GetBytes(result, "output_config.effort").String(); got != "high" {
+		t.Errorf("output_config.effort = %q, want high", got)
+	}
+	if gjson.GetBytes(result, "output_config.foo").Exists() {
+		t.Error("output_config.foo should be stripped")
 	}
 
 	// model and stream are NOT stripped — relay still needs them. Only the
@@ -39,24 +45,48 @@ func TestSanitizeForBedrockCompatStripsRejectedTopLevelFields(t *testing.T) {
 	}
 }
 
-func TestSanitizeForBedrockCompatConvertsAdaptiveThinking(t *testing.T) {
+func TestSanitizeForBedrockCompatPreservesAdaptiveThinking(t *testing.T) {
 	body := []byte(`{
 		"thinking":{"type":"adaptive"},
+		"output_config":{"effort":"medium"},
 		"max_tokens":4096,
 		"messages":[{"role":"user","content":"hi"}]
 	}`)
 
 	result := SanitizeForBedrockCompat(body)
 
-	if got := gjson.GetBytes(result, "thinking.type").String(); got != "enabled" {
-		t.Errorf("thinking.type = %q, want enabled", got)
+	if got := gjson.GetBytes(result, "thinking.type").String(); got != "adaptive" {
+		t.Errorf("thinking.type = %q, want adaptive", got)
 	}
-	if got := gjson.GetBytes(result, "thinking.budget_tokens").Int(); got != 4095 {
-		t.Errorf("thinking.budget_tokens = %d, want 4095 (max_tokens-1)", got)
+	if gjson.GetBytes(result, "thinking.budget_tokens").Exists() {
+		t.Error("thinking.budget_tokens should not be added for adaptive thinking")
+	}
+	if got := gjson.GetBytes(result, "output_config.effort").String(); got != "medium" {
+		t.Errorf("output_config.effort = %q, want medium", got)
 	}
 }
 
-func TestSanitizeForBedrockCompatRaisesMaxTokensWhenBudgetExceeds(t *testing.T) {
+func TestSanitizeForBedrockCompatConvertsClassicThinkingToAdaptive(t *testing.T) {
+	body := []byte(`{
+		"thinking":{"type":"enabled","budget_tokens":4096},
+		"max_tokens":8192,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	if got := gjson.GetBytes(result, "thinking.type").String(); got != "adaptive" {
+		t.Errorf("thinking.type = %q, want adaptive", got)
+	}
+	if gjson.GetBytes(result, "thinking.budget_tokens").Exists() {
+		t.Error("thinking.budget_tokens should be removed")
+	}
+	if got := gjson.GetBytes(result, "output_config.effort").String(); got != "low" {
+		t.Errorf("output_config.effort = %q, want low", got)
+	}
+}
+
+func TestSanitizeForBedrockCompatDoesNotRaiseMaxTokensAfterAdaptiveRewrite(t *testing.T) {
 	body := []byte(`{
 		"thinking":{"type":"enabled","budget_tokens":5000},
 		"max_tokens":2048,
@@ -65,8 +95,11 @@ func TestSanitizeForBedrockCompatRaisesMaxTokensWhenBudgetExceeds(t *testing.T) 
 
 	result := SanitizeForBedrockCompat(body)
 
-	if got := gjson.GetBytes(result, "max_tokens").Int(); got != 5001 {
-		t.Errorf("max_tokens = %d, want 5001 (budget+1)", got)
+	if got := gjson.GetBytes(result, "thinking.type").String(); got != "adaptive" {
+		t.Errorf("thinking.type = %q, want adaptive", got)
+	}
+	if got := gjson.GetBytes(result, "max_tokens").Int(); got != 2048 {
+		t.Errorf("max_tokens = %d, want unchanged 2048", got)
 	}
 }
 

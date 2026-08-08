@@ -728,12 +728,13 @@ func bedrockDisguiseCustomCfg() *domain.ProviderConfigCustom {
 
 func TestProcessClaudeRequestBodyBedrockDisguiseStripsUnsupportedFields(t *testing.T) {
 	// A representative Claude Code request body that includes every field Bedrock
-	// rejects: betas, output_config, context_management, reasoning, tools[].custom,
-	// cache_control.scope, and thinking.type=adaptive.
+	// rejects: betas, context_management, reasoning, tools[].custom, and
+	// cache_control.scope. Adaptive thinking/output_config.effort are now the
+	// default Bedrock shape.
 	body := []byte(`{
 		"model":"claude-sonnet-4-5",
 		"betas":["claude-code-20250219"],
-		"output_config":{"foo":"bar"},
+		"output_config":{"effort":"medium"},
 		"context_management":{"x":1},
 		"reasoning":{"effort":"high"},
 		"thinking":{"type":"adaptive"},
@@ -762,19 +763,21 @@ func TestProcessClaudeRequestBodyBedrockDisguiseStripsUnsupportedFields(t *testi
 	}
 
 	// Bedrock-rejected top-level fields gone
-	for _, f := range []string{"output_config", "context_management", "reasoning"} {
+	for _, f := range []string{"context_management", "reasoning"} {
 		if gjson.GetBytes(result, f).Exists() {
 			t.Errorf("expected %s to be stripped", f)
 		}
 	}
-
-	// thinking.type=adaptive → enabled
-	if got := gjson.GetBytes(result, "thinking.type").String(); got != "enabled" {
-		t.Errorf("thinking.type = %q, want enabled", got)
+	if got := gjson.GetBytes(result, "output_config.effort").String(); got != "medium" {
+		t.Errorf("output_config.effort = %q, want medium", got)
 	}
-	// budget_tokens auto-populated
-	if got := gjson.GetBytes(result, "thinking.budget_tokens").Int(); got <= 0 {
-		t.Errorf("thinking.budget_tokens should be > 0, got %d", got)
+
+	// thinking.type=adaptive is preserved by default.
+	if got := gjson.GetBytes(result, "thinking.type").String(); got != "adaptive" {
+		t.Errorf("thinking.type = %q, want adaptive", got)
+	}
+	if gjson.GetBytes(result, "thinking.budget_tokens").Exists() {
+		t.Error("thinking.budget_tokens should not be auto-populated for adaptive thinking")
 	}
 
 	// cache_control.scope stripped from system / tools / messages, type preserved
@@ -897,13 +900,7 @@ func TestProcessClaudeRequestBodyBedrockDisguisePreservesSamplingForClassic(t *t
 	}
 }
 
-// TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget
-// guards against a subtle ordering bug: SanitizeForBedrockCompat enforces
-// `max_tokens > thinking.budget_tokens` early, then ensureMinThinkingBudget
-// raises the budget to 1024 — which can put max_tokens BELOW the new budget.
-// processClaudeRequestBody must re-run the constraint after the min-budget
-// raise so Bedrock doesn't reject the request.
-func TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget(t *testing.T) {
+func TestProcessClaudeRequestBodyBedrockDisguiseDefaultsClassicThinkingToAdaptive(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-sonnet-4-6",
 		"max_tokens":200,
@@ -913,14 +910,14 @@ func TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget(t
 
 	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
 
-	// ensureMinThinkingBudget should have raised budget to 1024
-	if got := gjson.GetBytes(result, "thinking.budget_tokens").Int(); got != 1024 {
-		t.Errorf("thinking.budget_tokens = %d, want 1024 (min)", got)
+	if got := gjson.GetBytes(result, "thinking.type").String(); got != "adaptive" {
+		t.Errorf("thinking.type = %q, want adaptive", got)
 	}
-	// max_tokens MUST then be raised above the new budget
-	maxT := gjson.GetBytes(result, "max_tokens").Int()
-	if maxT <= 1024 {
-		t.Errorf("max_tokens = %d, want > 1024 (above raised budget)", maxT)
+	if gjson.GetBytes(result, "thinking.budget_tokens").Exists() {
+		t.Error("thinking.budget_tokens should be removed by adaptive default")
+	}
+	if got := gjson.GetBytes(result, "output_config.effort").String(); got != "low" {
+		t.Errorf("output_config.effort = %q, want low", got)
 	}
 }
 

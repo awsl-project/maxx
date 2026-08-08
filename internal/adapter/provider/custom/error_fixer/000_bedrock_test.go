@@ -19,11 +19,11 @@ func TestBedrockFixer_MatchResponse(t *testing.T) {
 		want       bool
 	}{
 		{
-			name:       "Bedrock InvokeModel error",
+			name:       "Bedrock adaptive rejection is not fixed by legacy bedrock fixer",
 			resp:       &http.Response{StatusCode: 400},
 			body:       `{"error":{"message":"InvokeModel: operation error Bedrock Runtime: InvokeModel, https response error StatusCode: 400, ValidationException: output_config.effort: Extra inputs are not permitted"}}`,
 			clientType: domain.ClientTypeClaude,
-			want:       true,
+			want:       false,
 		},
 		{
 			name:       "Bedrock InvokeModelWithResponseStream",
@@ -84,6 +84,13 @@ func TestBedrockFixer_MatchResponse(t *testing.T) {
 			name:       "Bedrock SDK error wrapping thinking signature — should defer to thinking_envelope",
 			resp:       &http.Response{StatusCode: 400},
 			body:       "{\"error\":{\"message\":\"operation error Bedrock Runtime: InvokeModelWithResponseStream, ValidationException: Invalid `signature` in `thinking` block\"}}",
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "Bedrock adaptive-thinking schema error is not fixed by legacy bedrock fixer",
+			resp:       &http.Response{StatusCode: 400},
+			body:       `{"error":{"message":"InvokeModelWithResponseStream: operation error Bedrock Runtime: InvokeModelWithResponseStream, https response error StatusCode: 400, ValidationException: \"..enabled\" is not supported for this model. Use \"..adaptive\" and \"output_config.effort\" to control thinking behavior."}}`,
 			clientType: domain.ClientTypeClaude,
 			want:       false,
 		},

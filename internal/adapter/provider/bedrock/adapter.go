@@ -227,12 +227,8 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Sanitize request body for Bedrock
 	requestBody = sanitizeRequestBody(requestBody)
 
-	// Model-specific thinking config: Opus 4.7 rejects the classic
-	// thinking.type="enabled" shape and requires adaptive. Earlier
-	// sanitize steps run without knowing the target model; this step
-	// rewrites the thinking block (and sets output_config.effort) based
-	// on the resolved Bedrock ID's short name, so classic-shape clients
-	// (e.g. Claude Code CLI) can still hit adaptive-only models.
+	// Model-specific thinking config: some adaptive-first models reject
+	// sampling params even when no explicit thinking block is present.
 	if short, _, ok := extractNameAndDate(bedrockModelID); ok {
 		requestBody = AdaptThinkingForModel(requestBody, short)
 	}
@@ -246,10 +242,9 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// `redacted_thinking`) is recoverable by stripping those blocks
 	// and replaying once. (2) a 400 rejecting temperature/top_p/top_k
 	// (extended-thinking mode) is recoverable by stripping those
-	// fields and replaying once. (3) a 400 rejecting
-	// thinking.type="enabled" for an adaptive-only model is recoverable
-	// by rewriting to thinking.type="adaptive" and moving the budget
-	// signal into output_config.effort. Cross-deployment replays produced by
+	// fields and replaying once. (3) a 400 rejecting one thinking shape
+	// is recoverable by switching to the other shape. Cross-deployment
+	// replays produced by
 	// clients that captured a transcript against Anthropic and now
 	// hit Bedrock are the common cause; retry preserves the rest of
 	// the conversation rather than failing the whole request.
@@ -263,6 +258,7 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	thinkingRetried := false
 	samplingRetried := false
 	adaptiveRetried := false
+	classicRetried := false
 	for {
 		var attemptErr error
 		resp, attemptErr = a.sendBedrockRequest(ctx, c, upstreamURL, requestBody, region, clientWantsStream)
@@ -315,6 +311,15 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			if !bytes.Equal(rewritten, requestBody) {
 				requestBody = rewritten
 				adaptiveRetried = true
+				continue
+			}
+		}
+
+		if !classicRetried && resp.StatusCode == 400 && IsAdaptiveThinkingRejectedError(body) {
+			rewritten := RewriteAdaptiveThinkingToClassic(requestBody)
+			if !bytes.Equal(rewritten, requestBody) {
+				requestBody = rewritten
+				classicRetried = true
 				continue
 			}
 		}
