@@ -452,6 +452,42 @@ func TestRequestFailureStatusOnlyCancelsForClientDisconnectEvidence(t *testing.T
 	}
 }
 
+func TestDisabledErrorCooldownDoesNotRetryBedrockAdaptiveThinkingSchemaError(t *testing.T) {
+	proxyErr := domain.NewProxyErrorWithMessage(
+		errors.New(`InvokeModelWithResponseStream: operation error Bedrock Runtime: InvokeModelWithResponseStream, https response error StatusCode: 400, ValidationException: "..enabled" is not supported for this model. Use "..adaptive" and "output_config.effort" to control thinking behavior.`),
+		false,
+		"upstream returned status 400",
+	)
+	proxyErr.Scope = domain.ScopeRequest
+	proxyErr.HTTPStatusCode = http.StatusBadRequest
+
+	if isDisabledErrorCooldownRetryableError(proxyErr) {
+		t.Fatal("Bedrock adaptive-thinking schema error should not be retryable")
+	}
+
+	applyDisabledErrorCooldownRetryPolicy(
+		&domain.Provider{Config: &domain.ProviderConfig{DisableErrorCooldown: true}},
+		proxyErr,
+	)
+	if proxyErr.Retryable {
+		t.Fatal("disableErrorCooldown should not force-retry Bedrock adaptive-thinking schema errors")
+	}
+}
+
+func TestDisabledErrorCooldownStillRetriesOrdinaryHTTP400(t *testing.T) {
+	proxyErr := domain.NewProxyErrorWithMessage(
+		errors.New(`{"error":{"message":"temporary upstream 400"}}`),
+		false,
+		"upstream returned status 400",
+	)
+	proxyErr.Scope = domain.ScopeRequest
+	proxyErr.HTTPStatusCode = http.StatusBadRequest
+
+	if !isDisabledErrorCooldownRetryableError(proxyErr) {
+		t.Fatal("ordinary HTTP 400 should still follow disableErrorCooldown retry policy")
+	}
+}
+
 func newDisabledCooldownStreamTestExecutor(proxyRepo *recordingProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
 	return &Executor{
 		proxyRequestRepo: proxyRepo,

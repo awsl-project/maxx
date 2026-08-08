@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -16,11 +17,13 @@ import (
 // - Sets `anthropic_version`
 // - Then runs the relay-safe transformations via SanitizeForBedrockCompat.
 //
-// Bedrock feature support (verified via real API tests):
+// Bedrock feature support changes by model generation:
 //
-//	ACCEPTED: cache_control (system/tools/messages), thinking(enabled), tools, tool_use
-//	REJECTED: stream, output_config, context_management, reasoning, betas,
-//	          thinking(adaptive), tools[].custom, cache_control.scope
+//	adaptive-first: thinking(adaptive) + output_config.effort
+//	classic fallback: thinking(enabled) + thinking.budget_tokens
+//
+// The sanitizer emits the adaptive shape by default; runtime retry paths can
+// rewrite back to classic when an older Bedrock schema rejects adaptive.
 func sanitizeRequestBody(body []byte) []byte {
 	// Remove `model` field (Bedrock uses URL path)
 	body, _ = sjson.DeleteBytes(body, "model")
@@ -47,36 +50,23 @@ func sanitizeRequestBody(body []byte) []byte {
 // "bedrock" disguise mode.
 func SanitizeForBedrockCompat(body []byte) []byte {
 	// Remove unsupported top-level fields
-	for _, field := range []string{"output_config", "context_management", "reasoning", "betas"} {
+	for _, field := range []string{"context_management", "reasoning", "betas"} {
 		if gjson.GetBytes(body, field).Exists() {
 			body, _ = sjson.DeleteBytes(body, field)
 		}
 	}
+	body = sanitizeOutputConfig(body)
 
-	// Fix thinking config: Bedrock only supports "enabled"/"disabled", not "adaptive"
-	thinkingType := gjson.GetBytes(body, "thinking.type").String()
-	if thinkingType == "adaptive" {
-		body, _ = sjson.SetBytes(body, "thinking.type", "enabled")
-		// Ensure budget_tokens is set
-		if !gjson.GetBytes(body, "thinking.budget_tokens").Exists() {
-			maxTokens := gjson.GetBytes(body, "max_tokens").Int()
-			if maxTokens > 1024 {
-				body, _ = sjson.SetBytes(body, "thinking.budget_tokens", maxTokens-1)
-			} else {
-				body, _ = sjson.SetBytes(body, "thinking.budget_tokens", 1024)
-			}
-		}
-	}
-
-	body = EnsureMaxTokensAboveThinkingBudget(body)
+	// Prefer Bedrock's newer adaptive-thinking schema. Older models that
+	// reject adaptive are handled by the runtime fallback path.
+	body = RewriteClassicThinkingToAdaptive(body)
 
 	// Anthropic rule (enforced by Bedrock): when extended thinking is on,
 	// `temperature` must be 1 and `top_p` / `top_k` are not allowed. Rather
 	// than try to clamp temperature, strip all three — the model picks
 	// sensible defaults and the caller's intent of "no sampling override"
-	// is preserved. The model-specific always-on adaptive case (Opus 4.7
-	// without an explicit thinking block) is handled later by
-	// AdaptThinkingForModel, which calls StripSamplingParams again.
+	// is preserved. The model-specific always-on adaptive case without an
+	// explicit thinking block is handled later by AdaptThinkingForModel.
 	switch gjson.GetBytes(body, "thinking.type").String() {
 	case "enabled", "adaptive":
 		body = StripSamplingParams(body)
@@ -110,6 +100,20 @@ func SanitizeForBedrockCompat(body []byte) []byte {
 		}
 	}
 
+	return body
+}
+
+func sanitizeOutputConfig(body []byte) []byte {
+	outputConfig := gjson.GetBytes(body, "output_config")
+	if !outputConfig.Exists() {
+		return body
+	}
+	effort := outputConfig.Get("effort").String()
+	if effort == "" {
+		body, _ = sjson.DeleteBytes(body, "output_config")
+		return body
+	}
+	body, _ = sjson.SetRawBytes(body, "output_config", []byte(`{"effort":`+strconv.Quote(effort)+`}`))
 	return body
 }
 

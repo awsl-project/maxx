@@ -32,7 +32,7 @@ func init() {
 
 type bedrockFixer struct{}
 
-func (f *bedrockFixer) Name() string    { return "bedrock" }
+func (f *bedrockFixer) Name() string  { return "bedrock" }
 func (f *bedrockFixer) Priority() int { return 0 } // highest — covers everything
 
 func (f *bedrockFixer) MatchResponse(resp *http.Response, body []byte, clientType domain.ClientType) bool {
@@ -53,6 +53,12 @@ func (f *bedrockFixer) MatchResponse(resp *http.Response, body []byte, clientTyp
 	// leaves the thinking blocks in place; the retry then fails the
 	// same way and the thinking_envelope fixer never gets a chance.
 	if bedrock.IsThinkingBlockEnvelopeError(body) {
+		return false
+	}
+	if bedrock.IsClassicThinkingRejectedError(body) {
+		return false
+	}
+	if bedrock.IsAdaptiveThinkingRejectedError(body) {
 		return false
 	}
 	return true

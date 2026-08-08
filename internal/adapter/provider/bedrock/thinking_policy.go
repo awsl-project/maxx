@@ -15,16 +15,13 @@ import (
 //
 // Models split into three camps:
 //
-//   adaptive-only   — Opus 4.7: rejects thinking.type="enabled" with
-//                     "\"thinking.type.enabled\" is not supported"
-//   classic-only    — Sonnet/Opus 4.x pre-4.6, 3.7 and older: reject adaptive
-//   either         — Opus 4.6, Sonnet 4.6: accept both (adaptive recommended)
+//   adaptive-first  — newer SKUs reject thinking.type="enabled" and ask for
+//                     adaptive + output_config.effort
+//   classic-only    — older SKUs reject adaptive / output_config.effort
+//   either          — accept both (adaptive recommended)
 //
-// The sanitizer already handles classic-only (it rewrites adaptive →
-// enabled). What's new is the adaptive-only tier. AdaptThinkingForModel
-// performs the inverse rewrite when the resolved short name requires it,
-// so clients that only speak the classic shape (Claude Code CLI on
-// Bedrock) can still hit Opus 4.7.
+// Default normalization is adaptive-first. Runtime validation errors can
+// still rewrite back to classic for older Bedrock schemas.
 
 // adaptiveOnlyModels is the set of short names that reject classic
 // extended-thinking. Kept as a small hand-maintained list because
@@ -41,10 +38,9 @@ func requiresAdaptiveThinking(shortName string) bool {
 	return adaptiveOnlyModels[shortName]
 }
 
-// AdaptThinkingForModel rewrites a classic extended-thinking config into
-// adaptive form when the target model demands it. Idempotent: if the
-// payload already uses adaptive, or the model doesn't require it, or
-// there's no thinking config at all, the body is returned unchanged.
+// AdaptThinkingForModel applies model-specific adjustments after the generic
+// adaptive-first sanitizer. Kept for adaptive-only models that reject sampling
+// params even when no explicit thinking block is present.
 //
 // Budget → effort translation is conservative:
 //   - budget_tokens >= 32k → "high"
@@ -97,6 +93,22 @@ func RewriteClassicThinkingToAdaptive(body []byte) []byte {
 	return body
 }
 
+// RewriteAdaptiveThinkingToClassic converts adaptive thinking into the classic
+// Bedrock shape for older models that reject output_config.effort/adaptive.
+func RewriteAdaptiveThinkingToClassic(body []byte) []byte {
+	if gjson.GetBytes(body, "thinking.type").String() != "adaptive" {
+		return body
+	}
+
+	effort := gjson.GetBytes(body, "output_config.effort").String()
+	budget := budgetForEffort(effort)
+	body, _ = sjson.SetBytes(body, "thinking.type", "enabled")
+	body, _ = sjson.SetBytes(body, "thinking.budget_tokens", budget)
+	body, _ = sjson.DeleteBytes(body, "output_config")
+	body = EnsureMaxTokensAboveThinkingBudget(body)
+	return body
+}
+
 func effortForThinkingBudget(budget int64) string {
 	switch {
 	case budget >= 32000:
@@ -108,15 +120,41 @@ func effortForThinkingBudget(budget int64) string {
 	}
 }
 
+func budgetForEffort(effort string) int64 {
+	switch effort {
+	case "max":
+		return 64000
+	case "high":
+		return 32000
+	case "medium":
+		return 8192
+	default:
+		return 1024
+	}
+}
+
 var classicThinkingRejectedPattern = regexp.MustCompile(
-	`(?i)(?:"?thinking\.type\.enabled"?|thinking\.type\s*=\s*"?enabled"?)` +
+	`(?i)(?:"?thinking\.type\.enabled"?|"?\.\.enabled"?|thinking\.type\s*=\s*"?enabled"?)` +
 		`[^\n]{0,200}\b(?:not\s+supported|unsupported|is\s+not\s+allowed|requires?\s+adaptive)\b` +
 		`|` +
-		`\buse\b[^\n]{0,120}"?thinking\.type\.adaptive"?[^\n]{0,120}\boutput_config\.effort\b`,
+		`\buse\b[^\n]{0,120}(?:"?thinking\.type\.adaptive"?|"?\.\.adaptive"?)[^\n]{0,120}\boutput_config\.effort\b`,
 )
 
 // IsClassicThinkingRejectedError reports whether Bedrock rejected the classic
 // thinking.type="enabled" shape and asked for adaptive thinking instead.
 func IsClassicThinkingRejectedError(body []byte) bool {
 	return classicThinkingRejectedPattern.Match(body)
+}
+
+var adaptiveThinkingRejectedPattern = regexp.MustCompile(
+	`(?i)(?:output_config\.effort|thinking\.type\.adaptive|"?\.\.adaptive"?)` +
+		`[^\n]{0,200}\b(?:extra\s+inputs?\s+are\s+not\s+permitted|not\s+supported|unsupported|is\s+not\s+allowed)\b` +
+		`|` +
+		`\buse\b[^\n]{0,120}(?:"?thinking\.type\.enabled"?|"?\.\.enabled"?)[^\n]{0,120}\b(?:budget_tokens|thinking\.budget_tokens)\b`,
+)
+
+// IsAdaptiveThinkingRejectedError reports whether Bedrock rejected the
+// adaptive thinking shape and needs a retry with classic enabled/budget_tokens.
+func IsAdaptiveThinkingRejectedError(body []byte) bool {
+	return adaptiveThinkingRejectedPattern.Match(body)
 }

@@ -198,6 +198,52 @@ func TestRewriteClassicThinkingToAdaptive(t *testing.T) {
 	}
 }
 
+func TestRewriteAdaptiveThinkingToClassic(t *testing.T) {
+	cases := []struct {
+		name       string
+		input      string
+		wantBudget int64
+		wantMax    int64
+	}{
+		{
+			name:       "high effort maps to classic budget",
+			input:      `{"thinking":{"type":"adaptive"},"output_config":{"effort":"high"},"max_tokens":64000}`,
+			wantBudget: 32000,
+			wantMax:    64000,
+		},
+		{
+			name:       "missing effort maps to low budget",
+			input:      `{"thinking":{"type":"adaptive"},"max_tokens":4096}`,
+			wantBudget: 1024,
+			wantMax:    4096,
+		},
+		{
+			name:       "max_tokens raised above fallback budget",
+			input:      `{"thinking":{"type":"adaptive"},"output_config":{"effort":"medium"},"max_tokens":200}`,
+			wantBudget: 8192,
+			wantMax:    8193,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := RewriteAdaptiveThinkingToClassic([]byte(c.input))
+			if gt := gjson.GetBytes(got, "thinking.type").String(); gt != "enabled" {
+				t.Fatalf("thinking.type = %q; want enabled (body=%s)", gt, string(got))
+			}
+			if budget := gjson.GetBytes(got, "thinking.budget_tokens").Int(); budget != c.wantBudget {
+				t.Fatalf("thinking.budget_tokens = %d; want %d (body=%s)", budget, c.wantBudget, string(got))
+			}
+			if gjson.GetBytes(got, "output_config").Exists() {
+				t.Fatalf("output_config should be removed (body=%s)", string(got))
+			}
+			if maxTokens := gjson.GetBytes(got, "max_tokens").Int(); maxTokens != c.wantMax {
+				t.Fatalf("max_tokens = %d; want %d (body=%s)", maxTokens, c.wantMax, string(got))
+			}
+		})
+	}
+}
+
 func TestIsClassicThinkingRejectedError(t *testing.T) {
 	cases := []struct {
 		name string
@@ -207,6 +253,11 @@ func TestIsClassicThinkingRejectedError(t *testing.T) {
 		{
 			name: "reported bedrock validation",
 			body: `{"message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}`,
+			want: true,
+		},
+		{
+			name: "redacted bedrock validation path",
+			body: `{"message":"\"..enabled\" is not supported for this model. Use \"..adaptive\" and \"output_config.effort\" to control thinking behavior."}`,
 			want: true,
 		},
 		{
@@ -230,6 +281,43 @@ func TestIsClassicThinkingRejectedError(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := IsClassicThinkingRejectedError([]byte(c.body)); got != c.want {
 				t.Fatalf("IsClassicThinkingRejectedError = %v; want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestIsAdaptiveThinkingRejectedError(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "output config effort rejected",
+			body: `{"message":"output_config.effort: Extra inputs are not permitted"}`,
+			want: true,
+		},
+		{
+			name: "adaptive not supported",
+			body: `{"message":"\"thinking.type.adaptive\" is not supported for this model"}`,
+			want: true,
+		},
+		{
+			name: "redacted adaptive not supported",
+			body: `{"message":"\"..adaptive\" is not supported for this model. Use \"..enabled\" with \"thinking.budget_tokens\"."}`,
+			want: true,
+		},
+		{
+			name: "classic rejection is not adaptive rejection",
+			body: `{"message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\"."}`,
+			want: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := IsAdaptiveThinkingRejectedError([]byte(c.body)); got != c.want {
+				t.Fatalf("IsAdaptiveThinkingRejectedError = %v; want %v", got, c.want)
 			}
 		})
 	}

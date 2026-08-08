@@ -97,6 +97,34 @@ func TestFindFixers_BedrockDefersToThinkingEnvelope(t *testing.T) {
 	}
 }
 
+func TestFindFixers_BedrockAdaptiveThinkingPreemptsLegacyBedrock(t *testing.T) {
+	fixers := FindFixers(
+		&http.Response{StatusCode: 400},
+		[]byte(`{"error":{"message":"InvokeModelWithResponseStream: operation error Bedrock Runtime: InvokeModelWithResponseStream, ValidationException: \"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`),
+		domain.ClientTypeClaude,
+	)
+	if len(fixers) != 1 {
+		t.Fatalf("fixers = %v, want exactly bedrock_adaptive_thinking", fixerNames(fixers))
+	}
+	if fixers[0].Name() != "bedrock_adaptive_thinking" {
+		t.Fatalf("fixer = %s, want bedrock_adaptive_thinking", fixers[0].Name())
+	}
+}
+
+func TestFindFixers_BedrockClassicThinkingPreemptsLegacyBedrock(t *testing.T) {
+	fixers := FindFixers(
+		&http.Response{StatusCode: 400},
+		[]byte(`{"error":{"message":"InvokeModel: operation error Bedrock Runtime: InvokeModel, ValidationException: output_config.effort: Extra inputs are not permitted"}}`),
+		domain.ClientTypeClaude,
+	)
+	if len(fixers) != 1 {
+		t.Fatalf("fixers = %v, want exactly bedrock_classic_thinking", fixerNames(fixers))
+	}
+	if fixers[0].Name() != "bedrock_classic_thinking" {
+		t.Fatalf("fixer = %s, want bedrock_classic_thinking", fixers[0].Name())
+	}
+}
+
 func fixerNames(fixers []ErrorFixer) []string {
 	names := make([]string, 0, len(fixers))
 	for _, f := range fixers {
