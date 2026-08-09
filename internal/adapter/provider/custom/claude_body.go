@@ -78,8 +78,8 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 		// "claude-opus-4-7", not on inference-profile IDs.
 		body = bedrock.AdaptThinkingForModel(body, bedrock.ShortNameForModel(modelName))
 		bedrockMode = true
-	case domain.DisguiseTypeNone:
-		// Explicit opt-out: no body transformation.
+	case domain.DisguiseTypeNone, domain.DisguiseTypeXAPIKey:
+		// Explicit opt-out: no body transformation. x-api-key mode only changes outbound headers.
 	default:
 		// "" / "claude-code" / unknown / nil — keep legacy claude-code cloak default.
 		var ccOpts *domain.DisguiseClaudeCodeOptions

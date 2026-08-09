@@ -21,7 +21,7 @@ export type ClientType = 'claude' | 'codex' | 'gemini' | 'openai';
 
 // ===== Provider 相关 =====
 
-export type DisguiseType = 'none' | 'claude-code' | 'bedrock';
+export type DisguiseType = 'none' | 'claude-code' | 'bedrock' | 'x-api-key';
 
 export interface DisguiseClaudeCodeOptions {
   mode?: 'auto' | 'always' | 'never';

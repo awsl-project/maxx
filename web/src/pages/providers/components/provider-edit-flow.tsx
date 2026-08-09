@@ -502,7 +502,7 @@ type EditFormData = {
   supportModels: string[];
   exposedModelsEnabled: boolean;
   exposedModels: string[];
-  disguiseType?: 'none' | 'claude-code' | 'bedrock';
+  disguiseType?: 'none' | 'claude-code' | 'bedrock' | 'x-api-key';
   cloakMode?: 'auto' | 'always' | 'never';
   cloakStrictMode?: boolean;
   cloakSensitiveWords?: string;
@@ -568,7 +568,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     const disguise = customCfg?.disguise;
     const legacyCloak = customCfg?.cloak;
     // Default disguiseType: 'claude-code' (preserves legacy auto-cloak behavior).
-    const disguiseType = (disguise?.type ?? 'claude-code') as 'none' | 'claude-code' | 'bedrock';
+    const disguiseType = (disguise?.type ?? 'claude-code') as 'none' | 'claude-code' | 'bedrock' | 'x-api-key';
     const cc = disguise?.claudeCode ?? legacyCloak;
     return {
       name: provider.name,

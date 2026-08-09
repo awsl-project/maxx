@@ -408,3 +408,36 @@ func TestApplyBedrockCompatHeadersFromClaudeBaseline(t *testing.T) {
 		t.Errorf("User-Agent should be replaced with AWS SDK string, got %q", req.Header.Get("User-Agent"))
 	}
 }
+
+func TestApplyXAPIKeyCompatHeadersUsesOnlyXAPIKeyAuthAndStripsClaudeIdentity(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	clientReq, _ := http.NewRequest("POST", "https://example.com", nil)
+	clientReq.Header.Set("Anthropic-Beta", "client-beta")
+	clientReq.Header.Set("Anthropic-Version", "client-version")
+	clientReq.Header.Set("X-Stainless-Runtime", "node")
+
+	// Start from the normal Claude Code baseline to prove the compatibility mode
+	// is the final authority and does not leak unsupported passthrough headers.
+	applyClaudeHeaders(req, clientReq, "sk-old", true, []string{"extra-beta"}, false)
+	applyXAPIKeyCompatHeaders(req, "sk-new", true)
+
+	if got := req.Header.Get("x-api-key"); got != "sk-new" {
+		t.Fatalf("x-api-key = %q, want sk-new", got)
+	}
+	for _, name := range []string{"Authorization", "x-goog-api-key"} {
+		if got := req.Header.Get(name); got != "" {
+			t.Errorf("%s should be stripped, got %q", name, got)
+		}
+	}
+	for _, h := range claudeIdentityHeaders {
+		if got := req.Header.Get(h); got != "" {
+			t.Errorf("%s should be stripped, got %q", h, got)
+		}
+	}
+	if got := req.Header.Get("Accept"); got != "text/event-stream" {
+		t.Errorf("Accept = %q, want text/event-stream", got)
+	}
+	if got := req.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+}
