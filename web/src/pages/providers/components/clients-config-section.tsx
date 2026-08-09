@@ -14,7 +14,7 @@ import type { ClientType } from '@/lib/transport';
 import type { ClientConfig } from '../types';
 import { useTranslation } from 'react-i18next';
 
-export type DisguiseTypeValue = 'none' | 'claude-code' | 'bedrock';
+export type DisguiseTypeValue = 'none' | 'claude-code' | 'bedrock' | 'x-api-key';
 
 interface DisguiseProp {
   type: DisguiseTypeValue;
@@ -178,14 +178,19 @@ export function ClientsConfigSection({
                         <SelectItem value="bedrock">
                           {t('provider.disguiseTypeBedrock')}
                         </SelectItem>
+                        <SelectItem value="x-api-key">
+                          {t('provider.disguiseTypeXAPIKey')}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground mt-1">
                       {disguise.type === 'bedrock'
                         ? t('provider.disguiseTypeBedrockDesc')
-                        : disguise.type === 'claude-code'
-                          ? t('provider.disguiseTypeClaudeCodeDesc')
-                          : t('provider.disguiseTypeNoneDesc')}
+                        : disguise.type === 'x-api-key'
+                          ? t('provider.disguiseTypeXAPIKeyDesc')
+                          : disguise.type === 'claude-code'
+                            ? t('provider.disguiseTypeClaudeCodeDesc')
+                            : t('provider.disguiseTypeNoneDesc')}
                     </p>
                   </div>
 

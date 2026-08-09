@@ -80,6 +80,8 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 		bedrockMode = true
 	case domain.DisguiseTypeNone:
 		// Explicit opt-out: no body transformation.
+	case domain.DisguiseTypeXAPIKey:
+		// x-api-key mode only changes outbound headers; keep the body unmodified.
 	default:
 		// "" / "claude-code" / unknown / nil — keep legacy claude-code cloak default.
 		var ccOpts *domain.DisguiseClaudeCodeOptions

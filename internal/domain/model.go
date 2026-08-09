@@ -75,6 +75,8 @@ const (
 	DisguiseTypeClaudeCode = "claude-code"
 	// DisguiseTypeBedrock — 洗掉 Claude Code 标识，让后端为 AWS Bedrock 的中转站不报 invalid beta flag
 	DisguiseTypeBedrock = "bedrock"
+	// DisguiseTypeXAPIKey — 使用最小 Claude header 集，强制通过 x-api-key 鉴权，适配只接受 x-api-key 的中转站
+	DisguiseTypeXAPIKey = "x-api-key"
 )
 
 // ProviderConfigCustomDisguise 描述对外伪装的目标客户端类型与对应子选项。

@@ -242,3 +242,32 @@ func ensureHeader(target http.Header, source http.Header, key, defaultValue stri
 		target.Set(key, val)
 	}
 }
+
+// applyXAPIKeyCompatHeaders sets a minimal Claude-compatible header set for
+// relay stations that reject Bearer auth and only accept x-api-key credentials.
+// It intentionally does not passthrough client Claude Code / beta / SDK identity
+// headers, so unsupported client-side header variants cannot leak upstream.
+func applyXAPIKeyCompatHeaders(req *http.Request, apiKey string, stream bool) {
+	// We own auth in this mode: force x-api-key and remove every common source
+	// credential header that could conflict with it.
+	req.Header.Del("Authorization")
+	req.Header.Del("x-api-key")
+	req.Header.Del("x-goog-api-key")
+	if apiKey != "" {
+		req.Header.Set("x-api-key", apiKey)
+	}
+
+	// Keep only the minimal protocol headers Maxx must control. Do not forward
+	// Claude Code fingerprint/beta headers; this mode is for narrow relay
+	// compatibility, not client identity emulation.
+	for _, h := range claudeIdentityHeaders {
+		req.Header.Del(h)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connection", "keep-alive")
+	if stream {
+		req.Header.Set("Accept", "text/event-stream")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
+}

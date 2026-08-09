@@ -158,6 +158,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// 2. Set headers — pick variant based on the effective disguise type
 		// (ResolveDisguise migrates the legacy `cloak` JSON field on the way in).
 		//   bedrock      — strip Claude Code identity entirely (applyBedrockCompatHeaders)
+		//   x-api-key    — minimal Claude headers with forced x-api-key auth
 		//   none         — raw forwarding: copy client headers, override auth only
 		//   claude-code  — inject Claude Code identity headers (legacy default)
 		//   "" / nil     — same as claude-code (backward compatibility)
@@ -169,6 +170,9 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		switch disguiseType {
 		case domain.DisguiseTypeBedrock:
 			applyBedrockCompatHeaders(upstreamReq, request, apiKey, stream)
+		case domain.DisguiseTypeXAPIKey:
+			applyXAPIKeyCompatHeaders(upstreamReq, apiKey, stream)
+			targetUserAgent = defaultClaudeUserAgent
 		case domain.DisguiseTypeNone:
 			// Raw forwarding: copy client headers, then override auth with the
 			// provider's key. This preserves whatever the inbound client sent
