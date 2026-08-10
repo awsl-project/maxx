@@ -1,21 +1,9 @@
 package modelpricesync
 
 import (
-	"fmt"
-
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
-
-// PriceUpdater is the normal model-price write path used by admin handlers.
-// Apply deliberately goes through this interface instead of writing through the
-// sync module/repository directly, so imported prices follow the same semantics
-// as manual price create/update operations.
-type PriceUpdater interface {
-	CreateModelPrice(price *domain.ModelPrice) error
-	UpdateModelPrice(price *domain.ModelPrice) error
-	GetModelPrices() ([]*domain.ModelPrice, error)
-}
 
 // Result summarizes previewing or applying prices into the DB.
 type Result struct {
@@ -43,44 +31,6 @@ func Preview(repo repository.ModelPriceRepository, sourceCode string) (*Result, 
 		return nil, err
 	}
 	return Diff(repo, sourcePrices, source.Code, sourceURL)
-}
-
-// Apply fetches source prices, builds the same preview diff, then applies each
-// change through the normal model-price update path.
-func Apply(repo repository.ModelPriceRepository, updater PriceUpdater, sourceCode string) (*Result, error) {
-	result, err := Preview(repo, sourceCode)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, change := range result.Changes {
-		price := cloneModelPrice(change.After)
-		if price == nil {
-			continue
-		}
-
-		switch change.Action {
-		case "create":
-			if err := updater.CreateModelPrice(price); err != nil {
-				return nil, err
-			}
-		case "update":
-			if err := updater.UpdateModelPrice(price); err != nil {
-				return nil, err
-			}
-		default:
-			return nil, fmt.Errorf("unsupported model price sync action %q", change.Action)
-		}
-		change.After.ID = price.ID
-		change.After.CreatedAt = price.CreatedAt
-	}
-
-	prices, err := updater.GetModelPrices()
-	if err != nil {
-		return nil, err
-	}
-	result.Prices = prices
-	return result, nil
 }
 
 // Diff compares normalized source prices with current DB prices.

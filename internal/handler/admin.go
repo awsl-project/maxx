@@ -2550,13 +2550,35 @@ func (h *AdminHandler) handleModelPricesSyncExternalApply(w http.ResponseWriter,
 	if !ok {
 		return
 	}
-	result, err := h.svc.SyncModelPricesFromExternalSource(req.Source)
+	result, err := h.svc.PreviewModelPricesFromExternalSource(req.Source)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	for _, change := range result.Changes {
+		price := change.After
+		switch change.Action {
+		case "create":
+			err = h.svc.CreateModelPrice(price)
+		case "update":
+			err = h.svc.UpdateModelPrice(price)
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unsupported model price sync action"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	prices, err := h.svc.GetModelPrices()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	result.Prices = prices
 	// Refresh calculator cache
-	pricing.GlobalCalculator().LoadFromDatabase(result.Prices)
+	pricing.GlobalCalculator().LoadFromDatabase(prices)
 	writeJSON(w, http.StatusOK, result)
 }
 
