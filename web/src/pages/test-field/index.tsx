@@ -127,7 +127,7 @@ export function TestFieldPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-0">
+    <div className="h-full min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pt-0">
       <PageHeader title={t('testField.title')} description={t('testField.description')} />
 
       <Card className="border-border bg-card">
