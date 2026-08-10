@@ -2207,5 +2207,5 @@ func (s *AdminService) PreviewModelPricesFromExternalSource(sourceCode string) (
 // SyncModelPricesFromExternalSource fetches an external model price table and
 // applies missing or changed prices. Custom DB-only prices are preserved.
 func (s *AdminService) SyncModelPricesFromExternalSource(sourceCode string) (*modelpricesync.Result, error) {
-	return modelpricesync.Apply(s.modelPriceRepo, sourceCode)
+	return modelpricesync.Apply(s.modelPriceRepo, s, sourceCode)
 }
