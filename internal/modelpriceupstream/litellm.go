@@ -1,8 +1,10 @@
 package modelpriceupstream
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -13,6 +15,8 @@ import (
 )
 
 const defaultLiteLLMSourceURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+
+const maxLiteLLMSourceBodyBytes = 32 << 20
 
 // LiteLLMSource fetches LiteLLM's public model_prices_and_context_window.json table.
 type LiteLLMSource struct {
@@ -32,7 +36,7 @@ func NewLiteLLMSource() *LiteLLMSource {
 func (s *LiteLLMSource) Code() string { return DefaultSourceCode }
 func (s *LiteLLMSource) Name() string { return "LiteLLM" }
 
-func (s *LiteLLMSource) Fetch() ([]*domain.ModelPrice, string, error) {
+func (s *LiteLLMSource) Fetch(ctx context.Context) ([]*domain.ModelPrice, string, error) {
 	sourceURL := os.Getenv(s.EnvURL)
 	if sourceURL == "" {
 		sourceURL = s.DefaultURL
@@ -42,7 +46,11 @@ func (s *LiteLLMSource) Fetch() ([]*domain.ModelPrice, string, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	resp, err := client.Get(sourceURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return nil, sourceURL, fmt.Errorf("create model price source request %q: %w", s.Code(), err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, sourceURL, fmt.Errorf("fetch model price source %q: %w", s.Code(), err)
 	}
@@ -53,7 +61,7 @@ func (s *LiteLLMSource) Fetch() ([]*domain.ModelPrice, string, error) {
 	}
 
 	var raw map[string]LiteLLMModelPrice
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxLiteLLMSourceBodyBytes)).Decode(&raw); err != nil {
 		return nil, sourceURL, fmt.Errorf("decode model price source %q: %w", s.Code(), err)
 	}
 

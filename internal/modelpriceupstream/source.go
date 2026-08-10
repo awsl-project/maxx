@@ -1,10 +1,12 @@
 package modelpriceupstream
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
@@ -25,12 +27,15 @@ type SourceInfo struct {
 type Source interface {
 	Code() string
 	Name() string
-	Fetch() ([]*domain.ModelPrice, string, error)
+	Fetch(ctx context.Context) ([]*domain.ModelPrice, string, error)
 }
 
-var sources = map[string]Source{
-	DefaultSourceCode: NewLiteLLMSource(),
-}
+var (
+	sources = map[string]Source{
+		DefaultSourceCode: NewLiteLLMSource(),
+	}
+	sourcesMu sync.RWMutex
+)
 
 // Register adds or replaces a model price upstream source implementation.
 func Register(source Source) error {
@@ -41,6 +46,8 @@ func Register(source Source) error {
 	if code == "" {
 		return fmt.Errorf("model price upstream source code is empty")
 	}
+	sourcesMu.Lock()
+	defer sourcesMu.Unlock()
 	sources[code] = source
 	return nil
 }
@@ -51,7 +58,9 @@ func Resolve(sourceCode string) (Source, error) {
 	if code == "" {
 		code = DefaultSourceCode
 	}
+	sourcesMu.RLock()
 	source, ok := sources[code]
+	sourcesMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("%w %q", ErrUnsupportedSource, sourceCode)
 	}
@@ -59,12 +68,12 @@ func Resolve(sourceCode string) (Source, error) {
 }
 
 // Fetch fetches and normalizes model prices from the requested source.
-func Fetch(sourceCode string) ([]*domain.ModelPrice, SourceInfo, string, error) {
+func Fetch(ctx context.Context, sourceCode string) ([]*domain.ModelPrice, SourceInfo, string, error) {
 	source, err := Resolve(sourceCode)
 	if err != nil {
 		return nil, SourceInfo{}, "", err
 	}
-	prices, sourceURL, err := source.Fetch()
+	prices, sourceURL, err := source.Fetch(ctx)
 	if err != nil {
 		return nil, SourceInfo{Code: source.Code(), Name: source.Name()}, sourceURL, err
 	}

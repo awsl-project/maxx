@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/hex"
@@ -2200,6 +2201,6 @@ func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error
 
 // ListModelPricesFromExternalSource fetches an external model price table
 // and returns prices normalized to the internal model price shape.
-func (s *AdminService) ListModelPricesFromExternalSource(sourceCode string) (*modelpriceupstream.Result, error) {
-	return modelpriceupstream.List(sourceCode)
+func (s *AdminService) ListModelPricesFromExternalSource(ctx context.Context, sourceCode string) (*modelpriceupstream.Result, error) {
+	return modelpriceupstream.List(ctx, sourceCode)
 }

@@ -270,12 +270,22 @@ func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
 	if upstream["source"] != "litellm" {
 		t.Fatalf("expected upstream source litellm, got %+v", upstream["source"])
 	}
-	if upstream["total"].(float64) != 2 {
-		t.Fatalf("expected two formatted upstream prices, got %+v", upstream)
+	total, ok := upstream["total"].(float64)
+	if !ok || total != 2 {
+		t.Fatalf("expected two formatted upstream prices, got total=%+v upstream=%+v", upstream["total"], upstream)
 	}
 	upstreamPrices, ok := upstream["prices"].([]any)
 	if !ok || len(upstreamPrices) != 2 {
 		t.Fatalf("expected formatted upstream prices, got %+v", upstream["prices"])
+	}
+	for _, item := range upstreamPrices {
+		price, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("expected upstream price object, got %+v", item)
+		}
+		if price["modelId"] == "sample_spec" {
+			t.Fatalf("sample_spec should be filtered from upstream prices: %+v", upstreamPrices)
+		}
 	}
 	if _, hasChanges := upstream["changes"]; hasChanges {
 		t.Fatalf("upstream prices endpoint should not include changes, got %+v", upstream["changes"])

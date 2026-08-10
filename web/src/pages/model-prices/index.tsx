@@ -274,7 +274,7 @@ export function ModelPricesPage() {
         if (change.action === 'create') {
           await createPrice.mutateAsync(input);
           created++;
-        } else {
+        } else if (change.action === 'update') {
           await updatePrice.mutateAsync({ id: change.after.id, data: input });
           updated++;
         }

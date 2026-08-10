@@ -42,6 +42,7 @@ export function UpstreamPricesDialog({
   const { t } = useTranslation();
   const [selectedChangeKeys, setSelectedChangeKeys] = useState<string[]>([]);
   const visibleChanges = changes.slice(0, 50);
+  const selectedChangeKeySet = new Set(selectedChangeKeys);
 
   useEffect(() => {
     if (!open) return;
@@ -132,7 +133,7 @@ export function UpstreamPricesDialog({
                     >
                       <input
                         type="checkbox"
-                        checked={selectedChangeKeys.includes(key)}
+                        checked={selectedChangeKeySet.has(key)}
                         onChange={(event) => handleToggleChange(key, event.target.checked)}
                         disabled={isPending}
                       />

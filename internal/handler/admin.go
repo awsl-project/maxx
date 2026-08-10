@@ -2534,7 +2534,7 @@ func (h *AdminHandler) handleModelPricesUpstreamPrices(w http.ResponseWriter, r 
 	if !ok {
 		return
 	}
-	result, err := h.svc.ListModelPricesFromExternalSource(req.Source)
+	result, err := h.svc.ListModelPricesFromExternalSource(r.Context(), req.Source)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, modelpriceupstream.ErrUnsupportedSource) {

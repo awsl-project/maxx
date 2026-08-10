@@ -1,6 +1,7 @@
 package modelpriceupstream
 
 import (
+	"context"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -20,13 +21,17 @@ type fakeSource struct{}
 
 func (fakeSource) Code() string { return "fake" }
 func (fakeSource) Name() string { return "Fake" }
-func (fakeSource) Fetch() ([]*domain.ModelPrice, string, error) {
+func (fakeSource) Fetch(context.Context) ([]*domain.ModelPrice, string, error) {
 	return []*domain.ModelPrice{{ModelID: "fake-model", InputPriceMicro: 1}}, "memory://fake", nil
 }
 
 func TestRegisterSupportsIndependentSourceImplementations(t *testing.T) {
+	sourcesMu.RLock()
 	previous, existed := sources["fake"]
+	sourcesMu.RUnlock()
 	t.Cleanup(func() {
+		sourcesMu.Lock()
+		defer sourcesMu.Unlock()
 		if existed {
 			sources["fake"] = previous
 		} else {
@@ -38,7 +43,7 @@ func TestRegisterSupportsIndependentSourceImplementations(t *testing.T) {
 		t.Fatalf("Register fake source: %v", err)
 	}
 
-	prices, source, sourceURL, err := Fetch("fake")
+	prices, source, sourceURL, err := Fetch(context.Background(), "fake")
 	if err != nil {
 		t.Fatalf("Fetch fake source: %v", err)
 	}
