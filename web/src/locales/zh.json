@@ -1787,8 +1787,6 @@
     "displayName": "显示名称",
     "maxConcurrency": "最大并发",
     "maxConcurrencyDesc": "上游会话并发上限，0 表示不限制。",
-    "forceHTTP502": "强制 502",
-    "forceHTTP502Desc": "故障注入开关。开启后该 provider 在调用真实上游前会被强制伪造成 502 错误，默认关闭。",
     "customBackend": "后端类型",
     "customBackendHttp": "HTTP 中转（原样转发）",
     "customBackendHttpDesc": "转发到已经支持所选客户端协议的上游服务。",

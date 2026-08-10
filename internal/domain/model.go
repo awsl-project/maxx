@@ -465,9 +465,6 @@ type Provider struct {
 	// Maximum number of upstream sessions allowed at once. Zero means unlimited.
 	MaxConcurrency int `json:"maxConcurrency,omitempty"`
 
-	// ForceHTTP502 forces this provider to fail with a synthetic 502 before any upstream call.
-	ForceHTTP502 bool `json:"forceHTTP502,omitempty"`
-
 	// 为 true 时，该 provider 不参与导出/备份
 	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
 

@@ -20,7 +20,6 @@ import {
   useUpdateSetting,
   useProxyRequestUpdates,
   useCreateProvider,
-  useUpdateProvider,
   useCreateModelMapping,
   useBulkDeleteProviders,
   useRoutes,
@@ -165,7 +164,6 @@ export function ProvidersPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const createProvider = useCreateProvider();
-  const updateProvider = useUpdateProvider();
   const createModelMapping = useCreateModelMapping();
   const bulkDeleteProviders = useBulkDeleteProviders();
   const canManageProviderSettings = user?.role === 'admin';
@@ -909,14 +907,6 @@ export function ProvidersPage() {
                                     isSelected &&
                                       'border-primary/50 bg-primary/5 ring-1 ring-primary/20',
                                   )}
-                                  canManageFaultInjection={providerCanOpen}
-                                  forceHTTP502Pending={updateProvider.isPending}
-                                  onForceHTTP502Change={(forceHTTP502) =>
-                                    updateProvider.mutate({
-                                      id: provider.id,
-                                      data: { forceHTTP502 },
-                                    })
-                                  }
                                   onClick={
                                     providerCanOpen
                                       ? () => openProviderEditor(provider.id)

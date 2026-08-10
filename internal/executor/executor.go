@@ -357,10 +357,7 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 }
 
 func shouldSkipErrorCooldownUpdate(provider *domain.Provider, proxyErr *domain.ProxyError) bool {
-	if shouldSkipErrorCooldown(provider) {
-		return true
-	}
-	return proxyErr != nil && proxyErr.Code == "provider_forced_502"
+	return shouldSkipErrorCooldown(provider)
 }
 
 func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {
