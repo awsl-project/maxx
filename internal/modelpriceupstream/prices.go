@@ -1,4 +1,4 @@
-package modelpricesync
+package modelpriceupstream
 
 import "github.com/awsl-project/maxx/internal/domain"
 

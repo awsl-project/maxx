@@ -73,7 +73,7 @@ interface PriceFormData {
   outputPremiumDenom: string;
 }
 
-const modelPriceSyncSources = [{ value: 'litellm', label: 'LiteLLM' }] as const;
+const modelPriceUpstreamSources = [{ value: 'litellm', label: 'LiteLLM' }] as const;
 
 const defaultFormData: PriceFormData = {
   modelId: '',
@@ -167,7 +167,7 @@ function buildUpstreamChanges(
   });
 }
 
-function syncChangeKey(action: string, modelId: string): string {
+function upstreamChangeKey(action: string, modelId: string): string {
   return `${action}:${modelId}`;
 }
 
@@ -207,12 +207,12 @@ export function ModelPricesPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [upstreamPricesOpen, setUpstreamPricesOpen] = useState(false);
-  const [syncSource, setSyncSource] =
-    useState<(typeof modelPriceSyncSources)[number]['value']>('litellm');
+  const [upstreamSource, setUpstreamSource] =
+    useState<(typeof modelPriceUpstreamSources)[number]['value']>('litellm');
   const [upstreamPrices, setUpstreamPrices] = useState<UpstreamModelPricesResult | null>(null);
   const [upstreamChanges, setUpstreamChanges] = useState<ModelPriceChange[]>([]);
-  const [selectedSyncChangeKeys, setSelectedSyncChangeKeys] = useState<string[]>([]);
-  const [syncResultText, setSyncResultText] = useState<string | null>(null);
+  const [selectedUpstreamChangeKeys, setSelectedUpstreamChangeKeys] = useState<string[]>([]);
+  const [importResultText, setImportResultText] = useState<string | null>(null);
 
   const handleOpenCreate = () => {
     if (!canManagePrices) return;
@@ -253,41 +253,41 @@ export function ModelPricesPage() {
   const handleResetConfirm = async () => {
     if (!canManagePrices) return;
     await resetPrices.mutateAsync();
-    setSyncResultText(null);
+    setImportResultText(null);
     setResetConfirmOpen(false);
   };
 
   const handleFetchExternalPrices = async () => {
     if (!canManagePrices) return;
-    const result = await fetchExternalPrices.mutateAsync(syncSource);
+    const result = await fetchExternalPrices.mutateAsync(upstreamSource);
     const changes = buildUpstreamChanges(result.prices, prices || []);
     setUpstreamPrices(result);
     setUpstreamChanges(changes);
-    setSelectedSyncChangeKeys(
-      changes.map((change) => syncChangeKey(change.action, change.after.modelId)),
+    setSelectedUpstreamChangeKeys(
+      changes.map((change) => upstreamChangeKey(change.action, change.after.modelId)),
     );
     setUpstreamPricesOpen(true);
   };
 
-  const handleToggleSyncChange = (key: string, checked: boolean) => {
-    setSelectedSyncChangeKeys((current) =>
+  const handleToggleUpstreamChange = (key: string, checked: boolean) => {
+    setSelectedUpstreamChangeKeys((current) =>
       checked ? [...current, key] : current.filter((item) => item !== key),
     );
   };
 
-  const handleToggleAllSyncChanges = (checked: boolean) => {
-    setSelectedSyncChangeKeys(
+  const handleToggleAllUpstreamChanges = (checked: boolean) => {
+    setSelectedUpstreamChangeKeys(
       checked
-        ? upstreamChanges.map((change) => syncChangeKey(change.action, change.after.modelId))
+        ? upstreamChanges.map((change) => upstreamChangeKey(change.action, change.after.modelId))
         : [],
     );
   };
 
-  const handleApplyExternalSync = async () => {
+  const handleApplyUpstreamPrices = async () => {
     if (!canManagePrices || !upstreamPrices) return;
-    const selected = new Set(selectedSyncChangeKeys);
+    const selected = new Set(selectedUpstreamChangeKeys);
     const selectedChanges = upstreamChanges.filter((change) =>
-      selected.has(syncChangeKey(change.action, change.after.modelId)),
+      selected.has(upstreamChangeKey(change.action, change.after.modelId)),
     );
 
     let created = 0;
@@ -303,8 +303,8 @@ export function ModelPricesPage() {
       }
     }
 
-    setSyncResultText(
-      t('modelPrices.syncExternalResult', {
+    setImportResultText(
+      t('modelPrices.upstreamImportResult', {
         created,
         updated,
         skipped: upstreamPrices.total - selectedChanges.length,
@@ -335,14 +335,14 @@ export function ModelPricesPage() {
           canManagePrices ? (
             <div className="flex items-center gap-2">
               <Select
-                value={syncSource}
-                onValueChange={(value) => setSyncSource(value as typeof syncSource)}
+                value={upstreamSource}
+                onValueChange={(value) => setUpstreamSource(value as typeof upstreamSource)}
               >
                 <SelectTrigger className="w-32 h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {modelPriceSyncSources.map((source) => (
+                  {modelPriceUpstreamSources.map((source) => (
                     <SelectItem key={source.value} value={source.value}>
                       {source.label}
                     </SelectItem>
@@ -356,7 +356,7 @@ export function ModelPricesPage() {
                 disabled={isPending}
               >
                 <RotateCcw className="h-4 w-4 mr-1" />
-                {t('modelPrices.syncExternal')}
+                {t('modelPrices.fetchUpstreamPrices')}
               </Button>
               <Button
                 variant="outline"
@@ -380,8 +380,8 @@ export function ModelPricesPage() {
         <Card className="border-border bg-card">
           <CardContent className="p-6">
             <p className="text-xs text-muted-foreground mb-4">{t('modelPrices.pageDesc')}</p>
-            {syncResultText && (
-              <p className="text-xs text-green-600 dark:text-green-400 mb-4">{syncResultText}</p>
+            {importResultText && (
+              <p className="text-xs text-green-600 dark:text-green-400 mb-4">{importResultText}</p>
             )}
 
             {/* Header row */}
@@ -689,16 +689,14 @@ export function ModelPricesPage() {
       <AlertDialog open={upstreamPricesOpen} onOpenChange={setUpstreamPricesOpen}>
         <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('modelPrices.syncExternalPricesTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('modelPrices.syncExternalPricesDesc')}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t('modelPrices.upstreamPricesTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('modelPrices.upstreamPricesDesc')}</AlertDialogDescription>
           </AlertDialogHeader>
           {upstreamPrices && (
             <div className="space-y-3 text-left">
               <div className="rounded border border-border bg-muted/30 p-3 text-xs space-y-1">
                 <div className="break-all">
-                  {t('modelPrices.syncSource')}: {upstreamPrices.source || syncSource} ·{' '}
+                  {t('modelPrices.upstreamSource')}: {upstreamPrices.source || upstreamSource} ·{' '}
                   {upstreamPrices.sourceUrl}
                 </div>
                 <div>
@@ -714,19 +712,19 @@ export function ModelPricesPage() {
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <input
                     type="checkbox"
-                    checked={selectedSyncChangeKeys.length === upstreamChanges.length}
+                    checked={selectedUpstreamChangeKeys.length === upstreamChanges.length}
                     ref={(el) => {
                       if (el) {
                         el.indeterminate =
-                          selectedSyncChangeKeys.length > 0 &&
-                          selectedSyncChangeKeys.length < upstreamChanges.length;
+                          selectedUpstreamChangeKeys.length > 0 &&
+                          selectedUpstreamChangeKeys.length < upstreamChanges.length;
                       }
                     }}
-                    onChange={(event) => handleToggleAllSyncChanges(event.target.checked)}
+                    onChange={(event) => handleToggleAllUpstreamChanges(event.target.checked)}
                     disabled={isPending}
                   />
-                  {t('modelPrices.syncSelectAll', {
-                    selected: selectedSyncChangeKeys.length,
+                  {t('modelPrices.upstreamSelectAll', {
+                    selected: selectedUpstreamChangeKeys.length,
                     total: upstreamChanges.length,
                   })}
                 </label>
@@ -734,11 +732,11 @@ export function ModelPricesPage() {
               <div className="max-h-72 overflow-y-auto rounded border border-border">
                 {upstreamChanges.length === 0 ? (
                   <div className="p-3 text-xs text-muted-foreground">
-                    {t('modelPrices.syncNoChanges')}
+                    {t('modelPrices.upstreamNoChanges')}
                   </div>
                 ) : (
                   upstreamChanges.slice(0, 50).map((change, index) => {
-                    const key = syncChangeKey(change.action, change.after.modelId);
+                    const key = upstreamChangeKey(change.action, change.after.modelId);
                     return (
                       <div
                         key={`${change.action}-${change.after.modelId}-${index}`}
@@ -746,8 +744,10 @@ export function ModelPricesPage() {
                       >
                         <input
                           type="checkbox"
-                          checked={selectedSyncChangeKeys.includes(key)}
-                          onChange={(event) => handleToggleSyncChange(key, event.target.checked)}
+                          checked={selectedUpstreamChangeKeys.includes(key)}
+                          onChange={(event) =>
+                            handleToggleUpstreamChange(key, event.target.checked)
+                          }
                           disabled={isPending}
                         />
                         <span className="w-14 shrink-0 uppercase text-muted-foreground">
@@ -781,10 +781,10 @@ export function ModelPricesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleApplyExternalSync}
-              disabled={isPending || !upstreamPrices || selectedSyncChangeKeys.length === 0}
+              onClick={handleApplyUpstreamPrices}
+              disabled={isPending || !upstreamPrices || selectedUpstreamChangeKeys.length === 0}
             >
-              {t('modelPrices.applySync')}
+              {t('modelPrices.applySelectedPrices')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

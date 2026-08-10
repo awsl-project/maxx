@@ -19,7 +19,7 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
-	"github.com/awsl-project/maxx/internal/modelpricesync"
+	"github.com/awsl-project/maxx/internal/modelpriceupstream"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
@@ -2200,6 +2200,6 @@ func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error
 
 // ListModelPricesFromExternalSource fetches an external model price table
 // and returns prices normalized to the internal model price shape.
-func (s *AdminService) ListModelPricesFromExternalSource(sourceCode string) (*modelpricesync.Result, error) {
-	return modelpricesync.List(sourceCode)
+func (s *AdminService) ListModelPricesFromExternalSource(sourceCode string) (*modelpriceupstream.Result, error) {
+	return modelpriceupstream.List(sourceCode)
 }

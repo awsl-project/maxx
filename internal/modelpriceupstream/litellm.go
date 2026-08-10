@@ -1,4 +1,4 @@
-package modelpricesync
+package modelpriceupstream
 
 import (
 	"encoding/json"

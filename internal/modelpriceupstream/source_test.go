@@ -1,4 +1,4 @@
-package modelpricesync
+package modelpriceupstream
 
 import (
 	"testing"
@@ -49,7 +49,7 @@ func TestConvertLiteLLMModelPrice(t *testing.T) {
 	inputAbove := 0.000006
 	outputAbove := 0.0000225
 
-	price, ok := ConvertLiteLLMModelPrice("sync-model", LiteLLMModelPrice{
+	price, ok := ConvertLiteLLMModelPrice("upstream-model", LiteLLMModelPrice{
 		InputCostPerToken:                 &input,
 		OutputCostPerToken:                &output,
 		CacheReadInputTokenCost:           &cacheRead,
@@ -60,7 +60,7 @@ func TestConvertLiteLLMModelPrice(t *testing.T) {
 	if !ok || price == nil {
 		t.Fatal("expected LiteLLM row to convert")
 	}
-	if price.ModelID != "sync-model" || price.InputPriceMicro != 3_000_000 || price.OutputPriceMicro != 15_000_000 {
+	if price.ModelID != "upstream-model" || price.InputPriceMicro != 3_000_000 || price.OutputPriceMicro != 15_000_000 {
 		t.Fatalf("unexpected converted price: %+v", price)
 	}
 	if price.CacheReadPriceMicro != 300_000 || price.Cache5mWritePriceMicro != 3_750_000 || price.Cache1hWritePriceMicro != 3_750_000 {

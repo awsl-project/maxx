@@ -216,7 +216,7 @@ func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-  "sync-model": {
+  "upstream-model": {
     "litellm_provider": "openai",
     "mode": "chat",
     "input_cost_per_token": 0.000003,
@@ -227,7 +227,7 @@ func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
     "input_cost_per_token_above_200k_tokens": 0.000006,
     "output_cost_per_token_above_200k_tokens": 0.0000225
   },
-  "sync-new-model": {
+  "upstream-new-model": {
     "litellm_provider": "openai",
     "mode": "chat",
     "input_cost_per_token": 0.000001,
@@ -245,7 +245,7 @@ func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
 	env := NewTestEnv(t)
 
 	custom := map[string]any{
-		"modelId":          "sync-custom-model",
+		"modelId":          "upstream-custom-model",
 		"inputPriceMicro":  1234,
 		"outputPriceMicro": 5678,
 	}
@@ -254,7 +254,7 @@ func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
 	resp.Body.Close()
 
 	existing := map[string]any{
-		"modelId":          "sync-model",
+		"modelId":          "upstream-model",
 		"inputPriceMicro":  1,
 		"outputPriceMicro": 15000000,
 	}
@@ -289,8 +289,8 @@ func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
 	currentByModelID := make(map[string]map[string]any, len(beforeApply))
 	for _, price := range beforeApply {
 		currentByModelID[price["modelId"].(string)] = price
-		if price["modelId"] == "sync-model" && price["inputPriceMicro"].(float64) != 1 {
-			t.Fatalf("fetch mutated sync-model: %+v", price)
+		if price["modelId"] == "upstream-model" && price["inputPriceMicro"].(float64) != 1 {
+			t.Fatalf("fetch mutated upstream-model: %+v", price)
 		}
 	}
 
@@ -319,22 +319,22 @@ func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
 	foundCreated := false
 	for _, price := range resultPrices {
 		switch price["modelId"] {
-		case "sync-custom-model":
+		case "upstream-custom-model":
 			foundCustom = true
-		case "sync-model":
+		case "upstream-model":
 			foundSyncedExisting = price["inputPriceMicro"].(float64) == 3000000
-		case "sync-new-model":
+		case "upstream-new-model":
 			foundCreated = price["inputPriceMicro"].(float64) == 1000000
 		}
 	}
 
 	if !foundCustom {
-		t.Fatal("sync should preserve custom model prices")
+		t.Fatal("upstream import should preserve custom model prices")
 	}
 	if !foundSyncedExisting {
-		t.Fatal("sync should update existing model price from external source")
+		t.Fatal("upstream import should update existing model price from external source")
 	}
 	if !foundCreated {
-		t.Fatal("sync should create new model price from external source")
+		t.Fatal("upstream import should create new model price from external source")
 	}
 }

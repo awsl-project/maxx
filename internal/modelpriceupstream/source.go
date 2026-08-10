@@ -1,4 +1,4 @@
-package modelpricesync
+package modelpriceupstream
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 
 const DefaultSourceCode = "litellm"
 
-// SourceInfo is source metadata returned with import comparison results.
+// SourceInfo is source metadata returned with normalized upstream prices.
 type SourceInfo struct {
 	Code string
 	Name string
@@ -29,14 +29,14 @@ var sources = map[string]Source{
 	DefaultSourceCode: NewLiteLLMSource(),
 }
 
-// Register adds or replaces a model price sync source implementation.
+// Register adds or replaces a model price upstream source implementation.
 func Register(source Source) error {
 	if source == nil {
-		return fmt.Errorf("model price sync source is nil")
+		return fmt.Errorf("model price upstream source is nil")
 	}
 	code := normalizeSourceCode(source.Code())
 	if code == "" {
-		return fmt.Errorf("model price sync source code is empty")
+		return fmt.Errorf("model price upstream source code is empty")
 	}
 	sources[code] = source
 	return nil
@@ -50,7 +50,7 @@ func Resolve(sourceCode string) (Source, error) {
 	}
 	source, ok := sources[code]
 	if !ok {
-		return nil, fmt.Errorf("unsupported model price sync source %q", sourceCode)
+		return nil, fmt.Errorf("unsupported model price upstream source %q", sourceCode)
 	}
 	return source, nil
 }
