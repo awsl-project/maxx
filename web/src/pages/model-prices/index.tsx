@@ -34,9 +34,14 @@ import {
   useUpdateModelPrice,
   useDeleteModelPrice,
   useResetModelPricesToDefaults,
-  useCompareExternalModelPriceSync,
+  useFetchExternalModelPrices,
 } from '@/hooks/queries';
-import type { ModelPrice, ModelPriceInput, SyncModelPricesResult } from '@/lib/transport/types';
+import type {
+  ModelPrice,
+  ModelPriceChange,
+  ModelPriceInput,
+  UpstreamModelPricesResult,
+} from '@/lib/transport/types';
 import { DollarSign, Plus, Trash2, Pencil, RotateCcw } from 'lucide-react';
 
 // Helper to format micro USD price to display format (e.g., $3.00 / M tokens)
@@ -125,6 +130,43 @@ function modelPriceToInput(price: ModelPrice): ModelPriceInput {
   };
 }
 
+function modelPricesEqual(a: ModelPrice, b: ModelPrice): boolean {
+  return (
+    a.inputPriceMicro === b.inputPriceMicro &&
+    a.outputPriceMicro === b.outputPriceMicro &&
+    a.cacheReadPriceMicro === b.cacheReadPriceMicro &&
+    a.cache5mWritePriceMicro === b.cache5mWritePriceMicro &&
+    a.cache1hWritePriceMicro === b.cache1hWritePriceMicro &&
+    a.imageInputPriceMicro === b.imageInputPriceMicro &&
+    a.imageOutputPriceMicro === b.imageOutputPriceMicro &&
+    a.has1mContext === b.has1mContext &&
+    a.context1mThreshold === b.context1mThreshold &&
+    a.inputPremiumNum === b.inputPremiumNum &&
+    a.inputPremiumDenom === b.inputPremiumDenom &&
+    a.outputPremiumNum === b.outputPremiumNum &&
+    a.outputPremiumDenom === b.outputPremiumDenom
+  );
+}
+
+function buildUpstreamChanges(
+  upstreamPrices: ModelPrice[],
+  currentPrices: ModelPrice[],
+): ModelPriceChange[] {
+  const currentByModelId = new Map(currentPrices.map((price) => [price.modelId, price]));
+
+  return upstreamPrices.flatMap<ModelPriceChange>((price) => {
+    const current = currentByModelId.get(price.modelId);
+    if (!current) {
+      return [{ action: 'create', after: price }];
+    }
+    const after = { ...price, id: current.id };
+    if (modelPricesEqual(current, after)) {
+      return [];
+    }
+    return [{ action: 'update', before: current, after }];
+  });
+}
+
 function syncChangeKey(action: string, modelId: string): string {
   return `${action}:${modelId}`;
 }
@@ -156,7 +198,7 @@ export function ModelPricesPage() {
   const updatePrice = useUpdateModelPrice();
   const deletePrice = useDeleteModelPrice();
   const resetPrices = useResetModelPricesToDefaults();
-  const compareExternalSync = useCompareExternalModelPriceSync();
+  const fetchExternalPrices = useFetchExternalModelPrices();
   const canManagePrices = user?.role === 'admin';
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -164,10 +206,11 @@ export function ModelPricesPage() {
   const [formData, setFormData] = useState<PriceFormData>(defaultFormData);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-  const [syncCompareOpen, setSyncCompareOpen] = useState(false);
+  const [upstreamPricesOpen, setUpstreamPricesOpen] = useState(false);
   const [syncSource, setSyncSource] =
     useState<(typeof modelPriceSyncSources)[number]['value']>('litellm');
-  const [syncCompare, setSyncCompare] = useState<SyncModelPricesResult | null>(null);
+  const [upstreamPrices, setUpstreamPrices] = useState<UpstreamModelPricesResult | null>(null);
+  const [upstreamChanges, setUpstreamChanges] = useState<ModelPriceChange[]>([]);
   const [selectedSyncChangeKeys, setSelectedSyncChangeKeys] = useState<string[]>([]);
   const [syncResultText, setSyncResultText] = useState<string | null>(null);
 
@@ -214,14 +257,16 @@ export function ModelPricesPage() {
     setResetConfirmOpen(false);
   };
 
-  const handleFetchExternalCompare = async () => {
+  const handleFetchExternalPrices = async () => {
     if (!canManagePrices) return;
-    const result = await compareExternalSync.mutateAsync(syncSource);
-    setSyncCompare(result);
+    const result = await fetchExternalPrices.mutateAsync(syncSource);
+    const changes = buildUpstreamChanges(result.prices, prices || []);
+    setUpstreamPrices(result);
+    setUpstreamChanges(changes);
     setSelectedSyncChangeKeys(
-      result.changes.map((change) => syncChangeKey(change.action, change.after.modelId)),
+      changes.map((change) => syncChangeKey(change.action, change.after.modelId)),
     );
-    setSyncCompareOpen(true);
+    setUpstreamPricesOpen(true);
   };
 
   const handleToggleSyncChange = (key: string, checked: boolean) => {
@@ -231,18 +276,17 @@ export function ModelPricesPage() {
   };
 
   const handleToggleAllSyncChanges = (checked: boolean) => {
-    if (!syncCompare) return;
     setSelectedSyncChangeKeys(
       checked
-        ? syncCompare.changes.map((change) => syncChangeKey(change.action, change.after.modelId))
+        ? upstreamChanges.map((change) => syncChangeKey(change.action, change.after.modelId))
         : [],
     );
   };
 
   const handleApplyExternalSync = async () => {
-    if (!canManagePrices || !syncCompare) return;
+    if (!canManagePrices || !upstreamPrices) return;
     const selected = new Set(selectedSyncChangeKeys);
-    const selectedChanges = syncCompare.changes.filter((change) =>
+    const selectedChanges = upstreamChanges.filter((change) =>
       selected.has(syncChangeKey(change.action, change.after.modelId)),
     );
 
@@ -263,10 +307,10 @@ export function ModelPricesPage() {
       t('modelPrices.syncExternalResult', {
         created,
         updated,
-        skipped: syncCompare.skipped + syncCompare.changes.length - selectedChanges.length,
+        skipped: upstreamPrices.total - selectedChanges.length,
       }),
     );
-    setSyncCompareOpen(false);
+    setUpstreamPricesOpen(false);
   };
 
   const isPending =
@@ -274,7 +318,7 @@ export function ModelPricesPage() {
     updatePrice.isPending ||
     deletePrice.isPending ||
     resetPrices.isPending ||
-    compareExternalSync.isPending;
+    fetchExternalPrices.isPending;
 
   if (isLoading) return null;
 
@@ -308,7 +352,7 @@ export function ModelPricesPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleFetchExternalCompare}
+                onClick={handleFetchExternalPrices}
                 disabled={isPending}
               >
                 <RotateCcw className="h-4 w-4 mr-1" />
@@ -641,41 +685,41 @@ export function ModelPricesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* External Sync Compare Dialog */}
-      <AlertDialog open={syncCompareOpen} onOpenChange={setSyncCompareOpen}>
+      {/* External Upstream Prices Dialog */}
+      <AlertDialog open={upstreamPricesOpen} onOpenChange={setUpstreamPricesOpen}>
         <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('modelPrices.syncExternalCompareTitle')}</AlertDialogTitle>
+            <AlertDialogTitle>{t('modelPrices.syncExternalPricesTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('modelPrices.syncExternalCompareDesc')}
+              {t('modelPrices.syncExternalPricesDesc')}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {syncCompare && (
+          {upstreamPrices && (
             <div className="space-y-3 text-left">
               <div className="rounded border border-border bg-muted/30 p-3 text-xs space-y-1">
                 <div className="break-all">
-                  {t('modelPrices.syncSource')}: {syncCompare.source || syncSource} ·{' '}
-                  {syncCompare.sourceUrl}
+                  {t('modelPrices.syncSource')}: {upstreamPrices.source || syncSource} ·{' '}
+                  {upstreamPrices.sourceUrl}
                 </div>
                 <div>
-                  {t('modelPrices.syncCompareStats', {
-                    total: syncCompare.total,
-                    created: syncCompare.created,
-                    updated: syncCompare.updated,
-                    skipped: syncCompare.skipped,
+                  {t('modelPrices.upstreamPricesStats', {
+                    total: upstreamPrices.total,
+                    created: upstreamChanges.filter((change) => change.action === 'create').length,
+                    updated: upstreamChanges.filter((change) => change.action === 'update').length,
+                    skipped: upstreamPrices.total - upstreamChanges.length,
                   })}
                 </div>
               </div>
-              {syncCompare.changes.length > 0 && (
+              {upstreamChanges.length > 0 && (
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <input
                     type="checkbox"
-                    checked={selectedSyncChangeKeys.length === syncCompare.changes.length}
+                    checked={selectedSyncChangeKeys.length === upstreamChanges.length}
                     ref={(el) => {
                       if (el) {
                         el.indeterminate =
                           selectedSyncChangeKeys.length > 0 &&
-                          selectedSyncChangeKeys.length < syncCompare.changes.length;
+                          selectedSyncChangeKeys.length < upstreamChanges.length;
                       }
                     }}
                     onChange={(event) => handleToggleAllSyncChanges(event.target.checked)}
@@ -683,17 +727,17 @@ export function ModelPricesPage() {
                   />
                   {t('modelPrices.syncSelectAll', {
                     selected: selectedSyncChangeKeys.length,
-                    total: syncCompare.changes.length,
+                    total: upstreamChanges.length,
                   })}
                 </label>
               )}
               <div className="max-h-72 overflow-y-auto rounded border border-border">
-                {syncCompare.changes.length === 0 ? (
+                {upstreamChanges.length === 0 ? (
                   <div className="p-3 text-xs text-muted-foreground">
                     {t('modelPrices.syncNoChanges')}
                   </div>
                 ) : (
-                  syncCompare.changes.slice(0, 50).map((change, index) => {
+                  upstreamChanges.slice(0, 50).map((change, index) => {
                     const key = syncChangeKey(change.action, change.after.modelId);
                     return (
                       <div
@@ -725,10 +769,10 @@ export function ModelPricesPage() {
                   })
                 )}
               </div>
-              {syncCompare.changes.length > 50 && (
+              {upstreamChanges.length > 50 && (
                 <p className="text-xs text-muted-foreground">
-                  {t('modelPrices.syncCompareMore', {
-                    count: syncCompare.changes.length - 50,
+                  {t('modelPrices.upstreamPricesMore', {
+                    count: upstreamChanges.length - 50,
                   })}
                 </p>
               )}
@@ -738,7 +782,7 @@ export function ModelPricesPage() {
             <AlertDialogCancel disabled={isPending}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleApplyExternalSync}
-              disabled={isPending || !syncCompare || selectedSyncChangeKeys.length === 0}
+              disabled={isPending || !upstreamPrices || selectedSyncChangeKeys.length === 0}
             >
               {t('modelPrices.applySync')}
             </AlertDialogAction>

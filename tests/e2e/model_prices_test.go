@@ -212,7 +212,7 @@ func TestModelPricesReset(t *testing.T) {
 	}
 }
 
-func TestModelPricesExternalCompareThenApplySelected(t *testing.T) {
+func TestModelPricesExternalFetchThenApplySelected(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -262,52 +262,51 @@ func TestModelPricesExternalCompareThenApplySelected(t *testing.T) {
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
 
-	resp = env.AdminPost("/api/admin/model-prices/upstream/compare", map[string]any{"source": "litellm"})
+	resp = env.AdminPost("/api/admin/model-prices/upstream/prices", map[string]any{"source": "litellm"})
 	AssertStatus(t, resp, http.StatusOK)
 
-	var comparison map[string]any
-	DecodeJSON(t, resp, &comparison)
-	if comparison["source"] != "litellm" {
-		t.Fatalf("expected comparison source litellm, got %+v", comparison["source"])
+	var upstream map[string]any
+	DecodeJSON(t, resp, &upstream)
+	if upstream["source"] != "litellm" {
+		t.Fatalf("expected upstream source litellm, got %+v", upstream["source"])
 	}
-	if comparison["created"].(float64) != 1 || comparison["updated"].(float64) != 1 {
-		t.Fatalf("expected comparison create=1 update=1, got %+v", comparison)
+	if upstream["total"].(float64) != 2 {
+		t.Fatalf("expected two formatted upstream prices, got %+v", upstream)
 	}
-	if _, hasPrices := comparison["prices"]; hasPrices {
-		t.Fatalf("comparison should not include applied prices, got %+v", comparison["prices"])
+	upstreamPrices, ok := upstream["prices"].([]any)
+	if !ok || len(upstreamPrices) != 2 {
+		t.Fatalf("expected formatted upstream prices, got %+v", upstream["prices"])
+	}
+	if _, hasChanges := upstream["changes"]; hasChanges {
+		t.Fatalf("upstream prices endpoint should not include changes, got %+v", upstream["changes"])
 	}
 
-	// Compare must not mutate the existing row.
+	// Fetching upstream prices must not mutate the existing row.
 	resp = env.AdminGet("/api/admin/model-prices")
 	AssertStatus(t, resp, http.StatusOK)
 	var beforeApply []map[string]any
 	DecodeJSON(t, resp, &beforeApply)
+	currentByModelID := make(map[string]map[string]any, len(beforeApply))
 	for _, price := range beforeApply {
+		currentByModelID[price["modelId"].(string)] = price
 		if price["modelId"] == "sync-model" && price["inputPriceMicro"].(float64) != 1 {
-			t.Fatalf("comparison mutated sync-model: %+v", price)
+			t.Fatalf("fetch mutated sync-model: %+v", price)
 		}
 	}
 
-	changes, ok := comparison["changes"].([]any)
-	if !ok || len(changes) == 0 {
-		t.Fatalf("expected comparison changes, got %+v", comparison["changes"])
-	}
-	for _, item := range changes {
-		change := item.(map[string]any)
-		after := change["after"].(map[string]any)
-		switch change["action"] {
-		case "create":
-			resp = env.AdminPost("/api/admin/model-prices", after)
+	for _, item := range upstreamPrices {
+		price := item.(map[string]any)
+		current := currentByModelID[price["modelId"].(string)]
+		if current == nil {
+			resp = env.AdminPost("/api/admin/model-prices", price)
 			AssertStatus(t, resp, http.StatusCreated)
 			resp.Body.Close()
-		case "update":
-			id := int(after["id"].(float64))
-			resp = env.AdminPut(fmt.Sprintf("/api/admin/model-prices/%d", id), after)
-			AssertStatus(t, resp, http.StatusOK)
-			resp.Body.Close()
-		default:
-			t.Fatalf("unexpected comparison action: %+v", change["action"])
+			continue
 		}
+		id := int(current["id"].(float64))
+		resp = env.AdminPut(fmt.Sprintf("/api/admin/model-prices/%d", id), price)
+		AssertStatus(t, resp, http.StatusOK)
+		resp.Body.Close()
 	}
 
 	resp = env.AdminGet("/api/admin/model-prices")

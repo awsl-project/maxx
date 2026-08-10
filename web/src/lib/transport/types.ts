@@ -586,12 +586,7 @@ export interface ResponseInfo {
 }
 
 export type ProxyRequestStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED'
-  | 'REJECTED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
 
 export type ProxyRequestErrorMode = 'all' | 'only' | 'exclude';
 
@@ -680,11 +675,7 @@ export interface ProxyRequest {
 // ===== ProxyUpstreamAttempt =====
 
 export type ProxyUpstreamAttemptStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface ProxyUpstreamAttempt {
   id: number;
@@ -1671,15 +1662,11 @@ export interface ModelPriceInput {
   outputPremiumDenom?: number;
 }
 
-export interface SyncModelPricesResult {
+export interface UpstreamModelPricesResult {
   source: string;
   sourceUrl: string;
   total: number;
-  created: number;
-  updated: number;
-  skipped: number;
-  changes: ModelPriceChange[];
-  prices?: ModelPrice[];
+  prices: ModelPrice[];
 }
 
 export interface ModelPriceChange {

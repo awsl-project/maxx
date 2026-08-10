@@ -195,7 +195,7 @@ export {
   useUpdateModelPrice,
   useDeleteModelPrice,
   useResetModelPricesToDefaults,
-  useCompareExternalModelPriceSync,
+  useFetchExternalModelPrices,
 } from './use-model-prices';
 
 // User hooks

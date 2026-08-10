@@ -104,7 +104,7 @@ import type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
-  SyncModelPricesResult,
+  UpstreamModelPricesResult,
 } from './types';
 
 type TransportRuntimeConfig = Required<Omit<TransportConfig, 'adminBaseURL'>> & {
@@ -1339,9 +1339,9 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async compareExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult> {
-    const { data } = await this.adminClient.post<SyncModelPricesResult>(
-      '/model-prices/upstream/compare',
+  async fetchExternalModelPrices(source?: string): Promise<UpstreamModelPricesResult> {
+    const { data } = await this.adminClient.post<UpstreamModelPricesResult>(
+      '/model-prices/upstream/prices',
       { source },
     );
     return data;

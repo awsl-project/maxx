@@ -159,7 +159,7 @@ export type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
-  SyncModelPricesResult,
+  UpstreamModelPricesResult,
 } from './types';
 
 export type { Transport, TransportType, TransportConfig } from './interface';
