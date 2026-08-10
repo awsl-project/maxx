@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/modelpriceupstream"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/service"
@@ -2528,28 +2530,35 @@ func (h *AdminHandler) handleModelPricesReset(w http.ResponseWriter, r *http.Req
 
 // handleModelPricesUpstreamPrices handles POST /admin/model-prices/upstream/prices
 func (h *AdminHandler) handleModelPricesUpstreamPrices(w http.ResponseWriter, r *http.Request) {
-	req, ok := decodeModelPriceSyncRequest(w, r)
+	req, ok := decodeModelPriceUpstreamRequest(w, r)
 	if !ok {
 		return
 	}
 	result, err := h.svc.ListModelPricesFromExternalSource(req.Source)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, modelpriceupstream.ErrUnsupportedSource) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
-type modelPriceSyncRequest struct {
+type modelPriceUpstreamRequest struct {
 	Source string `json:"source"`
 }
 
-func decodeModelPriceSyncRequest(w http.ResponseWriter, r *http.Request) (modelPriceSyncRequest, bool) {
-	var req modelPriceSyncRequest
+func decodeModelPriceUpstreamRequest(w http.ResponseWriter, r *http.Request) (modelPriceUpstreamRequest, bool) {
+	var req modelPriceUpstreamRequest
 	if r.Body == nil || r.ContentLength == 0 {
 		return req, true
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if errors.Is(err, io.EOF) {
+			return req, true
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return req, false
 	}

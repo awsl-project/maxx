@@ -1,6 +1,7 @@
 package modelpriceupstream
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +10,8 @@ import (
 )
 
 const DefaultSourceCode = "litellm"
+
+var ErrUnsupportedSource = errors.New("unsupported model price upstream source")
 
 // SourceInfo is source metadata returned with normalized upstream prices.
 type SourceInfo struct {
@@ -50,7 +53,7 @@ func Resolve(sourceCode string) (Source, error) {
 	}
 	source, ok := sources[code]
 	if !ok {
-		return nil, fmt.Errorf("unsupported model price upstream source %q", sourceCode)
+		return nil, fmt.Errorf("%w %q", ErrUnsupportedSource, sourceCode)
 	}
 	return source, nil
 }

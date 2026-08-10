@@ -25,6 +25,15 @@ func (fakeSource) Fetch() ([]*domain.ModelPrice, string, error) {
 }
 
 func TestRegisterSupportsIndependentSourceImplementations(t *testing.T) {
+	previous, existed := sources["fake"]
+	t.Cleanup(func() {
+		if existed {
+			sources["fake"] = previous
+		} else {
+			delete(sources, "fake")
+		}
+	})
+
 	if err := Register(fakeSource{}); err != nil {
 		t.Fatalf("Register fake source: %v", err)
 	}

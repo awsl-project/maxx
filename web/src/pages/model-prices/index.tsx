@@ -267,14 +267,19 @@ export function ModelPricesPage() {
 
     let created = 0;
     let updated = 0;
+    let failed = 0;
     for (const change of selectedChanges) {
       const input = modelPriceToInput(change.after);
-      if (change.action === 'create') {
-        await createPrice.mutateAsync(input);
-        created++;
-      } else {
-        await updatePrice.mutateAsync({ id: change.after.id, data: input });
-        updated++;
+      try {
+        if (change.action === 'create') {
+          await createPrice.mutateAsync(input);
+          created++;
+        } else {
+          await updatePrice.mutateAsync({ id: change.after.id, data: input });
+          updated++;
+        }
+      } catch {
+        failed++;
       }
     }
 
@@ -282,6 +287,7 @@ export function ModelPricesPage() {
       t('modelPrices.upstreamImportResult', {
         created,
         updated,
+        failed,
         skipped: upstreamPrices.total - selectedChanges.length,
       }),
     );

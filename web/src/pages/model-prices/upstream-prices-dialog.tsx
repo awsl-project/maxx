@@ -41,11 +41,12 @@ export function UpstreamPricesDialog({
 }: UpstreamPricesDialogProps) {
   const { t } = useTranslation();
   const [selectedChangeKeys, setSelectedChangeKeys] = useState<string[]>([]);
+  const visibleChanges = changes.slice(0, 50);
 
   useEffect(() => {
     if (!open) return;
     setSelectedChangeKeys(
-      changes.map((change) => upstreamChangeKey(change.action, change.after.modelId)),
+      changes.slice(0, 50).map((change) => upstreamChangeKey(change.action, change.after.modelId)),
     );
   }, [changes, open]);
 
@@ -58,7 +59,7 @@ export function UpstreamPricesDialog({
   const handleToggleAllChanges = (checked: boolean) => {
     setSelectedChangeKeys(
       checked
-        ? changes.map((change) => upstreamChangeKey(change.action, change.after.modelId))
+        ? visibleChanges.map((change) => upstreamChangeKey(change.action, change.after.modelId))
         : [],
     );
   };
@@ -66,7 +67,7 @@ export function UpstreamPricesDialog({
   const handleApply = () => {
     const selected = new Set(selectedChangeKeys);
     onApply(
-      changes.filter((change) =>
+      visibleChanges.filter((change) =>
         selected.has(upstreamChangeKey(change.action, change.after.modelId)),
       ),
     );
@@ -99,11 +100,12 @@ export function UpstreamPricesDialog({
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <input
                   type="checkbox"
-                  checked={selectedChangeKeys.length === changes.length}
+                  checked={selectedChangeKeys.length === visibleChanges.length}
                   ref={(el) => {
                     if (el) {
                       el.indeterminate =
-                        selectedChangeKeys.length > 0 && selectedChangeKeys.length < changes.length;
+                        selectedChangeKeys.length > 0 &&
+                        selectedChangeKeys.length < visibleChanges.length;
                     }
                   }}
                   onChange={(event) => handleToggleAllChanges(event.target.checked)}
@@ -111,7 +113,7 @@ export function UpstreamPricesDialog({
                 />
                 {t('modelPrices.upstreamSelectAll', {
                   selected: selectedChangeKeys.length,
-                  total: changes.length,
+                  total: visibleChanges.length,
                 })}
               </label>
             )}
@@ -121,7 +123,7 @@ export function UpstreamPricesDialog({
                   {t('modelPrices.upstreamNoChanges')}
                 </div>
               ) : (
-                changes.slice(0, 50).map((change, index) => {
+                visibleChanges.map((change, index) => {
                   const key = upstreamChangeKey(change.action, change.after.modelId);
                   return (
                     <div
