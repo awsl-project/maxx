@@ -1,14 +1,43 @@
 package modelpricesync
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
+)
 
 func TestResolveDefaultsToLiteLLM(t *testing.T) {
 	source, err := Resolve("")
 	if err != nil {
 		t.Fatalf("Resolve empty source: %v", err)
 	}
-	if source.Code != DefaultSourceCode {
-		t.Fatalf("source.Code = %q, want %q", source.Code, DefaultSourceCode)
+	if source.Code() != DefaultSourceCode {
+		t.Fatalf("source.Code() = %q, want %q", source.Code(), DefaultSourceCode)
+	}
+}
+
+type fakeSource struct{}
+
+func (fakeSource) Code() string { return "fake" }
+func (fakeSource) Name() string { return "Fake" }
+func (fakeSource) Fetch() ([]*domain.ModelPrice, string, error) {
+	return []*domain.ModelPrice{{ModelID: "fake-model", InputPriceMicro: 1}}, "memory://fake", nil
+}
+
+func TestRegisterSupportsIndependentSourceImplementations(t *testing.T) {
+	if err := Register(fakeSource{}); err != nil {
+		t.Fatalf("Register fake source: %v", err)
+	}
+
+	prices, source, sourceURL, err := Fetch("fake")
+	if err != nil {
+		t.Fatalf("Fetch fake source: %v", err)
+	}
+	if source.Code != "fake" || source.Name != "Fake" || sourceURL != "memory://fake" {
+		t.Fatalf("unexpected source metadata: source=%+v sourceURL=%q", source, sourceURL)
+	}
+	if len(prices) != 1 || prices[0].ModelID != "fake-model" {
+		t.Fatalf("unexpected fake prices: %+v", prices)
 	}
 }
 
