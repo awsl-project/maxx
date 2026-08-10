@@ -212,7 +212,7 @@ func TestModelPricesReset(t *testing.T) {
 	}
 }
 
-func TestModelPricesExternalSyncPreviewThenApply(t *testing.T) {
+func TestModelPricesExternalSyncDiffThenApplySelected(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -262,35 +262,35 @@ func TestModelPricesExternalSyncPreviewThenApply(t *testing.T) {
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
 
-	resp = env.AdminPost("/api/admin/model-prices/sync-external/preview", map[string]any{"source": "litellm"})
+	resp = env.AdminPost("/api/admin/model-prices/upstream/diff", map[string]any{"source": "litellm"})
 	AssertStatus(t, resp, http.StatusOK)
 
-	var preview map[string]any
-	DecodeJSON(t, resp, &preview)
-	if preview["source"] != "litellm" {
-		t.Fatalf("expected preview source litellm, got %+v", preview["source"])
+	var diff map[string]any
+	DecodeJSON(t, resp, &diff)
+	if diff["source"] != "litellm" {
+		t.Fatalf("expected diff source litellm, got %+v", diff["source"])
 	}
-	if preview["created"].(float64) != 1 || preview["updated"].(float64) != 1 {
-		t.Fatalf("expected preview create=1 update=1, got %+v", preview)
+	if diff["created"].(float64) != 1 || diff["updated"].(float64) != 1 {
+		t.Fatalf("expected diff create=1 update=1, got %+v", diff)
 	}
-	if _, hasPrices := preview["prices"]; hasPrices {
-		t.Fatalf("preview should not include applied prices, got %+v", preview["prices"])
+	if _, hasPrices := diff["prices"]; hasPrices {
+		t.Fatalf("diff should not include applied prices, got %+v", diff["prices"])
 	}
 
-	// Preview must not mutate the existing row.
+	// Diff must not mutate the existing row.
 	resp = env.AdminGet("/api/admin/model-prices")
 	AssertStatus(t, resp, http.StatusOK)
 	var beforeApply []map[string]any
 	DecodeJSON(t, resp, &beforeApply)
 	for _, price := range beforeApply {
 		if price["modelId"] == "sync-model" && price["inputPriceMicro"].(float64) != 1 {
-			t.Fatalf("preview mutated sync-model: %+v", price)
+			t.Fatalf("diff mutated sync-model: %+v", price)
 		}
 	}
 
-	changes, ok := preview["changes"].([]any)
+	changes, ok := diff["changes"].([]any)
 	if !ok || len(changes) == 0 {
-		t.Fatalf("expected preview changes, got %+v", preview["changes"])
+		t.Fatalf("expected diff changes, got %+v", diff["changes"])
 	}
 	for _, item := range changes {
 		change := item.(map[string]any)
@@ -306,7 +306,7 @@ func TestModelPricesExternalSyncPreviewThenApply(t *testing.T) {
 			AssertStatus(t, resp, http.StatusOK)
 			resp.Body.Close()
 		default:
-			t.Fatalf("unexpected preview action: %+v", change["action"])
+			t.Fatalf("unexpected diff action: %+v", change["action"])
 		}
 	}
 

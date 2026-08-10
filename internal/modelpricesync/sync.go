@@ -5,7 +5,7 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
-// Result summarizes previewing or applying prices into the DB.
+// Result summarizes imported price changes into the DB.
 type Result struct {
 	Source    string               `json:"source"`
 	SourceURL string               `json:"sourceUrl"`
@@ -24,8 +24,8 @@ type Change struct {
 	After  *domain.ModelPrice `json:"after"`
 }
 
-// Preview fetches source prices and returns pending DB changes without applying them.
-func Preview(repo repository.ModelPriceRepository, sourceCode string) (*Result, error) {
+// FetchDiff fetches source prices and returns pending DB changes without applying them.
+func FetchDiff(repo repository.ModelPriceRepository, sourceCode string) (*Result, error) {
 	sourcePrices, source, sourceURL, err := Fetch(sourceCode)
 	if err != nil {
 		return nil, err

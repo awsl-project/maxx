@@ -2440,8 +2440,8 @@ func (h *AdminHandler) handleModelPrices(w http.ResponseWriter, r *http.Request,
 		h.handleModelPricesReset(w, r)
 		return
 	}
-	if strings.HasSuffix(path, "/sync-external/preview") && r.Method == http.MethodPost {
-		h.handleModelPricesSyncExternalPreview(w, r)
+	if strings.HasSuffix(path, "/upstream/diff") && r.Method == http.MethodPost {
+		h.handleModelPricesUpstreamDiff(w, r)
 		return
 	}
 
@@ -2526,13 +2526,13 @@ func (h *AdminHandler) handleModelPricesReset(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, prices)
 }
 
-// handleModelPricesSyncExternalPreview handles POST /admin/model-prices/sync-external/preview
-func (h *AdminHandler) handleModelPricesSyncExternalPreview(w http.ResponseWriter, r *http.Request) {
+// handleModelPricesUpstreamDiff handles POST /admin/model-prices/upstream/diff
+func (h *AdminHandler) handleModelPricesUpstreamDiff(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeModelPriceSyncRequest(w, r)
 	if !ok {
 		return
 	}
-	result, err := h.svc.PreviewModelPricesFromExternalSource(req.Source)
+	result, err := h.svc.DiffModelPricesFromExternalSource(req.Source)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

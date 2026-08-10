@@ -10,7 +10,7 @@ import (
 
 const DefaultSourceCode = "litellm"
 
-// SourceInfo is source metadata returned with preview/apply results.
+// SourceInfo is source metadata returned with import diff results.
 type SourceInfo struct {
 	Code string
 	Name string

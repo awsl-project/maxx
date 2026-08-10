@@ -1339,9 +1339,9 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async previewExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult> {
+  async diffExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult> {
     const { data } = await this.adminClient.post<SyncModelPricesResult>(
-      '/model-prices/sync-external/preview',
+      '/model-prices/upstream/diff',
       { source },
     );
     return data;
