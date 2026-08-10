@@ -1347,14 +1347,6 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async applyExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult> {
-    const { data } = await this.adminClient.post<SyncModelPricesResult>(
-      '/model-prices/sync-external/apply',
-      { source },
-    );
-    return data;
-  }
-
   // ===== WebSocket 订阅 =====
 
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn {

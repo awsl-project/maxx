@@ -288,31 +288,37 @@ func TestModelPricesExternalSyncPreviewThenApply(t *testing.T) {
 		}
 	}
 
-	resp = env.AdminPost("/api/admin/model-prices/sync-external/apply", map[string]any{"source": "litellm"})
+	changes, ok := preview["changes"].([]any)
+	if !ok || len(changes) == 0 {
+		t.Fatalf("expected preview changes, got %+v", preview["changes"])
+	}
+	for _, item := range changes {
+		change := item.(map[string]any)
+		after := change["after"].(map[string]any)
+		switch change["action"] {
+		case "create":
+			resp = env.AdminPost("/api/admin/model-prices", after)
+			AssertStatus(t, resp, http.StatusCreated)
+			resp.Body.Close()
+		case "update":
+			id := int(after["id"].(float64))
+			resp = env.AdminPut(fmt.Sprintf("/api/admin/model-prices/%d", id), after)
+			AssertStatus(t, resp, http.StatusOK)
+			resp.Body.Close()
+		default:
+			t.Fatalf("unexpected preview action: %+v", change["action"])
+		}
+	}
+
+	resp = env.AdminGet("/api/admin/model-prices")
 	AssertStatus(t, resp, http.StatusOK)
-
-	var result map[string]any
-	DecodeJSON(t, resp, &result)
-	if result["source"] != "litellm" {
-		t.Fatalf("expected apply source litellm, got %+v", result["source"])
-	}
-	if result["created"].(float64) != 1 || result["updated"].(float64) != 1 {
-		t.Fatalf("expected apply create=1 update=1, got %+v", result)
-	}
-
-	resultPrices, ok := result["prices"].([]any)
-	if !ok || len(resultPrices) == 0 {
-		t.Fatalf("expected prices in sync result, got %+v", result["prices"])
-	}
+	var resultPrices []map[string]any
+	DecodeJSON(t, resp, &resultPrices)
 
 	foundCustom := false
 	foundSyncedExisting := false
 	foundCreated := false
-	for _, item := range resultPrices {
-		price, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
+	for _, price := range resultPrices {
 		switch price["modelId"] {
 		case "sync-custom-model":
 			foundCustom = true

@@ -1586,6 +1586,7 @@
     "syncSource": "同步源",
     "syncPreviewStats": "源价格 {{total}} 项；将新增 {{created}}，更新 {{updated}}，跳过 {{skipped}}。",
     "syncNoChanges": "没有需要应用的价格变更。",
+    "syncSelectAll": "已选择 {{selected}} / {{total}} 个变更",
     "syncPreviewMore": "还有 {{count}} 项未显示。",
     "applySync": "应用同步",
     "syncExternalResult": "外部价格同步完成：新增 {{created}}，更新 {{updated}}，跳过 {{skipped}}。",

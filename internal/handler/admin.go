@@ -2444,10 +2444,6 @@ func (h *AdminHandler) handleModelPrices(w http.ResponseWriter, r *http.Request,
 		h.handleModelPricesSyncExternalPreview(w, r)
 		return
 	}
-	if strings.HasSuffix(path, "/sync-external/apply") && r.Method == http.MethodPost {
-		h.handleModelPricesSyncExternalApply(w, r)
-		return
-	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -2541,44 +2537,6 @@ func (h *AdminHandler) handleModelPricesSyncExternalPreview(w http.ResponseWrite
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-// handleModelPricesSyncExternalApply handles POST /admin/model-prices/sync-external/apply
-func (h *AdminHandler) handleModelPricesSyncExternalApply(w http.ResponseWriter, r *http.Request) {
-	req, ok := decodeModelPriceSyncRequest(w, r)
-	if !ok {
-		return
-	}
-	result, err := h.svc.PreviewModelPricesFromExternalSource(req.Source)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	for _, change := range result.Changes {
-		price := change.After
-		switch change.Action {
-		case "create":
-			err = h.svc.CreateModelPrice(price)
-		case "update":
-			err = h.svc.UpdateModelPrice(price)
-		default:
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unsupported model price sync action"})
-			return
-		}
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-	}
-	prices, err := h.svc.GetModelPrices()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	result.Prices = prices
-	// Refresh calculator cache
-	pricing.GlobalCalculator().LoadFromDatabase(prices)
 	writeJSON(w, http.StatusOK, result)
 }
 

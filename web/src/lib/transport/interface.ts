@@ -368,7 +368,6 @@ export interface Transport {
   deleteModelPrice(id: number): Promise<void>;
   resetModelPricesToDefaults(): Promise<ModelPrice[]>;
   previewExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult>;
-  applyExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult>;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;

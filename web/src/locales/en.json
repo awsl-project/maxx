@@ -1589,6 +1589,7 @@
     "syncSource": "Source",
     "syncPreviewStats": "{{total}} source prices; {{created}} to create, {{updated}} to update, {{skipped}} to skip.",
     "syncNoChanges": "No price changes to apply.",
+    "syncSelectAll": "Selected {{selected}} / {{total}} changes",
     "syncPreviewMore": "{{count}} more changes not shown.",
     "applySync": "Apply Sync",
     "syncExternalResult": "External price sync complete: {{created}} created, {{updated}} updated, {{skipped}} skipped.",

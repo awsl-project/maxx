@@ -96,16 +96,3 @@ export function usePreviewExternalModelPriceSync() {
     mutationFn: (source?: string) => getTransport().previewExternalModelPriceSync(source),
   });
 }
-
-// 应用外部模型价格同步
-export function useApplyExternalModelPriceSync() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (source?: string) => getTransport().applyExternalModelPriceSync(source),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: modelPriceKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: pricingKeys.all });
-    },
-  });
-}

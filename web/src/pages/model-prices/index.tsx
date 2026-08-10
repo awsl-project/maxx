@@ -35,7 +35,6 @@ import {
   useDeleteModelPrice,
   useResetModelPricesToDefaults,
   usePreviewExternalModelPriceSync,
-  useApplyExternalModelPriceSync,
 } from '@/hooks/queries';
 import type { ModelPrice, ModelPriceInput, SyncModelPricesResult } from '@/lib/transport/types';
 import { DollarSign, Plus, Trash2, Pencil, RotateCcw } from 'lucide-react';
@@ -107,6 +106,29 @@ function priceToFormData(price: ModelPrice): PriceFormData {
   };
 }
 
+function modelPriceToInput(price: ModelPrice): ModelPriceInput {
+  return {
+    modelId: price.modelId,
+    inputPriceMicro: price.inputPriceMicro,
+    outputPriceMicro: price.outputPriceMicro,
+    cacheReadPriceMicro: price.cacheReadPriceMicro,
+    cache5mWritePriceMicro: price.cache5mWritePriceMicro,
+    cache1hWritePriceMicro: price.cache1hWritePriceMicro,
+    imageInputPriceMicro: price.imageInputPriceMicro,
+    imageOutputPriceMicro: price.imageOutputPriceMicro,
+    has1mContext: price.has1mContext,
+    context1mThreshold: price.context1mThreshold,
+    inputPremiumNum: price.inputPremiumNum,
+    inputPremiumDenom: price.inputPremiumDenom,
+    outputPremiumNum: price.outputPremiumNum,
+    outputPremiumDenom: price.outputPremiumDenom,
+  };
+}
+
+function syncChangeKey(action: string, modelId: string): string {
+  return `${action}:${modelId}`;
+}
+
 function formDataToInput(form: PriceFormData): ModelPriceInput {
   return {
     modelId: form.modelId,
@@ -135,7 +157,6 @@ export function ModelPricesPage() {
   const deletePrice = useDeleteModelPrice();
   const resetPrices = useResetModelPricesToDefaults();
   const previewExternalSync = usePreviewExternalModelPriceSync();
-  const applyExternalSync = useApplyExternalModelPriceSync();
   const canManagePrices = user?.role === 'admin';
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -147,6 +168,7 @@ export function ModelPricesPage() {
   const [syncSource, setSyncSource] =
     useState<(typeof modelPriceSyncSources)[number]['value']>('litellm');
   const [syncPreview, setSyncPreview] = useState<SyncModelPricesResult | null>(null);
+  const [selectedSyncChangeKeys, setSelectedSyncChangeKeys] = useState<string[]>([]);
   const [syncResultText, setSyncResultText] = useState<string | null>(null);
 
   const handleOpenCreate = () => {
@@ -196,20 +218,54 @@ export function ModelPricesPage() {
     if (!canManagePrices) return;
     const result = await previewExternalSync.mutateAsync(syncSource);
     setSyncPreview(result);
+    setSelectedSyncChangeKeys(
+      result.changes.map((change) => syncChangeKey(change.action, change.after.modelId)),
+    );
     setSyncPreviewOpen(true);
   };
 
+  const handleToggleSyncChange = (key: string, checked: boolean) => {
+    setSelectedSyncChangeKeys((current) =>
+      checked ? [...current, key] : current.filter((item) => item !== key),
+    );
+  };
+
+  const handleToggleAllSyncChanges = (checked: boolean) => {
+    if (!syncPreview) return;
+    setSelectedSyncChangeKeys(
+      checked
+        ? syncPreview.changes.map((change) => syncChangeKey(change.action, change.after.modelId))
+        : [],
+    );
+  };
+
   const handleApplyExternalSync = async () => {
-    if (!canManagePrices) return;
-    const result = await applyExternalSync.mutateAsync(syncPreview?.source || syncSource);
+    if (!canManagePrices || !syncPreview) return;
+    const selected = new Set(selectedSyncChangeKeys);
+    const selectedChanges = syncPreview.changes.filter((change) =>
+      selected.has(syncChangeKey(change.action, change.after.modelId)),
+    );
+
+    let created = 0;
+    let updated = 0;
+    for (const change of selectedChanges) {
+      const input = modelPriceToInput(change.after);
+      if (change.action === 'create') {
+        await createPrice.mutateAsync(input);
+        created++;
+      } else {
+        await updatePrice.mutateAsync({ id: change.after.id, data: input });
+        updated++;
+      }
+    }
+
     setSyncResultText(
       t('modelPrices.syncExternalResult', {
-        created: result.created,
-        updated: result.updated,
-        skipped: result.skipped,
+        created,
+        updated,
+        skipped: syncPreview.skipped + syncPreview.changes.length - selectedChanges.length,
       }),
     );
-    setSyncPreview(result);
     setSyncPreviewOpen(false);
   };
 
@@ -218,8 +274,7 @@ export function ModelPricesPage() {
     updatePrice.isPending ||
     deletePrice.isPending ||
     resetPrices.isPending ||
-    previewExternalSync.isPending ||
-    applyExternalSync.isPending;
+    previewExternalSync.isPending;
 
   if (isLoading) return null;
 
@@ -611,33 +666,63 @@ export function ModelPricesPage() {
                   })}
                 </div>
               </div>
+              {syncPreview.changes.length > 0 && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={selectedSyncChangeKeys.length === syncPreview.changes.length}
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate =
+                          selectedSyncChangeKeys.length > 0 &&
+                          selectedSyncChangeKeys.length < syncPreview.changes.length;
+                      }
+                    }}
+                    onChange={(event) => handleToggleAllSyncChanges(event.target.checked)}
+                    disabled={isPending}
+                  />
+                  {t('modelPrices.syncSelectAll', {
+                    selected: selectedSyncChangeKeys.length,
+                    total: syncPreview.changes.length,
+                  })}
+                </label>
+              )}
               <div className="max-h-72 overflow-y-auto rounded border border-border">
                 {syncPreview.changes.length === 0 ? (
                   <div className="p-3 text-xs text-muted-foreground">
                     {t('modelPrices.syncNoChanges')}
                   </div>
                 ) : (
-                  syncPreview.changes.slice(0, 50).map((change, index) => (
-                    <div
-                      key={`${change.action}-${change.after.modelId}-${index}`}
-                      className="flex items-center gap-3 border-b border-border last:border-b-0 p-2 text-xs"
-                    >
-                      <span className="w-14 shrink-0 uppercase text-muted-foreground">
-                        {change.action}
-                      </span>
-                      <span className="flex-1 min-w-0 truncate font-mono">
-                        {change.after.modelId}
-                      </span>
-                      <span className="font-mono">
-                        {formatMicroPrice(change.before?.inputPriceMicro || 0)} →{' '}
-                        {formatMicroPrice(change.after.inputPriceMicro)}
-                      </span>
-                      <span className="font-mono">
-                        {formatMicroPrice(change.before?.outputPriceMicro || 0)} →{' '}
-                        {formatMicroPrice(change.after.outputPriceMicro)}
-                      </span>
-                    </div>
-                  ))
+                  syncPreview.changes.slice(0, 50).map((change, index) => {
+                    const key = syncChangeKey(change.action, change.after.modelId);
+                    return (
+                      <div
+                        key={`${change.action}-${change.after.modelId}-${index}`}
+                        className="flex items-center gap-3 border-b border-border last:border-b-0 p-2 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedSyncChangeKeys.includes(key)}
+                          onChange={(event) => handleToggleSyncChange(key, event.target.checked)}
+                          disabled={isPending}
+                        />
+                        <span className="w-14 shrink-0 uppercase text-muted-foreground">
+                          {change.action}
+                        </span>
+                        <span className="flex-1 min-w-0 truncate font-mono">
+                          {change.after.modelId}
+                        </span>
+                        <span className="font-mono">
+                          {formatMicroPrice(change.before?.inputPriceMicro || 0)} →{' '}
+                          {formatMicroPrice(change.after.inputPriceMicro)}
+                        </span>
+                        <span className="font-mono">
+                          {formatMicroPrice(change.before?.outputPriceMicro || 0)} →{' '}
+                          {formatMicroPrice(change.after.outputPriceMicro)}
+                        </span>
+                      </div>
+                    );
+                  })
                 )}
               </div>
               {syncPreview.changes.length > 50 && (
@@ -653,7 +738,7 @@ export function ModelPricesPage() {
             <AlertDialogCancel disabled={isPending}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleApplyExternalSync}
-              disabled={isPending || !syncPreview || syncPreview.changes.length === 0}
+              disabled={isPending || !syncPreview || selectedSyncChangeKeys.length === 0}
             >
               {t('modelPrices.applySync')}
             </AlertDialogAction>
