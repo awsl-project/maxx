@@ -2198,8 +2198,8 @@ func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error
 	return s.modelPriceRepo.ResetToDefaults()
 }
 
-// DiffModelPricesFromExternalSource fetches an external model price table
+// CompareModelPricesFromExternalSource fetches an external model price table
 // and returns the pending DB changes without applying them.
-func (s *AdminService) DiffModelPricesFromExternalSource(sourceCode string) (*modelpricesync.Result, error) {
-	return modelpricesync.FetchDiff(s.modelPriceRepo, sourceCode)
+func (s *AdminService) CompareModelPricesFromExternalSource(sourceCode string) (*modelpricesync.Result, error) {
+	return modelpricesync.Compare(s.modelPriceRepo, sourceCode)
 }

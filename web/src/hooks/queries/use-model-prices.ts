@@ -91,8 +91,8 @@ export function useResetModelPricesToDefaults() {
 }
 
 // 预览外部模型价格同步
-export function useDiffExternalModelPriceSync() {
+export function useCompareExternalModelPriceSync() {
   return useMutation({
-    mutationFn: (source?: string) => getTransport().diffExternalModelPriceSync(source),
+    mutationFn: (source?: string) => getTransport().compareExternalModelPriceSync(source),
   });
 }

@@ -212,7 +212,7 @@ func TestModelPricesReset(t *testing.T) {
 	}
 }
 
-func TestModelPricesExternalSyncDiffThenApplySelected(t *testing.T) {
+func TestModelPricesExternalCompareThenApplySelected(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -262,35 +262,35 @@ func TestModelPricesExternalSyncDiffThenApplySelected(t *testing.T) {
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
 
-	resp = env.AdminPost("/api/admin/model-prices/upstream/diff", map[string]any{"source": "litellm"})
+	resp = env.AdminPost("/api/admin/model-prices/upstream/compare", map[string]any{"source": "litellm"})
 	AssertStatus(t, resp, http.StatusOK)
 
-	var diff map[string]any
-	DecodeJSON(t, resp, &diff)
-	if diff["source"] != "litellm" {
-		t.Fatalf("expected diff source litellm, got %+v", diff["source"])
+	var comparison map[string]any
+	DecodeJSON(t, resp, &comparison)
+	if comparison["source"] != "litellm" {
+		t.Fatalf("expected comparison source litellm, got %+v", comparison["source"])
 	}
-	if diff["created"].(float64) != 1 || diff["updated"].(float64) != 1 {
-		t.Fatalf("expected diff create=1 update=1, got %+v", diff)
+	if comparison["created"].(float64) != 1 || comparison["updated"].(float64) != 1 {
+		t.Fatalf("expected comparison create=1 update=1, got %+v", comparison)
 	}
-	if _, hasPrices := diff["prices"]; hasPrices {
-		t.Fatalf("diff should not include applied prices, got %+v", diff["prices"])
+	if _, hasPrices := comparison["prices"]; hasPrices {
+		t.Fatalf("comparison should not include applied prices, got %+v", comparison["prices"])
 	}
 
-	// Diff must not mutate the existing row.
+	// Compare must not mutate the existing row.
 	resp = env.AdminGet("/api/admin/model-prices")
 	AssertStatus(t, resp, http.StatusOK)
 	var beforeApply []map[string]any
 	DecodeJSON(t, resp, &beforeApply)
 	for _, price := range beforeApply {
 		if price["modelId"] == "sync-model" && price["inputPriceMicro"].(float64) != 1 {
-			t.Fatalf("diff mutated sync-model: %+v", price)
+			t.Fatalf("comparison mutated sync-model: %+v", price)
 		}
 	}
 
-	changes, ok := diff["changes"].([]any)
+	changes, ok := comparison["changes"].([]any)
 	if !ok || len(changes) == 0 {
-		t.Fatalf("expected diff changes, got %+v", diff["changes"])
+		t.Fatalf("expected comparison changes, got %+v", comparison["changes"])
 	}
 	for _, item := range changes {
 		change := item.(map[string]any)
@@ -306,7 +306,7 @@ func TestModelPricesExternalSyncDiffThenApplySelected(t *testing.T) {
 			AssertStatus(t, resp, http.StatusOK)
 			resp.Body.Close()
 		default:
-			t.Fatalf("unexpected diff action: %+v", change["action"])
+			t.Fatalf("unexpected comparison action: %+v", change["action"])
 		}
 	}
 

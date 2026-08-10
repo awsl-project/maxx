@@ -24,17 +24,17 @@ type Change struct {
 	After  *domain.ModelPrice `json:"after"`
 }
 
-// FetchDiff fetches source prices and returns pending DB changes without applying them.
-func FetchDiff(repo repository.ModelPriceRepository, sourceCode string) (*Result, error) {
+// Compare fetches source prices and returns pending DB changes without applying them.
+func Compare(repo repository.ModelPriceRepository, sourceCode string) (*Result, error) {
 	sourcePrices, source, sourceURL, err := Fetch(sourceCode)
 	if err != nil {
 		return nil, err
 	}
-	return Diff(repo, sourcePrices, source.Code, sourceURL)
+	return CompareRows(repo, sourcePrices, source.Code, sourceURL)
 }
 
-// Diff compares normalized source prices with current DB prices.
-func Diff(repo repository.ModelPriceRepository, sourcePrices []*domain.ModelPrice, source string, sourceURL string) (*Result, error) {
+// CompareRows compares normalized source prices with current DB prices.
+func CompareRows(repo repository.ModelPriceRepository, sourcePrices []*domain.ModelPrice, source string, sourceURL string) (*Result, error) {
 	result := &Result{Source: source, SourceURL: sourceURL, Total: len(sourcePrices)}
 	currentPrices, err := repo.ListCurrentPrices()
 	if err != nil {
