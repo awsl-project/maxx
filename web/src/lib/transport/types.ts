@@ -264,7 +264,6 @@ export interface Provider {
   exposedModelsEnabled?: boolean; // 是否启用对外暴露模型白名单，默认关闭
   exposedModels?: string[]; // 允许对外暴露的模型列表（通配符模式），仅启用后生效
   maxConcurrency?: number; // 最大并发上游会话数，0 表示不限制
-  forceHTTP502?: boolean; // 为 true 时在调用上游前强制伪造 502 错误
   excludeFromExport?: boolean; // 为 true 时不参与导出/备份
   blackBox?: boolean; // 为 true 时不可编辑且不向 UI/API 暴露配置细节
 }

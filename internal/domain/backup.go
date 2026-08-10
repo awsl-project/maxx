@@ -43,7 +43,6 @@ type BackupProvider struct {
 	ExposedModelsEnabled bool            `json:"exposedModelsEnabled,omitempty"`
 	ExposedModels        []string        `json:"exposedModels,omitempty"`
 	MaxConcurrency       int             `json:"maxConcurrency,omitempty"`
-	ForceHTTP502         bool            `json:"forceHTTP502,omitempty"`
 }
 
 // BackupProject represents a project for backup (using slug as identifier)

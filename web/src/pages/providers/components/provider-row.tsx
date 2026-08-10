@@ -1,11 +1,10 @@
 import { type KeyboardEvent } from 'react';
-import { Activity, AlertTriangle, Ban, Globe, Mail, Repeat2, Snowflake } from 'lucide-react';
+import { Activity, Ban, Globe, Mail, Repeat2, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';
-import { Switch } from '@/components/ui/switch';
 import type {
   Provider,
   ProviderStats,
@@ -58,9 +57,6 @@ interface ProviderRowProps {
   onClick?: () => void;
   title?: string;
   className?: string;
-  canManageFaultInjection?: boolean;
-  onForceHTTP502Change?: (checked: boolean) => void;
-  forceHTTP502Pending?: boolean;
 }
 
 // 获取 Claude 模型额度百分比和重置时间
@@ -221,9 +217,6 @@ export function ProviderRow({
   onClick,
   title,
   className,
-  canManageFaultInjection = false,
-  onForceHTTP502Change,
-  forceHTTP502Pending = false,
 }: ProviderRowProps) {
   const { t } = useTranslation();
   // 使用通用配置系统
@@ -547,22 +540,6 @@ export function ProviderRow({
         </div>
       )}
 
-      <div
-        className="relative z-10 flex shrink-0 items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-1.5"
-        title={t('provider.forceHTTP502Desc')}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-        <span className="hidden text-[11px] font-semibold text-destructive md:inline">
-          {t('provider.forceHTTP502')}
-        </span>
-        <Switch
-          aria-label={t('provider.forceHTTP502')}
-          checked={!!provider.forceHTTP502}
-          disabled={!canManageFaultInjection || forceHTTP502Pending || provider.blackBox}
-          onCheckedChange={(checked) => onForceHTTP502Change?.(checked)}
-        />
-      </div>
 
       {/* Kiro Quota Area */}
       {isKiro && (
