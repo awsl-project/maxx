@@ -1977,25 +1977,6 @@ type RecalculateCostsProgress struct {
 	Message    string `json:"message"`    // Human-readable message
 }
 
-// SyncModelPricesResult summarizes syncing prices into the DB.
-type SyncModelPricesResult struct {
-	Source    string               `json:"source"`
-	SourceURL string               `json:"sourceUrl"`
-	Total     int                  `json:"total"`
-	Created   int                  `json:"created"`
-	Updated   int                  `json:"updated"`
-	Skipped   int                  `json:"skipped"`
-	Changes   []ModelPriceChange   `json:"changes"`
-	Prices    []*domain.ModelPrice `json:"prices,omitempty"`
-}
-
-// ModelPriceChange describes one pending or applied model price change.
-type ModelPriceChange struct {
-	Action string             `json:"action"`
-	Before *domain.ModelPrice `json:"before,omitempty"`
-	After  *domain.ModelPrice `json:"after"`
-}
-
 // RecalculateCosts recalculates cost for all attempts using the current price table
 // and updates the parent requests' cost accordingly (with streaming batch processing)
 func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
@@ -2219,105 +2200,12 @@ func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error
 
 // PreviewModelPricesFromExternalSource fetches an external model price table
 // and returns the pending DB changes without applying them.
-func (s *AdminService) PreviewModelPricesFromExternalSource(sourceCode ...string) (*SyncModelPricesResult, error) {
-	source := firstModelPriceSyncSource(sourceCode)
-	prices, resolvedSource, sourceURL, err := modelpricesync.Fetch(source)
-	if err != nil {
-		return nil, err
-	}
-	return s.syncModelPrices(prices, resolvedSource.Code, sourceURL, false)
+func (s *AdminService) PreviewModelPricesFromExternalSource(sourceCode string) (*modelpricesync.Result, error) {
+	return modelpricesync.Preview(s.modelPriceRepo, sourceCode)
 }
 
 // SyncModelPricesFromExternalSource fetches an external model price table and
 // applies missing or changed prices. Custom DB-only prices are preserved.
-func (s *AdminService) SyncModelPricesFromExternalSource(sourceCode ...string) (*SyncModelPricesResult, error) {
-	source := firstModelPriceSyncSource(sourceCode)
-	prices, resolvedSource, sourceURL, err := modelpricesync.Fetch(source)
-	if err != nil {
-		return nil, err
-	}
-	return s.syncModelPrices(prices, resolvedSource.Code, sourceURL, true)
-}
-
-func firstModelPriceSyncSource(sourceCode []string) string {
-	if len(sourceCode) == 0 {
-		return ""
-	}
-	return sourceCode[0]
-}
-
-func (s *AdminService) syncModelPrices(sourcePrices []*domain.ModelPrice, source string, sourceURL string, apply bool) (*SyncModelPricesResult, error) {
-	result := &SyncModelPricesResult{Source: source, SourceURL: sourceURL, Total: len(sourcePrices)}
-	currentPrices, err := s.modelPriceRepo.ListCurrentPrices()
-	if err != nil {
-		return nil, err
-	}
-	currentByModelID := make(map[string]*domain.ModelPrice, len(currentPrices))
-	for _, price := range currentPrices {
-		currentByModelID[price.ModelID] = price
-	}
-
-	for _, price := range sourcePrices {
-		current := currentByModelID[price.ModelID]
-
-		if current == nil {
-			if apply {
-				if err := s.modelPriceRepo.Create(price); err != nil {
-					return nil, err
-				}
-				currentByModelID[price.ModelID] = price
-			}
-			result.Created++
-			result.Changes = append(result.Changes, ModelPriceChange{Action: "create", After: cloneModelPrice(price)})
-			continue
-		}
-
-		if modelPricesEqual(current, price) {
-			result.Skipped++
-			continue
-		}
-
-		price.ID = current.ID
-		if apply {
-			if err := s.modelPriceRepo.Update(price); err != nil {
-				return nil, err
-			}
-			currentByModelID[price.ModelID] = price
-		}
-		result.Updated++
-		result.Changes = append(result.Changes, ModelPriceChange{Action: "update", Before: cloneModelPrice(current), After: cloneModelPrice(price)})
-	}
-
-	if apply {
-		prices, err := s.modelPriceRepo.ListCurrentPrices()
-		if err != nil {
-			return nil, err
-		}
-		result.Prices = prices
-	}
-	return result, nil
-}
-
-func cloneModelPrice(price *domain.ModelPrice) *domain.ModelPrice {
-	if price == nil {
-		return nil
-	}
-	clone := *price
-	return &clone
-}
-
-func modelPricesEqual(a, b *domain.ModelPrice) bool {
-	return a.InputPriceMicro == b.InputPriceMicro &&
-		a.OutputPriceMicro == b.OutputPriceMicro &&
-		a.CacheReadPriceMicro == b.CacheReadPriceMicro &&
-		a.Cache5mWritePriceMicro == b.Cache5mWritePriceMicro &&
-		a.Cache1hWritePriceMicro == b.Cache1hWritePriceMicro &&
-		a.ImageInputPriceMicro == b.ImageInputPriceMicro &&
-		a.ImageOutputPriceMicro == b.ImageOutputPriceMicro &&
-		a.Has1MContext == b.Has1MContext &&
-		a.Context1MThreshold == b.Context1MThreshold &&
-		a.InputPremiumNum == b.InputPremiumNum &&
-		a.InputPremiumDenom == b.InputPremiumDenom &&
-		a.OutputPremiumNum == b.OutputPremiumNum &&
-		a.OutputPremiumDenom == b.OutputPremiumDenom
+func (s *AdminService) SyncModelPricesFromExternalSource(sourceCode string) (*modelpricesync.Result, error) {
+	return modelpricesync.Apply(s.modelPriceRepo, sourceCode)
 }
