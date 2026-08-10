@@ -2532,7 +2532,11 @@ func (h *AdminHandler) handleModelPricesReset(w http.ResponseWriter, r *http.Req
 
 // handleModelPricesSyncExternalPreview handles POST /admin/model-prices/sync-external/preview
 func (h *AdminHandler) handleModelPricesSyncExternalPreview(w http.ResponseWriter, r *http.Request) {
-	result, err := h.svc.PreviewModelPricesFromExternalSource()
+	req, ok := decodeModelPriceSyncRequest(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.svc.PreviewModelPricesFromExternalSource(req.Source)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -2542,7 +2546,11 @@ func (h *AdminHandler) handleModelPricesSyncExternalPreview(w http.ResponseWrite
 
 // handleModelPricesSyncExternalApply handles POST /admin/model-prices/sync-external/apply
 func (h *AdminHandler) handleModelPricesSyncExternalApply(w http.ResponseWriter, r *http.Request) {
-	result, err := h.svc.SyncModelPricesFromExternalSource()
+	req, ok := decodeModelPriceSyncRequest(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.svc.SyncModelPricesFromExternalSource(req.Source)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -2550,6 +2558,22 @@ func (h *AdminHandler) handleModelPricesSyncExternalApply(w http.ResponseWriter,
 	// Refresh calculator cache
 	pricing.GlobalCalculator().LoadFromDatabase(result.Prices)
 	writeJSON(w, http.StatusOK, result)
+}
+
+type modelPriceSyncRequest struct {
+	Source string `json:"source"`
+}
+
+func decodeModelPriceSyncRequest(w http.ResponseWriter, r *http.Request) (modelPriceSyncRequest, bool) {
+	var req modelPriceSyncRequest
+	if r.Body == nil || r.ContentLength == 0 {
+		return req, true
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return req, false
+	}
+	return req, true
 }
 
 // mustGetPrices is a helper to get prices for refreshing calculator

@@ -1672,6 +1672,7 @@ export interface ModelPriceInput {
 }
 
 export interface SyncModelPricesResult {
+  source: string;
   sourceUrl: string;
   total: number;
   created: number;

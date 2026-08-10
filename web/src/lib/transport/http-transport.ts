@@ -1339,16 +1339,18 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async previewExternalModelPriceSync(): Promise<SyncModelPricesResult> {
+  async previewExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult> {
     const { data } = await this.adminClient.post<SyncModelPricesResult>(
-      '/model-prices/sync-external/preview'
+      '/model-prices/sync-external/preview',
+      { source },
     );
     return data;
   }
 
-  async applyExternalModelPriceSync(): Promise<SyncModelPricesResult> {
+  async applyExternalModelPriceSync(source?: string): Promise<SyncModelPricesResult> {
     const { data } = await this.adminClient.post<SyncModelPricesResult>(
-      '/model-prices/sync-external/apply'
+      '/model-prices/sync-external/apply',
+      { source },
     );
     return data;
   }

@@ -30,6 +30,26 @@ import (
 
 const defaultModelPriceSyncSourceURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 
+const defaultModelPriceSyncSourceCode = "litellm"
+
+type modelPriceSyncSource struct {
+	Code       string
+	Name       string
+	DefaultURL string
+	EnvURL     string
+	Convert    func(modelID string, item liteLLMModelPrice) (*domain.ModelPrice, bool)
+}
+
+var modelPriceSyncSources = map[string]modelPriceSyncSource{
+	defaultModelPriceSyncSourceCode: {
+		Code:       defaultModelPriceSyncSourceCode,
+		Name:       "LiteLLM",
+		DefaultURL: defaultModelPriceSyncSourceURL,
+		EnvURL:     "MAXX_MODEL_PRICE_SYNC_SOURCE_URL",
+		Convert:    convertLiteLLMModelPrice,
+	},
+}
+
 // ProviderAdapterRefresher is an interface for refreshing provider adapters
 // Implemented by Router to receive notifications when providers change
 type ProviderAdapterRefresher interface {
@@ -1983,6 +2003,7 @@ type RecalculateCostsProgress struct {
 
 // SyncModelPricesResult summarizes syncing prices into the DB.
 type SyncModelPricesResult struct {
+	Source    string               `json:"source"`
 	SourceURL string               `json:"sourceUrl"`
 	Total     int                  `json:"total"`
 	Created   int                  `json:"created"`
@@ -2236,28 +2257,37 @@ func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error
 	return s.modelPriceRepo.ResetToDefaults()
 }
 
-// PreviewModelPricesFromExternalSource fetches the external LiteLLM price table
+// PreviewModelPricesFromExternalSource fetches an external model price table
 // and returns the pending DB changes without applying them.
-func (s *AdminService) PreviewModelPricesFromExternalSource() (*SyncModelPricesResult, error) {
-	prices, sourceURL, err := fetchExternalModelPrices()
+func (s *AdminService) PreviewModelPricesFromExternalSource(sourceCode ...string) (*SyncModelPricesResult, error) {
+	source := firstModelPriceSyncSource(sourceCode)
+	prices, resolvedSource, sourceURL, err := fetchExternalModelPrices(source)
 	if err != nil {
 		return nil, err
 	}
-	return s.syncModelPrices(prices, sourceURL, false)
+	return s.syncModelPrices(prices, resolvedSource.Code, sourceURL, false)
 }
 
-// SyncModelPricesFromExternalSource fetches the external LiteLLM price table and
+// SyncModelPricesFromExternalSource fetches an external model price table and
 // applies missing or changed prices. Custom DB-only prices are preserved.
-func (s *AdminService) SyncModelPricesFromExternalSource() (*SyncModelPricesResult, error) {
-	prices, sourceURL, err := fetchExternalModelPrices()
+func (s *AdminService) SyncModelPricesFromExternalSource(sourceCode ...string) (*SyncModelPricesResult, error) {
+	source := firstModelPriceSyncSource(sourceCode)
+	prices, resolvedSource, sourceURL, err := fetchExternalModelPrices(source)
 	if err != nil {
 		return nil, err
 	}
-	return s.syncModelPrices(prices, sourceURL, true)
+	return s.syncModelPrices(prices, resolvedSource.Code, sourceURL, true)
 }
 
-func (s *AdminService) syncModelPrices(sourcePrices []*domain.ModelPrice, sourceURL string, apply bool) (*SyncModelPricesResult, error) {
-	result := &SyncModelPricesResult{SourceURL: sourceURL, Total: len(sourcePrices)}
+func firstModelPriceSyncSource(sourceCode []string) string {
+	if len(sourceCode) == 0 {
+		return ""
+	}
+	return sourceCode[0]
+}
+
+func (s *AdminService) syncModelPrices(sourcePrices []*domain.ModelPrice, source string, sourceURL string, apply bool) (*SyncModelPricesResult, error) {
+	result := &SyncModelPricesResult{Source: source, SourceURL: sourceURL, Total: len(sourcePrices)}
 	currentPrices, err := s.modelPriceRepo.ListCurrentPrices()
 	if err != nil {
 		return nil, err
@@ -2308,37 +2338,53 @@ func (s *AdminService) syncModelPrices(sourcePrices []*domain.ModelPrice, source
 	return result, nil
 }
 
-func fetchExternalModelPrices() ([]*domain.ModelPrice, string, error) {
-	sourceURL := os.Getenv("MAXX_MODEL_PRICE_SYNC_SOURCE_URL")
+func fetchExternalModelPrices(sourceCode string) ([]*domain.ModelPrice, modelPriceSyncSource, string, error) {
+	source, err := resolveModelPriceSyncSource(sourceCode)
+	if err != nil {
+		return nil, source, "", err
+	}
+	sourceURL := os.Getenv(source.EnvURL)
 	if sourceURL == "" {
-		sourceURL = defaultModelPriceSyncSourceURL
+		sourceURL = source.DefaultURL
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(sourceURL)
 	if err != nil {
-		return nil, sourceURL, fmt.Errorf("fetch model price source: %w", err)
+		return nil, source, sourceURL, fmt.Errorf("fetch model price source %q: %w", source.Code, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, sourceURL, fmt.Errorf("fetch model price source: unexpected status %d", resp.StatusCode)
+		return nil, source, sourceURL, fmt.Errorf("fetch model price source %q: unexpected status %d", source.Code, resp.StatusCode)
 	}
 
 	var raw map[string]liteLLMModelPrice
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, sourceURL, fmt.Errorf("decode model price source: %w", err)
+		return nil, source, sourceURL, fmt.Errorf("decode model price source %q: %w", source.Code, err)
 	}
 
 	prices := make([]*domain.ModelPrice, 0, len(raw))
 	for modelID, item := range raw {
-		price, ok := convertLiteLLMModelPrice(modelID, item)
+		price, ok := source.Convert(modelID, item)
 		if ok {
 			prices = append(prices, price)
 		}
 	}
 	sort.Slice(prices, func(i, j int) bool { return prices[i].ModelID < prices[j].ModelID })
-	return prices, sourceURL, nil
+	return prices, source, sourceURL, nil
+}
+
+func resolveModelPriceSyncSource(sourceCode string) (modelPriceSyncSource, error) {
+	code := strings.TrimSpace(strings.ToLower(sourceCode))
+	if code == "" {
+		code = defaultModelPriceSyncSourceCode
+	}
+	source, ok := modelPriceSyncSources[code]
+	if !ok {
+		return modelPriceSyncSource{}, fmt.Errorf("unsupported model price sync source %q", sourceCode)
+	}
+	return source, nil
 }
 
 func convertLiteLLMModelPrice(modelID string, item liteLLMModelPrice) (*domain.ModelPrice, bool) {

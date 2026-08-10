@@ -90,19 +90,19 @@ export function useResetModelPricesToDefaults() {
   });
 }
 
-// 预览外部模型价格同步（LiteLLM 价表）
+// 预览外部模型价格同步
 export function usePreviewExternalModelPriceSync() {
   return useMutation({
-    mutationFn: () => getTransport().previewExternalModelPriceSync(),
+    mutationFn: (source?: string) => getTransport().previewExternalModelPriceSync(source),
   });
 }
 
-// 应用外部模型价格同步（LiteLLM 价表）
+// 应用外部模型价格同步
 export function useApplyExternalModelPriceSync() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () => getTransport().applyExternalModelPriceSync(),
+    mutationFn: (source?: string) => getTransport().applyExternalModelPriceSync(source),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelPriceKeys.lists() });
       queryClient.invalidateQueries({ queryKey: pricingKeys.all });

@@ -262,11 +262,14 @@ func TestModelPricesExternalSyncPreviewThenApply(t *testing.T) {
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
 
-	resp = env.AdminPost("/api/admin/model-prices/sync-external/preview", nil)
+	resp = env.AdminPost("/api/admin/model-prices/sync-external/preview", map[string]any{"source": "litellm"})
 	AssertStatus(t, resp, http.StatusOK)
 
 	var preview map[string]any
 	DecodeJSON(t, resp, &preview)
+	if preview["source"] != "litellm" {
+		t.Fatalf("expected preview source litellm, got %+v", preview["source"])
+	}
 	if preview["created"].(float64) != 1 || preview["updated"].(float64) != 1 {
 		t.Fatalf("expected preview create=1 update=1, got %+v", preview)
 	}
@@ -285,11 +288,14 @@ func TestModelPricesExternalSyncPreviewThenApply(t *testing.T) {
 		}
 	}
 
-	resp = env.AdminPost("/api/admin/model-prices/sync-external/apply", nil)
+	resp = env.AdminPost("/api/admin/model-prices/sync-external/apply", map[string]any{"source": "litellm"})
 	AssertStatus(t, resp, http.StatusOK)
 
 	var result map[string]any
 	DecodeJSON(t, resp, &result)
+	if result["source"] != "litellm" {
+		t.Fatalf("expected apply source litellm, got %+v", result["source"])
+	}
 	if result["created"].(float64) != 1 || result["updated"].(float64) != 1 {
 		t.Fatalf("expected apply create=1 update=1, got %+v", result)
 	}

@@ -11,6 +11,11 @@ import {
   DialogTitle,
   DialogFooter,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Switch,
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +68,8 @@ interface PriceFormData {
   outputPremiumNum: string;
   outputPremiumDenom: string;
 }
+
+const modelPriceSyncSources = [{ value: 'litellm', label: 'LiteLLM' }] as const;
 
 const defaultFormData: PriceFormData = {
   modelId: '',
@@ -137,6 +144,8 @@ export function ModelPricesPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [syncPreviewOpen, setSyncPreviewOpen] = useState(false);
+  const [syncSource, setSyncSource] =
+    useState<(typeof modelPriceSyncSources)[number]['value']>('litellm');
   const [syncPreview, setSyncPreview] = useState<SyncModelPricesResult | null>(null);
   const [syncResultText, setSyncResultText] = useState<string | null>(null);
 
@@ -185,20 +194,20 @@ export function ModelPricesPage() {
 
   const handlePreviewExternalSync = async () => {
     if (!canManagePrices) return;
-    const result = await previewExternalSync.mutateAsync();
+    const result = await previewExternalSync.mutateAsync(syncSource);
     setSyncPreview(result);
     setSyncPreviewOpen(true);
   };
 
   const handleApplyExternalSync = async () => {
     if (!canManagePrices) return;
-    const result = await applyExternalSync.mutateAsync();
+    const result = await applyExternalSync.mutateAsync(syncPreview?.source || syncSource);
     setSyncResultText(
       t('modelPrices.syncExternalResult', {
         created: result.created,
         updated: result.updated,
         skipped: result.skipped,
-      })
+      }),
     );
     setSyncPreview(result);
     setSyncPreviewOpen(false);
@@ -226,6 +235,21 @@ export function ModelPricesPage() {
         actions={
           canManagePrices ? (
             <div className="flex items-center gap-2">
+              <Select
+                value={syncSource}
+                onValueChange={(value) => setSyncSource(value as typeof syncSource)}
+              >
+                <SelectTrigger className="w-32 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {modelPriceSyncSources.map((source) => (
+                    <SelectItem key={source.value} value={source.value}>
+                      {source.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 variant="outline"
                 size="sm"
@@ -567,13 +591,16 @@ export function ModelPricesPage() {
         <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle>{t('modelPrices.syncExternalPreviewTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('modelPrices.syncExternalPreviewDesc')}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {t('modelPrices.syncExternalPreviewDesc')}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           {syncPreview && (
             <div className="space-y-3 text-left">
               <div className="rounded border border-border bg-muted/30 p-3 text-xs space-y-1">
                 <div className="break-all">
-                  {t('modelPrices.syncSource')}: {syncPreview.sourceUrl}
+                  {t('modelPrices.syncSource')}: {syncPreview.source || syncSource} ·{' '}
+                  {syncPreview.sourceUrl}
                 </div>
                 <div>
                   {t('modelPrices.syncPreviewStats', {
