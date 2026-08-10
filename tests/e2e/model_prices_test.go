@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -208,5 +209,121 @@ func TestModelPricesReset(t *testing.T) {
 	// After reset, should have default prices (non-nil response)
 	if prices == nil {
 		t.Fatal("Expected non-nil response after model prices reset")
+	}
+}
+
+func TestModelPricesExternalSyncPreviewThenApply(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+  "sync-model": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015,
+    "cache_read_input_token_cost": 0.0000003,
+    "cache_creation_input_token_cost": 0.00000375,
+    "cache_creation_input_token_cost_above_1hr": 0.000006,
+    "input_cost_per_token_above_200k_tokens": 0.000006,
+    "output_cost_per_token_above_200k_tokens": 0.0000225
+  },
+  "sync-new-model": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000002
+  },
+  "sample_spec": {
+    "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000002
+  }
+}`))
+	}))
+	defer source.Close()
+	t.Setenv("MAXX_MODEL_PRICE_SYNC_SOURCE_URL", source.URL)
+
+	env := NewTestEnv(t)
+
+	custom := map[string]any{
+		"modelId":          "sync-custom-model",
+		"inputPriceMicro":  1234,
+		"outputPriceMicro": 5678,
+	}
+	resp := env.AdminPost("/api/admin/model-prices", custom)
+	AssertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	existing := map[string]any{
+		"modelId":          "sync-model",
+		"inputPriceMicro":  1,
+		"outputPriceMicro": 15000000,
+	}
+	resp = env.AdminPost("/api/admin/model-prices", existing)
+	AssertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	resp = env.AdminPost("/api/admin/model-prices/sync-external/preview", nil)
+	AssertStatus(t, resp, http.StatusOK)
+
+	var preview map[string]any
+	DecodeJSON(t, resp, &preview)
+	if preview["created"].(float64) != 1 || preview["updated"].(float64) != 1 {
+		t.Fatalf("expected preview create=1 update=1, got %+v", preview)
+	}
+	if _, hasPrices := preview["prices"]; hasPrices {
+		t.Fatalf("preview should not include applied prices, got %+v", preview["prices"])
+	}
+
+	// Preview must not mutate the existing row.
+	resp = env.AdminGet("/api/admin/model-prices")
+	AssertStatus(t, resp, http.StatusOK)
+	var beforeApply []map[string]any
+	DecodeJSON(t, resp, &beforeApply)
+	for _, price := range beforeApply {
+		if price["modelId"] == "sync-model" && price["inputPriceMicro"].(float64) != 1 {
+			t.Fatalf("preview mutated sync-model: %+v", price)
+		}
+	}
+
+	resp = env.AdminPost("/api/admin/model-prices/sync-external/apply", nil)
+	AssertStatus(t, resp, http.StatusOK)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+	if result["created"].(float64) != 1 || result["updated"].(float64) != 1 {
+		t.Fatalf("expected apply create=1 update=1, got %+v", result)
+	}
+
+	resultPrices, ok := result["prices"].([]any)
+	if !ok || len(resultPrices) == 0 {
+		t.Fatalf("expected prices in sync result, got %+v", result["prices"])
+	}
+
+	foundCustom := false
+	foundSyncedExisting := false
+	foundCreated := false
+	for _, item := range resultPrices {
+		price, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch price["modelId"] {
+		case "sync-custom-model":
+			foundCustom = true
+		case "sync-model":
+			foundSyncedExisting = price["inputPriceMicro"].(float64) == 3000000
+		case "sync-new-model":
+			foundCreated = price["inputPriceMicro"].(float64) == 1000000
+		}
+	}
+
+	if !foundCustom {
+		t.Fatal("sync should preserve custom model prices")
+	}
+	if !foundSyncedExisting {
+		t.Fatal("sync should update existing model price from external source")
+	}
+	if !foundCreated {
+		t.Fatal("sync should create new model price from external source")
 	}
 }

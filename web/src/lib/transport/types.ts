@@ -1670,3 +1670,19 @@ export interface ModelPriceInput {
   outputPremiumNum?: number;
   outputPremiumDenom?: number;
 }
+
+export interface SyncModelPricesResult {
+  sourceUrl: string;
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  changes: ModelPriceChange[];
+  prices?: ModelPrice[];
+}
+
+export interface ModelPriceChange {
+  action: 'create' | 'update';
+  before?: ModelPrice;
+  after: ModelPrice;
+}

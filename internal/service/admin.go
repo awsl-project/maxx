@@ -4,11 +4,14 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
+	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -24,6 +27,8 @@ import (
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
 	"github.com/awsl-project/maxx/internal/version"
 )
+
+const defaultModelPriceSyncSourceURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 
 // ProviderAdapterRefresher is an interface for refreshing provider adapters
 // Implemented by Router to receive notifications when providers change
@@ -1976,6 +1981,40 @@ type RecalculateCostsProgress struct {
 	Message    string `json:"message"`    // Human-readable message
 }
 
+// SyncModelPricesResult summarizes syncing prices into the DB.
+type SyncModelPricesResult struct {
+	SourceURL string               `json:"sourceUrl"`
+	Total     int                  `json:"total"`
+	Created   int                  `json:"created"`
+	Updated   int                  `json:"updated"`
+	Skipped   int                  `json:"skipped"`
+	Changes   []ModelPriceChange   `json:"changes"`
+	Prices    []*domain.ModelPrice `json:"prices,omitempty"`
+}
+
+// ModelPriceChange describes one pending or applied model price change.
+type ModelPriceChange struct {
+	Action string             `json:"action"`
+	Before *domain.ModelPrice `json:"before,omitempty"`
+	After  *domain.ModelPrice `json:"after"`
+}
+
+type liteLLMModelPrice struct {
+	Mode                                      string   `json:"mode"`
+	LitellmProvider                           string   `json:"litellm_provider"`
+	InputCostPerToken                         *float64 `json:"input_cost_per_token"`
+	OutputCostPerToken                        *float64 `json:"output_cost_per_token"`
+	CacheReadInputTokenCost                   *float64 `json:"cache_read_input_token_cost"`
+	CacheCreationInputTokenCost               *float64 `json:"cache_creation_input_token_cost"`
+	CacheCreationInputTokenCostAbove1hr       *float64 `json:"cache_creation_input_token_cost_above_1hr"`
+	InputCostPerImageToken                    *float64 `json:"input_cost_per_image_token"`
+	OutputCostPerImageToken                   *float64 `json:"output_cost_per_image_token"`
+	InputCostPerTokenAbove200kTokens          *float64 `json:"input_cost_per_token_above_200k_tokens"`
+	OutputCostPerTokenAbove200kTokens         *float64 `json:"output_cost_per_token_above_200k_tokens"`
+	CacheReadInputTokenCostAbove200kTokens    *float64 `json:"cache_read_input_token_cost_above_200k_tokens"`
+	CacheCreationInputTokenCostAbove200kToken *float64 `json:"cache_creation_input_token_cost_above_200k_tokens"`
+}
+
 // RecalculateCosts recalculates cost for all attempts using the current price table
 // and updates the parent requests' cost accordingly (with streaming batch processing)
 func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
@@ -2195,4 +2234,194 @@ func (s *AdminService) GetModelPriceHistory(modelID string) ([]*domain.ModelPric
 // ResetModelPricesToDefaults resets all model prices to defaults (soft deletes existing)
 func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error) {
 	return s.modelPriceRepo.ResetToDefaults()
+}
+
+// PreviewModelPricesFromExternalSource fetches the external LiteLLM price table
+// and returns the pending DB changes without applying them.
+func (s *AdminService) PreviewModelPricesFromExternalSource() (*SyncModelPricesResult, error) {
+	prices, sourceURL, err := fetchExternalModelPrices()
+	if err != nil {
+		return nil, err
+	}
+	return s.syncModelPrices(prices, sourceURL, false)
+}
+
+// SyncModelPricesFromExternalSource fetches the external LiteLLM price table and
+// applies missing or changed prices. Custom DB-only prices are preserved.
+func (s *AdminService) SyncModelPricesFromExternalSource() (*SyncModelPricesResult, error) {
+	prices, sourceURL, err := fetchExternalModelPrices()
+	if err != nil {
+		return nil, err
+	}
+	return s.syncModelPrices(prices, sourceURL, true)
+}
+
+func (s *AdminService) syncModelPrices(sourcePrices []*domain.ModelPrice, sourceURL string, apply bool) (*SyncModelPricesResult, error) {
+	result := &SyncModelPricesResult{SourceURL: sourceURL, Total: len(sourcePrices)}
+	currentPrices, err := s.modelPriceRepo.ListCurrentPrices()
+	if err != nil {
+		return nil, err
+	}
+	currentByModelID := make(map[string]*domain.ModelPrice, len(currentPrices))
+	for _, price := range currentPrices {
+		currentByModelID[price.ModelID] = price
+	}
+
+	for _, price := range sourcePrices {
+		current := currentByModelID[price.ModelID]
+
+		if current == nil {
+			if apply {
+				if err := s.modelPriceRepo.Create(price); err != nil {
+					return nil, err
+				}
+				currentByModelID[price.ModelID] = price
+			}
+			result.Created++
+			result.Changes = append(result.Changes, ModelPriceChange{Action: "create", After: cloneModelPrice(price)})
+			continue
+		}
+
+		if modelPricesEqual(current, price) {
+			result.Skipped++
+			continue
+		}
+
+		price.ID = current.ID
+		if apply {
+			if err := s.modelPriceRepo.Update(price); err != nil {
+				return nil, err
+			}
+			currentByModelID[price.ModelID] = price
+		}
+		result.Updated++
+		result.Changes = append(result.Changes, ModelPriceChange{Action: "update", Before: cloneModelPrice(current), After: cloneModelPrice(price)})
+	}
+
+	if apply {
+		prices, err := s.modelPriceRepo.ListCurrentPrices()
+		if err != nil {
+			return nil, err
+		}
+		result.Prices = prices
+	}
+	return result, nil
+}
+
+func fetchExternalModelPrices() ([]*domain.ModelPrice, string, error) {
+	sourceURL := os.Getenv("MAXX_MODEL_PRICE_SYNC_SOURCE_URL")
+	if sourceURL == "" {
+		sourceURL = defaultModelPriceSyncSourceURL
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(sourceURL)
+	if err != nil {
+		return nil, sourceURL, fmt.Errorf("fetch model price source: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, sourceURL, fmt.Errorf("fetch model price source: unexpected status %d", resp.StatusCode)
+	}
+
+	var raw map[string]liteLLMModelPrice
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, sourceURL, fmt.Errorf("decode model price source: %w", err)
+	}
+
+	prices := make([]*domain.ModelPrice, 0, len(raw))
+	for modelID, item := range raw {
+		price, ok := convertLiteLLMModelPrice(modelID, item)
+		if ok {
+			prices = append(prices, price)
+		}
+	}
+	sort.Slice(prices, func(i, j int) bool { return prices[i].ModelID < prices[j].ModelID })
+	return prices, sourceURL, nil
+}
+
+func convertLiteLLMModelPrice(modelID string, item liteLLMModelPrice) (*domain.ModelPrice, bool) {
+	if modelID == "" || strings.HasPrefix(modelID, "sample_") {
+		return nil, false
+	}
+
+	input := costPerTokenToMicroPerM(item.InputCostPerToken)
+	output := costPerTokenToMicroPerM(item.OutputCostPerToken)
+	imageInput := costPerTokenToMicroPerM(item.InputCostPerImageToken)
+	imageOutput := costPerTokenToMicroPerM(item.OutputCostPerImageToken)
+	if input == 0 && output == 0 && imageInput == 0 && imageOutput == 0 {
+		return nil, false
+	}
+
+	price := &domain.ModelPrice{
+		ModelID:                modelID,
+		InputPriceMicro:        input,
+		OutputPriceMicro:       output,
+		CacheReadPriceMicro:    costPerTokenToMicroPerM(item.CacheReadInputTokenCost),
+		Cache5mWritePriceMicro: costPerTokenToMicroPerM(item.CacheCreationInputTokenCost),
+		Cache1hWritePriceMicro: costPerTokenToMicroPerM(item.CacheCreationInputTokenCostAbove1hr),
+		ImageInputPriceMicro:   imageInput,
+		ImageOutputPriceMicro:  imageOutput,
+	}
+	if price.Cache1hWritePriceMicro == 0 {
+		price.Cache1hWritePriceMicro = price.Cache5mWritePriceMicro
+	}
+
+	inputAbove := costPerTokenToMicroPerM(item.InputCostPerTokenAbove200kTokens)
+	outputAbove := costPerTokenToMicroPerM(item.OutputCostPerTokenAbove200kTokens)
+	if inputAbove > input && outputAbove > output && input > 0 && output > 0 {
+		price.Has1MContext = true
+		price.Context1MThreshold = 200000
+		price.InputPremiumNum, price.InputPremiumDenom = ratio(inputAbove, input)
+		price.OutputPremiumNum, price.OutputPremiumDenom = ratio(outputAbove, output)
+	}
+
+	return price, true
+}
+
+func costPerTokenToMicroPerM(v *float64) uint64 {
+	if v == nil || *v <= 0 {
+		return 0
+	}
+	return uint64(math.Round(*v * 1_000_000_000_000))
+}
+
+func ratio(numerator, denominator uint64) (uint64, uint64) {
+	if denominator == 0 || numerator == 0 {
+		return 0, 0
+	}
+	g := gcd(numerator, denominator)
+	return numerator / g, denominator / g
+}
+
+func gcd(a, b uint64) uint64 {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+func cloneModelPrice(price *domain.ModelPrice) *domain.ModelPrice {
+	if price == nil {
+		return nil
+	}
+	clone := *price
+	return &clone
+}
+
+func modelPricesEqual(a, b *domain.ModelPrice) bool {
+	return a.InputPriceMicro == b.InputPriceMicro &&
+		a.OutputPriceMicro == b.OutputPriceMicro &&
+		a.CacheReadPriceMicro == b.CacheReadPriceMicro &&
+		a.Cache5mWritePriceMicro == b.Cache5mWritePriceMicro &&
+		a.Cache1hWritePriceMicro == b.Cache1hWritePriceMicro &&
+		a.ImageInputPriceMicro == b.ImageInputPriceMicro &&
+		a.ImageOutputPriceMicro == b.ImageOutputPriceMicro &&
+		a.Has1MContext == b.Has1MContext &&
+		a.Context1MThreshold == b.Context1MThreshold &&
+		a.InputPremiumNum == b.InputPremiumNum &&
+		a.InputPremiumDenom == b.InputPremiumDenom &&
+		a.OutputPremiumNum == b.OutputPremiumNum &&
+		a.OutputPremiumDenom == b.OutputPremiumDenom
 }

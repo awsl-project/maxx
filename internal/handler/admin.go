@@ -2440,6 +2440,14 @@ func (h *AdminHandler) handleModelPrices(w http.ResponseWriter, r *http.Request,
 		h.handleModelPricesReset(w, r)
 		return
 	}
+	if strings.HasSuffix(path, "/sync-external/preview") && r.Method == http.MethodPost {
+		h.handleModelPricesSyncExternalPreview(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/sync-external/apply") && r.Method == http.MethodPost {
+		h.handleModelPricesSyncExternalApply(w, r)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -2520,6 +2528,28 @@ func (h *AdminHandler) handleModelPricesReset(w http.ResponseWriter, r *http.Req
 	// Refresh calculator cache
 	pricing.GlobalCalculator().LoadFromDatabase(prices)
 	writeJSON(w, http.StatusOK, prices)
+}
+
+// handleModelPricesSyncExternalPreview handles POST /admin/model-prices/sync-external/preview
+func (h *AdminHandler) handleModelPricesSyncExternalPreview(w http.ResponseWriter, r *http.Request) {
+	result, err := h.svc.PreviewModelPricesFromExternalSource()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleModelPricesSyncExternalApply handles POST /admin/model-prices/sync-external/apply
+func (h *AdminHandler) handleModelPricesSyncExternalApply(w http.ResponseWriter, r *http.Request) {
+	result, err := h.svc.SyncModelPricesFromExternalSource()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	// Refresh calculator cache
+	pricing.GlobalCalculator().LoadFromDatabase(result.Prices)
+	writeJSON(w, http.StatusOK, result)
 }
 
 // mustGetPrices is a helper to get prices for refreshing calculator

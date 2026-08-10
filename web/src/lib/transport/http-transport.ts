@@ -104,6 +104,7 @@ import type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
+  SyncModelPricesResult,
 } from './types';
 
 type TransportRuntimeConfig = Required<Omit<TransportConfig, 'adminBaseURL'>> & {
@@ -1335,6 +1336,20 @@ export class HttpTransport implements Transport {
 
   async resetModelPricesToDefaults(): Promise<ModelPrice[]> {
     const { data } = await this.adminClient.post<ModelPrice[]>('/model-prices/reset');
+    return data;
+  }
+
+  async previewExternalModelPriceSync(): Promise<SyncModelPricesResult> {
+    const { data } = await this.adminClient.post<SyncModelPricesResult>(
+      '/model-prices/sync-external/preview'
+    );
+    return data;
+  }
+
+  async applyExternalModelPriceSync(): Promise<SyncModelPricesResult> {
+    const { data } = await this.adminClient.post<SyncModelPricesResult>(
+      '/model-prices/sync-external/apply'
+    );
     return data;
   }
 

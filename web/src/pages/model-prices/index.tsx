@@ -29,8 +29,10 @@ import {
   useUpdateModelPrice,
   useDeleteModelPrice,
   useResetModelPricesToDefaults,
+  usePreviewExternalModelPriceSync,
+  useApplyExternalModelPriceSync,
 } from '@/hooks/queries';
-import type { ModelPrice, ModelPriceInput } from '@/lib/transport/types';
+import type { ModelPrice, ModelPriceInput, SyncModelPricesResult } from '@/lib/transport/types';
 import { DollarSign, Plus, Trash2, Pencil, RotateCcw } from 'lucide-react';
 
 // Helper to format micro USD price to display format (e.g., $3.00 / M tokens)
@@ -125,6 +127,8 @@ export function ModelPricesPage() {
   const updatePrice = useUpdateModelPrice();
   const deletePrice = useDeleteModelPrice();
   const resetPrices = useResetModelPricesToDefaults();
+  const previewExternalSync = usePreviewExternalModelPriceSync();
+  const applyExternalSync = useApplyExternalModelPriceSync();
   const canManagePrices = user?.role === 'admin';
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -132,6 +136,9 @@ export function ModelPricesPage() {
   const [formData, setFormData] = useState<PriceFormData>(defaultFormData);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [syncPreviewOpen, setSyncPreviewOpen] = useState(false);
+  const [syncPreview, setSyncPreview] = useState<SyncModelPricesResult | null>(null);
+  const [syncResultText, setSyncResultText] = useState<string | null>(null);
 
   const handleOpenCreate = () => {
     if (!canManagePrices) return;
@@ -172,14 +179,38 @@ export function ModelPricesPage() {
   const handleResetConfirm = async () => {
     if (!canManagePrices) return;
     await resetPrices.mutateAsync();
+    setSyncResultText(null);
     setResetConfirmOpen(false);
+  };
+
+  const handlePreviewExternalSync = async () => {
+    if (!canManagePrices) return;
+    const result = await previewExternalSync.mutateAsync();
+    setSyncPreview(result);
+    setSyncPreviewOpen(true);
+  };
+
+  const handleApplyExternalSync = async () => {
+    if (!canManagePrices) return;
+    const result = await applyExternalSync.mutateAsync();
+    setSyncResultText(
+      t('modelPrices.syncExternalResult', {
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+      })
+    );
+    setSyncPreview(result);
+    setSyncPreviewOpen(false);
   };
 
   const isPending =
     createPrice.isPending ||
     updatePrice.isPending ||
     deletePrice.isPending ||
-    resetPrices.isPending;
+    resetPrices.isPending ||
+    previewExternalSync.isPending ||
+    applyExternalSync.isPending;
 
   if (isLoading) return null;
 
@@ -195,6 +226,15 @@ export function ModelPricesPage() {
         actions={
           canManagePrices ? (
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviewExternalSync}
+                disabled={isPending}
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                {t('modelPrices.syncExternal')}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -217,6 +257,9 @@ export function ModelPricesPage() {
         <Card className="border-border bg-card">
           <CardContent className="p-6">
             <p className="text-xs text-muted-foreground mb-4">{t('modelPrices.pageDesc')}</p>
+            {syncResultText && (
+              <p className="text-xs text-green-600 dark:text-green-400 mb-4">{syncResultText}</p>
+            )}
 
             {/* Header row */}
             <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium border-b pb-2 mb-2">
@@ -514,6 +557,78 @@ export function ModelPricesPage() {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={handleResetConfirm}>
               {t('modelPrices.resetToDefaults')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* External Sync Preview Dialog */}
+      <AlertDialog open={syncPreviewOpen} onOpenChange={setSyncPreviewOpen}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('modelPrices.syncExternalPreviewTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('modelPrices.syncExternalPreviewDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {syncPreview && (
+            <div className="space-y-3 text-left">
+              <div className="rounded border border-border bg-muted/30 p-3 text-xs space-y-1">
+                <div className="break-all">
+                  {t('modelPrices.syncSource')}: {syncPreview.sourceUrl}
+                </div>
+                <div>
+                  {t('modelPrices.syncPreviewStats', {
+                    total: syncPreview.total,
+                    created: syncPreview.created,
+                    updated: syncPreview.updated,
+                    skipped: syncPreview.skipped,
+                  })}
+                </div>
+              </div>
+              <div className="max-h-72 overflow-y-auto rounded border border-border">
+                {syncPreview.changes.length === 0 ? (
+                  <div className="p-3 text-xs text-muted-foreground">
+                    {t('modelPrices.syncNoChanges')}
+                  </div>
+                ) : (
+                  syncPreview.changes.slice(0, 50).map((change, index) => (
+                    <div
+                      key={`${change.action}-${change.after.modelId}-${index}`}
+                      className="flex items-center gap-3 border-b border-border last:border-b-0 p-2 text-xs"
+                    >
+                      <span className="w-14 shrink-0 uppercase text-muted-foreground">
+                        {change.action}
+                      </span>
+                      <span className="flex-1 min-w-0 truncate font-mono">
+                        {change.after.modelId}
+                      </span>
+                      <span className="font-mono">
+                        {formatMicroPrice(change.before?.inputPriceMicro || 0)} →{' '}
+                        {formatMicroPrice(change.after.inputPriceMicro)}
+                      </span>
+                      <span className="font-mono">
+                        {formatMicroPrice(change.before?.outputPriceMicro || 0)} →{' '}
+                        {formatMicroPrice(change.after.outputPriceMicro)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+              {syncPreview.changes.length > 50 && (
+                <p className="text-xs text-muted-foreground">
+                  {t('modelPrices.syncPreviewMore', {
+                    count: syncPreview.changes.length - 50,
+                  })}
+                </p>
+              )}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleApplyExternalSync}
+              disabled={isPending || !syncPreview || syncPreview.changes.length === 0}
+            >
+              {t('modelPrices.applySync')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
