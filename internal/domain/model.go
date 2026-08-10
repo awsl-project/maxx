@@ -987,7 +987,7 @@ const (
 	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"       // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
 	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"           // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
 	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"             // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"                // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"                // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "true"
 	SettingKeyEnablePprof                          = "enable_pprof"                              // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
 	SettingKeyPprofPort                            = "pprof_port"                                // pprof 服务端口，默认 6060
 	SettingKeyPprofPassword                        = "pprof_password"                            // pprof 访问密码，为空表示不需要密码

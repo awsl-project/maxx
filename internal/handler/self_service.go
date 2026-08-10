@@ -361,7 +361,7 @@ func (h *SelfServiceHandler) userPanelModelClientTypes() []domain.ClientType {
 	if h.proxyRouteSettingEnabled(domain.SettingKeyProxyRouteClaudeMessagesEnabled, true) {
 		clientTypes = append(clientTypes, domain.ClientTypeClaude)
 	}
-	if h.proxyRouteSettingEnabled(domain.SettingKeyProxyRouteGeminiEnabled, false) {
+	if h.proxyRouteSettingEnabled(domain.SettingKeyProxyRouteGeminiEnabled, true) {
 		clientTypes = append(clientTypes, domain.ClientTypeGemini)
 	}
 	return clientTypes

@@ -1484,7 +1484,7 @@
     "proxyRouteResponses": "Responses / Codex",
     "proxyRouteResponsesDesc": "控制 Responses 与 Codex 兼容入口。",
     "proxyRouteGemini": "Gemini",
-    "proxyRouteGeminiDesc": "控制 Google AI Studio 风格的 Gemini 生成入口。默认关闭。",
+    "proxyRouteGeminiDesc": "控制 Google AI Studio 风格的 Gemini 生成入口。",
     "proxyRouteExposureHint": "这些开关只影响公开代理入口，不影响模型列表、图片接口或提供商专属 URL。",
     "autoSortSettings": "自动排序设置",
     "autoSortAntigravity": "自动排序 Antigravity",

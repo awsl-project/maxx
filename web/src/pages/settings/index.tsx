@@ -117,7 +117,7 @@ const PROXY_ROUTE_EXPOSURE_SETTINGS: ProxyRouteExposureSetting[] = [
     titleKey: 'settings.proxyRouteGemini',
     descKey: 'settings.proxyRouteGeminiDesc',
     paths: ['/v1beta/models/*'],
-    defaultEnabled: false,
+    defaultEnabled: true,
   },
 ];
 

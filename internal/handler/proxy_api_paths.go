@@ -91,5 +91,5 @@ func proxyRouteExposureEnabled(settings repository.SystemSettingRepository, path
 }
 
 func proxyRouteExposureEnabledByDefault(key string) bool {
-	return key != domain.SettingKeyProxyRouteGeminiEnabled
+	return true
 }

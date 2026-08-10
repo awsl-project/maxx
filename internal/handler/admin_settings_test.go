@@ -37,7 +37,7 @@ func (r *settingsTestRepo) Delete(key string) error {
 	return nil
 }
 
-func TestHandleSettingsDeleteReturnsBadRequestWhenDeletingLastPublicProxyRoute(t *testing.T) {
+func TestHandleSettingsDeleteResetsPublicProxyRouteToDefaultEnabled(t *testing.T) {
 	repo := &settingsTestRepo{values: map[string]string{
 		domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
 		domain.SettingKeyProxyRouteOpenAIChatEnabled:     "false",
@@ -78,10 +78,10 @@ func TestHandleSettingsDeleteReturnsBadRequestWhenDeletingLastPublicProxyRoute(t
 
 	handler.handleSettings(rec, req, []string{"admin", "settings", domain.SettingKeyProxyRouteGeminiEnabled})
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
 	}
-	if got := repo.values[domain.SettingKeyProxyRouteGeminiEnabled]; got != "true" {
-		t.Fatalf("gemini setting = %q, want unchanged true", got)
+	if _, ok := repo.values[domain.SettingKeyProxyRouteGeminiEnabled]; ok {
+		t.Fatal("gemini setting still exists after delete")
 	}
 }

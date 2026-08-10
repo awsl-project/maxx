@@ -1397,7 +1397,7 @@ func (s *AdminService) validatePublicProxyRouteExposureUpdate(key, value string)
 
 func publicProxyRouteSettingEnabled(key, value string) bool {
 	if value == "" {
-		return key != domain.SettingKeyProxyRouteGeminiEnabled
+		return true
 	}
 	return value != "false"
 }

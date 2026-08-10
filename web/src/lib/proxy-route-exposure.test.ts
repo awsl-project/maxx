@@ -7,7 +7,7 @@ describe('proxy route exposure visibility', () => {
     expect(isProxyRouteVisible(undefined, 'claude')).toBe(true);
     expect(isProxyRouteVisible(undefined, 'openai')).toBe(true);
     expect(isProxyRouteVisible(undefined, 'codex')).toBe(true);
-    expect(isProxyRouteVisible(undefined, 'gemini')).toBe(false);
+    expect(isProxyRouteVisible(undefined, 'gemini')).toBe(true);
   });
 
   it('hides only routes explicitly set to false', () => {

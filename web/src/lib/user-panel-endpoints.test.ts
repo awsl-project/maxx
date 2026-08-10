@@ -13,6 +13,10 @@ describe('user panel endpoints', () => {
       { id: 'openai', url: 'https://maxx.example.com/v1' },
       { id: 'codex', url: 'https://maxx.example.com/v1' },
       { id: 'claude', url: 'https://maxx.example.com' },
+      {
+        id: 'gemini',
+        url: 'https://maxx.example.com/v1beta/models/{model}:generateContent',
+      },
     ]);
   });
 
@@ -45,12 +49,12 @@ describe('user panel endpoints', () => {
     ]);
   });
 
-  it('hides OpenAI and Codex endpoints independently', () => {
+  it('hides OpenAI and Codex endpoints independently while leaving Gemini default-visible', () => {
     expect(
       buildUserPanelEndpointHints('https://maxx.example.com', {
         proxy_route_openai_chat_enabled: 'false',
         proxy_route_responses_enabled: 'false',
       }).map((endpoint) => endpoint.id),
-    ).toEqual(['claude']);
+    ).toEqual(['claude', 'gemini']);
   });
 });

@@ -3017,13 +3017,13 @@ func TestAdminHandler_UserPanelMemberUsageStatsFollowRegeneratedKeyHistory(t *te
 	}
 }
 
-func TestUserPanelModelClientTypesDefaultsIncludeCodex(t *testing.T) {
+func TestUserPanelModelClientTypesDefaultsIncludeGemini(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{}},
 	})
 
 	got := handler.userPanelModelClientTypes()
-	want := []domain.ClientType{domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeClaude}
+	want := []domain.ClientType{domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeClaude, domain.ClientTypeGemini}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("client types = %v, want %v", got, want)
 	}

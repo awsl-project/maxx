@@ -1487,7 +1487,7 @@
     "proxyRouteResponses": "Responses / Codex",
     "proxyRouteResponsesDesc": "Controls the Responses and Codex compatible entrypoints.",
     "proxyRouteGemini": "Gemini",
-    "proxyRouteGeminiDesc": "Controls the Google AI Studio style Gemini generation entrypoint. Disabled by default.",
+    "proxyRouteGeminiDesc": "Controls the Google AI Studio style Gemini generation entrypoint.",
     "proxyRouteExposureHint": "These toggles only affect public proxy entrypoints, not model list routes, image routes, or provider-specific URLs.",
     "autoSortSettings": "Auto-Sort Settings",
     "autoSortAntigravity": "Auto-Sort Antigravity",
