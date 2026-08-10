@@ -11,11 +11,6 @@ import {
   DialogTitle,
   DialogFooter,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Switch,
   AlertDialog,
   AlertDialogAction,
@@ -34,16 +29,10 @@ import {
   useUpdateModelPrice,
   useDeleteModelPrice,
   useResetModelPricesToDefaults,
-  useFetchExternalModelPrices,
 } from '@/hooks/queries';
-import type {
-  ModelPrice,
-  ModelPriceChange,
-  ModelPriceInput,
-  UpstreamModelPricesResult,
-} from '@/lib/transport/types';
+import type { ModelPrice, ModelPriceInput } from '@/lib/transport/types';
 import { DollarSign, Plus, Trash2, Pencil, RotateCcw } from 'lucide-react';
-import { UpstreamPricesDialog } from './upstream-prices-dialog';
+import { UpstreamPricesImport } from './upstream-prices-import';
 
 // Helper to format micro USD price to display format (e.g., $3.00 / M tokens)
 function formatMicroPrice(microUsd: number): string {
@@ -73,8 +62,6 @@ interface PriceFormData {
   outputPremiumNum: string;
   outputPremiumDenom: string;
 }
-
-const modelPriceUpstreamSources = [{ value: 'litellm', label: 'LiteLLM' }] as const;
 
 const defaultFormData: PriceFormData = {
   modelId: '',
@@ -112,62 +99,6 @@ function priceToFormData(price: ModelPrice): PriceFormData {
   };
 }
 
-function modelPriceToInput(price: ModelPrice): ModelPriceInput {
-  return {
-    modelId: price.modelId,
-    inputPriceMicro: price.inputPriceMicro,
-    outputPriceMicro: price.outputPriceMicro,
-    cacheReadPriceMicro: price.cacheReadPriceMicro,
-    cache5mWritePriceMicro: price.cache5mWritePriceMicro,
-    cache1hWritePriceMicro: price.cache1hWritePriceMicro,
-    imageInputPriceMicro: price.imageInputPriceMicro,
-    imageOutputPriceMicro: price.imageOutputPriceMicro,
-    has1mContext: price.has1mContext,
-    context1mThreshold: price.context1mThreshold,
-    inputPremiumNum: price.inputPremiumNum,
-    inputPremiumDenom: price.inputPremiumDenom,
-    outputPremiumNum: price.outputPremiumNum,
-    outputPremiumDenom: price.outputPremiumDenom,
-  };
-}
-
-function modelPricesEqual(a: ModelPrice, b: ModelPrice): boolean {
-  return (
-    a.inputPriceMicro === b.inputPriceMicro &&
-    a.outputPriceMicro === b.outputPriceMicro &&
-    a.cacheReadPriceMicro === b.cacheReadPriceMicro &&
-    a.cache5mWritePriceMicro === b.cache5mWritePriceMicro &&
-    a.cache1hWritePriceMicro === b.cache1hWritePriceMicro &&
-    a.imageInputPriceMicro === b.imageInputPriceMicro &&
-    a.imageOutputPriceMicro === b.imageOutputPriceMicro &&
-    a.has1mContext === b.has1mContext &&
-    a.context1mThreshold === b.context1mThreshold &&
-    a.inputPremiumNum === b.inputPremiumNum &&
-    a.inputPremiumDenom === b.inputPremiumDenom &&
-    a.outputPremiumNum === b.outputPremiumNum &&
-    a.outputPremiumDenom === b.outputPremiumDenom
-  );
-}
-
-function buildUpstreamChanges(
-  upstreamPrices: ModelPrice[],
-  currentPrices: ModelPrice[],
-): ModelPriceChange[] {
-  const currentByModelId = new Map(currentPrices.map((price) => [price.modelId, price]));
-
-  return upstreamPrices.flatMap<ModelPriceChange>((price) => {
-    const current = currentByModelId.get(price.modelId);
-    if (!current) {
-      return [{ action: 'create', after: price }];
-    }
-    const after = { ...price, id: current.id };
-    if (modelPricesEqual(current, after)) {
-      return [];
-    }
-    return [{ action: 'update', before: current, after }];
-  });
-}
-
 function formDataToInput(form: PriceFormData): ModelPriceInput {
   return {
     modelId: form.modelId,
@@ -195,7 +126,6 @@ export function ModelPricesPage() {
   const updatePrice = useUpdateModelPrice();
   const deletePrice = useDeleteModelPrice();
   const resetPrices = useResetModelPricesToDefaults();
-  const fetchExternalPrices = useFetchExternalModelPrices();
   const canManagePrices = user?.role === 'admin';
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -203,12 +133,6 @@ export function ModelPricesPage() {
   const [formData, setFormData] = useState<PriceFormData>(defaultFormData);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-  const [upstreamPricesOpen, setUpstreamPricesOpen] = useState(false);
-  const [upstreamSource, setUpstreamSource] =
-    useState<(typeof modelPriceUpstreamSources)[number]['value']>('litellm');
-  const [upstreamPrices, setUpstreamPrices] = useState<UpstreamModelPricesResult | null>(null);
-  const [upstreamChanges, setUpstreamChanges] = useState<ModelPriceChange[]>([]);
-  const [importResultText, setImportResultText] = useState<string | null>(null);
 
   const handleOpenCreate = () => {
     if (!canManagePrices) return;
@@ -249,57 +173,14 @@ export function ModelPricesPage() {
   const handleResetConfirm = async () => {
     if (!canManagePrices) return;
     await resetPrices.mutateAsync();
-    setImportResultText(null);
     setResetConfirmOpen(false);
-  };
-
-  const handleFetchExternalPrices = async () => {
-    if (!canManagePrices) return;
-    const result = await fetchExternalPrices.mutateAsync(upstreamSource);
-    const changes = buildUpstreamChanges(result.prices, prices || []);
-    setUpstreamPrices(result);
-    setUpstreamChanges(changes);
-    setUpstreamPricesOpen(true);
-  };
-
-  const handleApplyUpstreamPrices = async (selectedChanges: ModelPriceChange[]) => {
-    if (!canManagePrices || !upstreamPrices) return;
-
-    let created = 0;
-    let updated = 0;
-    let failed = 0;
-    for (const change of selectedChanges) {
-      const input = modelPriceToInput(change.after);
-      try {
-        if (change.action === 'create') {
-          await createPrice.mutateAsync(input);
-          created++;
-        } else if (change.action === 'update') {
-          await updatePrice.mutateAsync({ id: change.after.id, data: input });
-          updated++;
-        }
-      } catch {
-        failed++;
-      }
-    }
-
-    setImportResultText(
-      t('modelPrices.upstreamImportResult', {
-        created,
-        updated,
-        failed,
-        skipped: upstreamPrices.total - selectedChanges.length,
-      }),
-    );
-    setUpstreamPricesOpen(false);
   };
 
   const isPending =
     createPrice.isPending ||
     updatePrice.isPending ||
     deletePrice.isPending ||
-    resetPrices.isPending ||
-    fetchExternalPrices.isPending;
+    resetPrices.isPending;
 
   if (isLoading) return null;
 
@@ -315,30 +196,7 @@ export function ModelPricesPage() {
         actions={
           canManagePrices ? (
             <div className="flex items-center gap-2">
-              <Select
-                value={upstreamSource}
-                onValueChange={(value) => setUpstreamSource(value as typeof upstreamSource)}
-              >
-                <SelectTrigger className="w-32 h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelPriceUpstreamSources.map((source) => (
-                    <SelectItem key={source.value} value={source.value}>
-                      {source.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleFetchExternalPrices}
-                disabled={isPending}
-              >
-                <RotateCcw className="h-4 w-4 mr-1" />
-                {t('modelPrices.fetchUpstreamPrices')}
-              </Button>
+              <UpstreamPricesImport currentPrices={prices || []} disabled={isPending} />
               <Button
                 variant="outline"
                 size="sm"
@@ -361,9 +219,6 @@ export function ModelPricesPage() {
         <Card className="border-border bg-card">
           <CardContent className="p-6">
             <p className="text-xs text-muted-foreground mb-4">{t('modelPrices.pageDesc')}</p>
-            {importResultText && (
-              <p className="text-xs text-green-600 dark:text-green-400 mb-4">{importResultText}</p>
-            )}
 
             {/* Header row */}
             <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium border-b pb-2 mb-2">
@@ -665,16 +520,6 @@ export function ModelPricesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <UpstreamPricesDialog
-        open={upstreamPricesOpen}
-        onOpenChange={setUpstreamPricesOpen}
-        upstreamPrices={upstreamPrices}
-        upstreamSource={upstreamSource}
-        changes={upstreamChanges}
-        isPending={isPending}
-        onApply={handleApplyUpstreamPrices}
-      />
     </div>
   );
 }
