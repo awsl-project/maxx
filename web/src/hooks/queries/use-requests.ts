@@ -53,6 +53,12 @@ export function isProxyRequestError(request: ProxyRequest): boolean {
   return request.status === 'FAILED' || request.status === 'REJECTED' || request.statusCode >= 400;
 }
 
+export function shouldRefetchCleanupFailedCount(request: ProxyRequest): boolean {
+  return (
+    isProxyRequestError(request) || request.status === 'COMPLETED' || request.status === 'CANCELLED'
+  );
+}
+
 function matchesRequestTimeRange(
   request: ProxyRequest,
   startTime?: string,
@@ -250,6 +256,11 @@ export function useCleanupFailedProxyRequests() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: requestKeys.all });
       queryClient.invalidateQueries({ queryKey: ['requestsCount'] });
+      queryClient.invalidateQueries({ queryKey: requestKeys.cleanupFailedCounts() });
+      void queryClient.refetchQueries({
+        queryKey: requestKeys.cleanupFailedCounts(),
+        type: 'active',
+      });
     },
   });
 }
@@ -712,7 +723,7 @@ export function useProxyRequestUpdates() {
           invalidateProviderStats = true;
           invalidateCooldowns = true;
         }
-        if (isProxyRequestError(updatedRequest)) {
+        if (shouldRefetchCleanupFailedCount(updatedRequest)) {
           refetchCleanupFailedCount = true;
         }
       }
