@@ -91,5 +91,5 @@ func proxyRouteEnabled(settings repository.SystemSettingRepository, key string) 
 }
 
 func proxyRouteEnabledByDefault(key string) bool {
-	return key != domain.SettingKeyProxyRouteGeminiEnabled
+	return true
 }

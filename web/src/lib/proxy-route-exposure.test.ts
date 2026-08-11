@@ -7,7 +7,7 @@ describe('proxy route exposure visibility', () => {
     expect(isProxyRouteVisible(undefined, 'claude')).toBe(true);
     expect(isProxyRouteVisible(undefined, 'openai')).toBe(true);
     expect(isProxyRouteVisible(undefined, 'codex')).toBe(true);
-    expect(isProxyRouteVisible(undefined, 'gemini')).toBe(false);
+    expect(isProxyRouteVisible(undefined, 'gemini')).toBe(true);
   });
 
   it('hides only routes explicitly set to false', () => {
@@ -15,13 +15,13 @@ describe('proxy route exposure visibility', () => {
       proxy_route_claude_messages_enabled: 'false',
       proxy_route_openai_chat_enabled: 'true',
       proxy_route_responses_enabled: 'false',
-      proxy_route_gemini_enabled: 'true',
+      proxy_route_gemini_enabled: 'false',
     };
 
     expect(isProxyRouteVisible(settings, 'claude')).toBe(false);
     expect(isProxyRouteVisible(settings, 'openai')).toBe(true);
     expect(isProxyRouteVisible(settings, 'codex')).toBe(false);
-    expect(isProxyRouteVisible(settings, 'gemini')).toBe(true);
+    expect(isProxyRouteVisible(settings, 'gemini')).toBe(false);
   });
 
   it('filters client lists with the same visibility rules', () => {

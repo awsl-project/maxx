@@ -88,12 +88,14 @@ func TestRegisterProxyRoutes_RoutesGeminiGenerationToProxy(t *testing.T) {
 	}
 }
 
-func TestRegisterProxyRoutes_GeminiGenerationDisabledByDefault(t *testing.T) {
+func TestRegisterProxyRoutes_GeminiGenerationEnabledByDefault(t *testing.T) {
 	mux := http.NewServeMux()
+	proxyCalled := false
 
 	RegisterProxyRoutes(mux, ProxyRouteHandlers{
 		ProxyHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			t.Fatalf("did not expect default-disabled Gemini path to hit ProxyHandler")
+			proxyCalled = true
+			w.WriteHeader(http.StatusNoContent)
 		}),
 		SettingRepo: proxyRouteSettingsRepo{values: map[string]string{}},
 	})
@@ -101,8 +103,11 @@ func TestRegisterProxyRoutes_GeminiGenerationDisabledByDefault(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", nil))
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	if !proxyCalled {
+		t.Fatal("expected default-enabled Gemini path to hit ProxyHandler")
+	}
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
 }
 

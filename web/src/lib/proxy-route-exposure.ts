@@ -13,7 +13,7 @@ export function isProxyRouteVisible(
 ): boolean {
   const settingValue = settings?.[proxyRouteExposureSettingKeys[clientType]];
   if (settingValue === undefined) {
-    return clientType !== 'gemini';
+    return true;
   }
   return settingValue !== 'false';
 }

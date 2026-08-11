@@ -617,13 +617,12 @@ func TestProxyCodexPassthrough(t *testing.T) {
 	}
 }
 
-func TestProxyGeminiPassthrough(t *testing.T) {
+func TestProxyGeminiPassthroughEnabledByDefault(t *testing.T) {
 	captured := &capturedRequest{}
 	mock := newMockGeminiUpstream(t, captured)
 	defer mock.Close()
 
 	env := NewProxyTestEnv(t)
-	enableGeminiPublicProxyRoute(t, env)
 	providerID := createProvider(t, env, "mock-gemini", mock.URL, []string{"gemini"})
 	createRoute(t, env, "gemini", providerID)
 

@@ -79,24 +79,23 @@ func TestUpdateSettingRejectsDisablingLastPublicProxyRoute(t *testing.T) {
 	}
 }
 
-func TestUpdateSettingTreatsUnsetGeminiAsDisabledByDefault(t *testing.T) {
+func TestUpdateSettingTreatsUnsetGeminiAsEnabledByDefault(t *testing.T) {
 	repo := &publicProxyRouteSettingRepo{values: map[string]string{
 		domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
 		domain.SettingKeyProxyRouteOpenAIChatEnabled:     "false",
-		domain.SettingKeyProxyRouteResponsesEnabled:      "true",
+		domain.SettingKeyProxyRouteResponsesEnabled:      "false",
 	}}
 	svc := newPublicProxyRouteSettingsService(repo)
 
-	err := svc.UpdateSetting(domain.SettingKeyProxyRouteResponsesEnabled, "false")
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("error = %v, want ErrInvalidInput", err)
+	if err := svc.UpdateSetting(domain.SettingKeyProxyRouteResponsesEnabled, "false"); err != nil {
+		t.Fatalf("UpdateSetting returned error: %v", err)
 	}
-	if got := repo.values[domain.SettingKeyProxyRouteResponsesEnabled]; got != "true" {
-		t.Fatalf("responses setting = %q, want unchanged true", got)
+	if got := repo.values[domain.SettingKeyProxyRouteResponsesEnabled]; got != "false" {
+		t.Fatalf("responses setting = %q, want false", got)
 	}
 }
 
-func TestDeleteSettingRejectsDeletingExplicitLastEnabledGemini(t *testing.T) {
+func TestDeleteSettingResetsExplicitGeminiToDefaultEnabled(t *testing.T) {
 	repo := &publicProxyRouteSettingRepo{values: map[string]string{
 		domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
 		domain.SettingKeyProxyRouteOpenAIChatEnabled:     "false",
@@ -105,12 +104,11 @@ func TestDeleteSettingRejectsDeletingExplicitLastEnabledGemini(t *testing.T) {
 	}}
 	svc := newPublicProxyRouteSettingsService(repo)
 
-	err := svc.DeleteSetting(domain.SettingKeyProxyRouteGeminiEnabled)
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("error = %v, want ErrInvalidInput", err)
+	if err := svc.DeleteSetting(domain.SettingKeyProxyRouteGeminiEnabled); err != nil {
+		t.Fatalf("DeleteSetting returned error: %v", err)
 	}
-	if got := repo.values[domain.SettingKeyProxyRouteGeminiEnabled]; got != "true" {
-		t.Fatalf("gemini setting = %q, want unchanged true", got)
+	if _, ok := repo.values[domain.SettingKeyProxyRouteGeminiEnabled]; ok {
+		t.Fatal("gemini setting still exists after delete")
 	}
 }
 
