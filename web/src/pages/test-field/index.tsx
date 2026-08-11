@@ -13,11 +13,6 @@ import {
   CardTitle,
   Input,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Table,
   TableBody,
   TableCell,
@@ -25,6 +20,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui';
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from '@/components/ui/combobox';
 import { Textarea } from '@/components/ui/textarea';
 import { useProviders } from '@/hooks/queries';
 import { getTransport, type Provider, type TestFieldModelBenchmarkResponse } from '@/lib/transport';
@@ -64,6 +67,7 @@ export function TestFieldPage() {
   const [providerToAdd, setProviderToAdd] = useState<string>(
     cachedBenchmarkState?.providerToAdd ?? '',
   );
+  const [providerSearch, setProviderSearch] = useState('');
   const [selectedProviderIDs, setSelectedProviderIDs] = useState<number[]>(
     cachedBenchmarkState?.selectedProviderIDs ?? [],
   );
@@ -93,6 +97,13 @@ export function TestFieldPage() {
   const availableProviders = providers.filter(
     (provider) => !selectedProviderIDs.includes(provider.id),
   );
+  const filteredAvailableProviders = useMemo(() => {
+    const query = providerSearch.trim().toLowerCase();
+    if (!query) return availableProviders;
+    return availableProviders.filter((provider) =>
+      providerLabel(provider).toLowerCase().includes(query),
+    );
+  }, [availableProviders, providerSearch]);
   const providerToAddLabel = providerToAdd
     ? providerLabel(
         providers.find((provider) => provider.id === Number(providerToAdd)) ??
@@ -134,6 +145,7 @@ export function TestFieldPage() {
     if (!id || selectedProviderIDs.includes(id)) return;
     setSelectedProviderIDs((ids) => [...ids, id]);
     setProviderToAdd('');
+    setProviderSearch('');
   };
 
   const removeProvider = (id: number) => {
@@ -200,22 +212,34 @@ export function TestFieldPage() {
               <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                 <div className="space-y-2">
                   <Label>{t('testField.benchmark.providerSelect')}</Label>
-                  <Select
-                    value={providerToAdd}
+                  <Combobox
+                    value={providerToAdd || null}
                     onValueChange={(value) => setProviderToAdd(value ?? '')}
-                    disabled={isRunning}
+                    onInputValueChange={(value) => setProviderSearch(value)}
+                    itemToStringLabel={(value) =>
+                      providerLabel(
+                        providers.find((provider) => provider.id === Number(value)) ??
+                          ({ id: Number(value), name: `#${value}`, type: '-' } as Provider),
+                      )
+                    }
                   >
-                    <SelectTrigger>
-                      <SelectValue>{providerToAddLabel}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableProviders.map((provider) => (
-                        <SelectItem key={provider.id} value={String(provider.id)}>
-                          {providerLabel(provider)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <ComboboxInput
+                      className="w-full"
+                      disabled={isRunning}
+                      placeholder={providerToAddLabel}
+                      showClear
+                    />
+                    <ComboboxContent>
+                      <ComboboxEmpty>{t('testField.benchmark.providerSearchEmpty')}</ComboboxEmpty>
+                      <ComboboxList>
+                        {filteredAvailableProviders.map((provider) => (
+                          <ComboboxItem key={provider.id} value={String(provider.id)}>
+                            {providerLabel(provider)}
+                          </ComboboxItem>
+                        ))}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
                 </div>
                 <Button
                   className="self-end"

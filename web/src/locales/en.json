@@ -213,6 +213,7 @@
       "description": "Manually add existing providers, then concurrently test model availability and latency with the same prompt. Tests only run after you click start.",
       "providerSelect": "Provider",
       "providerPlaceholder": "Select an existing provider",
+      "providerSearchEmpty": "No matching providers",
       "addProvider": "Add",
       "noSelectedProviders": "No providers added yet.",
       "unsupportedBadge": "Unsupported in v1",
