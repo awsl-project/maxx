@@ -278,17 +278,38 @@ func TestProviderProxyRoutesGeminiModelListToModelsHandler(t *testing.T) {
 }
 
 func TestProjectProxyHonorsDisabledProxyRouteExposure(t *testing.T) {
-	handler := NewProjectProxyHandler(nil, nil, &fakeProjectRepo{
-		project: &domain.Project{ID: 42, Name: "Demo", Slug: "demo"},
-	}, fakeProxyRouteExposureSettings{values: map[string]string{
-		domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
-	}})
+	tests := []struct {
+		name       string
+		settingKey string
+		path       string
+	}{
+		{
+			name:       "claude",
+			settingKey: domain.SettingKeyProxyRouteClaudeMessagesEnabled,
+			path:       "/project/demo/v1/messages",
+		},
+		{
+			name:       "gemini",
+			settingKey: domain.SettingKeyProxyRouteGeminiEnabled,
+			path:       "/project/demo/v1beta/models/gemini-2.5-pro:generateContent",
+		},
+	}
 
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/project/demo/v1/messages", nil))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := NewProjectProxyHandler(nil, nil, &fakeProjectRepo{
+				project: &domain.Project{ID: 42, Name: "Demo", Slug: "demo"},
+			}, fakeProxyRouteExposureSettings{values: map[string]string{
+				tt.settingKey: "false",
+			}})
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, tt.path, nil))
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+			}
+		})
 	}
 }
 
