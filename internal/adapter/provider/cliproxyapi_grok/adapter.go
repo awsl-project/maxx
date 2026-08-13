@@ -245,6 +245,7 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 	firstChunkSent := false
 	sawFinishReason := false
 	sawDone := false
+	var pendingSSE string
 	var streamErr error
 	for chunk := range stream.Chunks {
 		if chunk.Err != nil {
@@ -253,7 +254,8 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 		}
 		if len(chunk.Payload) > 0 {
 			sseBuffer.Write(chunk.Payload)
-			out, chunkSawFinishReason, chunkSawDone := ensureOpenAIStreamFinishBeforeDone(chunk.Payload, execReq.Model, sawFinishReason)
+			out, rest, chunkSawFinishReason, chunkSawDone := ensureOpenAIStreamFinishBeforeDoneWithPending(pendingSSE, chunk.Payload, execReq.Model, sawFinishReason)
+			pendingSSE = rest
 			if chunkSawFinishReason {
 				sawFinishReason = true
 			}
@@ -268,11 +270,23 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 			}
 		}
 	}
-	if streamErr == nil && !sawDone {
-		if !sawFinishReason {
-			_, _ = w.Write(openAIStreamFinishChunk(execReq.Model))
+	if streamErr == nil {
+		if pendingSSE != "" {
+			out, _, pendingSawFinishReason, pendingSawDone := ensureOpenAIStreamFinishBeforeDoneWithPending("", []byte(pendingSSE), execReq.Model, sawFinishReason)
+			if pendingSawFinishReason {
+				sawFinishReason = true
+			}
+			if pendingSawDone {
+				sawDone = true
+			}
+			_, _ = w.Write(out)
 		}
-		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		if !sawDone {
+			if !sawFinishReason {
+				_, _ = w.Write(openAIStreamFinishChunk(execReq.Model))
+			}
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		}
 		flusher.Flush()
 	}
 	if eventChan != nil && sseBuffer.Len() > 0 {
@@ -294,14 +308,26 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 }
 
 func ensureOpenAIStreamFinishBeforeDone(payload []byte, model string, alreadySawFinishReason bool) ([]byte, bool, bool) {
-	if len(payload) == 0 {
-		return payload, false, false
+	out, _, sawFinishReason, sawDone := ensureOpenAIStreamFinishBeforeDoneWithPending("", payload, model, alreadySawFinishReason)
+	return out, sawFinishReason, sawDone
+}
+
+func ensureOpenAIStreamFinishBeforeDoneWithPending(pending string, payload []byte, model string, alreadySawFinishReason bool) ([]byte, string, bool, bool) {
+	if pending == "" && len(payload) == 0 {
+		return payload, "", false, false
 	}
+	combined := pending + string(payload)
 	var out bytes.Buffer
 	sawFinishReason := false
 	sawDone := false
 	finishInserted := false
-	for _, line := range strings.SplitAfter(string(payload), "\n") {
+	for len(combined) > 0 {
+		idx := strings.IndexByte(combined, '\n')
+		if idx < 0 {
+			return out.Bytes(), combined, sawFinishReason || finishInserted, sawDone
+		}
+		line := combined[:idx+1]
+		combined = combined[idx+1:]
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "data:") {
 			data := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
@@ -317,10 +343,7 @@ func ensureOpenAIStreamFinishBeforeDone(payload []byte, model string, alreadySaw
 		}
 		out.WriteString(line)
 	}
-	if out.Len() == 0 {
-		return payload, sawFinishReason, sawDone
-	}
-	return out.Bytes(), sawFinishReason || finishInserted, sawDone
+	return out.Bytes(), "", sawFinishReason || finishInserted, sawDone
 }
 
 func openAIChunkHasFinishReason(data []byte) bool {

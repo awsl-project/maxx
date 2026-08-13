@@ -78,6 +78,33 @@ func TestEnsureOpenAIStreamFinishBeforeDoneInsertsFinishReason(t *testing.T) {
 	}
 }
 
+func TestEnsureOpenAIStreamFinishBeforeDoneHandlesDoneSplitAcrossChunks(t *testing.T) {
+	first := []byte("data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"model\":\"grok-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\ndata: [")
+	second := []byte("DONE]\n\n")
+
+	out1, pending, sawFinishReason, sawDone := ensureOpenAIStreamFinishBeforeDoneWithPending("", first, "grok-test", false)
+	out2, pending, chunkSawFinishReason, chunkSawDone := ensureOpenAIStreamFinishBeforeDoneWithPending(pending, second, "grok-test", sawFinishReason)
+	if chunkSawFinishReason {
+		sawFinishReason = true
+	}
+	if chunkSawDone {
+		sawDone = true
+	}
+	body := string(append(out1, out2...))
+	if pending != "" {
+		t.Fatalf("pending = %q, want empty; body=%s", pending, body)
+	}
+	if !sawDone {
+		t.Fatalf("sawDone = false, want true; body=%s", body)
+	}
+	if !sawFinishReason {
+		t.Fatalf("sawFinishReason = false, want true; body=%s", body)
+	}
+	if !strings.Contains(body, `"finish_reason":"stop"`) {
+		t.Fatalf("split [DONE] stream missing terminal finish_reason stop: %s", body)
+	}
+}
+
 func TestEnsureOpenAIStreamFinishBeforeDoneDoesNotDuplicateFinishReason(t *testing.T) {
 	input := []byte("data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"model\":\"grok-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 
