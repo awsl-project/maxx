@@ -90,6 +90,7 @@ import type {
   ClaudeProviderBatchRequest,
   ClaudeProviderBatchResponse,
   TestFieldModelBenchmarkRequest,
+  TestFieldModelBenchmarkJobStartResponse,
   TestFieldModelBenchmarkResponse,
   RouteTTFTProbeRequest,
   RouteTTFTProbeResponse,
@@ -312,6 +313,39 @@ export class HttpTransport implements Transport {
     return this.expectObject<TestFieldModelBenchmarkResponse>(
       data,
       '/admin/test-field/model-benchmark',
+    );
+  }
+
+  async startTestFieldModelBenchmark(
+    payload: TestFieldModelBenchmarkRequest,
+  ): Promise<TestFieldModelBenchmarkJobStartResponse> {
+    const { data } = await this.client.post<TestFieldModelBenchmarkJobStartResponse>(
+      '/admin/test-field/model-benchmark-jobs',
+      payload,
+    );
+    return this.expectObject<TestFieldModelBenchmarkJobStartResponse>(
+      data,
+      '/admin/test-field/model-benchmark-jobs',
+    );
+  }
+
+  async getTestFieldModelBenchmarkJob(jobID: string): Promise<TestFieldModelBenchmarkResponse> {
+    const { data } = await this.client.get<TestFieldModelBenchmarkResponse>(
+      `/admin/test-field/model-benchmark-jobs/${encodeURIComponent(jobID)}`,
+    );
+    return this.expectObject<TestFieldModelBenchmarkResponse>(
+      data,
+      `/admin/test-field/model-benchmark-jobs/${jobID}`,
+    );
+  }
+
+  async cancelTestFieldModelBenchmarkJob(jobID: string): Promise<TestFieldModelBenchmarkResponse> {
+    const { data } = await this.client.delete<TestFieldModelBenchmarkResponse>(
+      `/admin/test-field/model-benchmark-jobs/${encodeURIComponent(jobID)}`,
+    );
+    return this.expectObject<TestFieldModelBenchmarkResponse>(
+      data,
+      `/admin/test-field/model-benchmark-jobs/${jobID}`,
     );
   }
 

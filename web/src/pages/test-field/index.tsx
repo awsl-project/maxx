@@ -50,8 +50,9 @@ type TestFieldBenchmarkCache = {
   prompt: string;
   concurrency: number;
   timeoutMs: number;
-  maxModelsPerProvider: number;
+  minModelsPerProvider: number;
   result: TestFieldModelBenchmarkResponse | null;
+  activeJobID: string | null;
 };
 
 const testFieldBenchmarkCacheKey = ['test-field', 'benchmark-state'] as const;
@@ -76,15 +77,18 @@ export function TestFieldPage() {
   );
   const [concurrency, setConcurrency] = useState(cachedBenchmarkState?.concurrency ?? 4);
   const [timeoutMs, setTimeoutMs] = useState(cachedBenchmarkState?.timeoutMs ?? 30000);
-  const [maxModelsPerProvider, setMaxModelsPerProvider] = useState(
-    cachedBenchmarkState?.maxModelsPerProvider ?? 20,
+  const [minModelsPerProvider, setMinModelsPerProvider] = useState(
+    cachedBenchmarkState?.minModelsPerProvider ?? 20,
   );
   const [result, setResult] = useState<TestFieldModelBenchmarkResponse | null>(
     cachedBenchmarkState?.result ?? null,
   );
+  const [activeJobID, setActiveJobID] = useState<string | null>(
+    cachedBenchmarkState?.activeJobID ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const isRunning = result?.status === 'running' || activeJobID !== null;
+  const activeJobIDRef = useRef<string | null>(activeJobID);
   const resultsCardRef = useRef<HTMLDivElement | null>(null);
 
   const selectedProviders = useMemo(
@@ -119,12 +123,14 @@ export function TestFieldPage() {
       prompt,
       concurrency,
       timeoutMs,
-      maxModelsPerProvider,
+      minModelsPerProvider,
       result,
+      activeJobID,
     });
   }, [
+    activeJobID,
     concurrency,
-    maxModelsPerProvider,
+    minModelsPerProvider,
     prompt,
     providerToAdd,
     queryClient,
@@ -132,6 +138,10 @@ export function TestFieldPage() {
     selectedProviderIDs,
     timeoutMs,
   ]);
+
+  useEffect(() => {
+    activeJobIDRef.current = activeJobID;
+  }, [activeJobID]);
 
   useEffect(() => {
     if (!result) return;
@@ -155,44 +165,79 @@ export function TestFieldPage() {
 
   const runBenchmark = async () => {
     if (!canRun) return;
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setIsRunning(true);
     setError(null);
-    setResult(null);
+    setResult({
+      status: 'running',
+      prompt: prompt.trim(),
+      concurrency,
+      timeoutMs,
+      minModelsPerProvider,
+      startedAt: new Date().toISOString(),
+      finishedAt: '',
+      providers: [],
+      results: [],
+      totalTargets: 0,
+      completedTargets: 0,
+      cachedResultCount: 0,
+    });
     try {
-      const response = await getTransport().runTestFieldModelBenchmark(
-        {
-          providerIDs: selectedProviderIDs,
-          prompt: prompt.trim(),
-          concurrency,
-          timeoutMs,
-          maxModelsPerProvider,
-        },
-        controller.signal,
-      );
-      setResult(response);
+      const response = await getTransport().startTestFieldModelBenchmark({
+        providerIDs: selectedProviderIDs,
+        prompt: prompt.trim(),
+        concurrency,
+        timeoutMs,
+        minModelsPerProvider,
+        reuseCachedModelLists: true,
+        reuseCachedResults: true,
+      });
+      setActiveJobID(response.jobID);
     } catch (err) {
-      setError(
-        controller.signal.aborted
-          ? t('testField.benchmark.cancelled')
-          : err instanceof Error
-            ? err.message
-            : t('testField.benchmark.failed'),
-      );
-    } finally {
-      if (abortRef.current === controller) {
-        abortRef.current = null;
-      }
-      setIsRunning(false);
+      setActiveJobID(null);
+      setResult(null);
+      setError(err instanceof Error ? err.message : t('testField.benchmark.failed'));
     }
   };
 
-  const cancelBenchmark = () => {
-    abortRef.current?.abort();
+  const cancelBenchmark = async () => {
+    const jobID = activeJobIDRef.current;
+    if (!jobID) return;
     setError(t('testField.benchmark.cancelling'));
+    try {
+      const response = await getTransport().cancelTestFieldModelBenchmarkJob(jobID);
+      setResult(response);
+      setActiveJobID(null);
+      setError(t('testField.benchmark.cancelled'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('testField.benchmark.failed'));
+    }
   };
+
+  useEffect(() => {
+    if (!activeJobID) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const response = await getTransport().getTestFieldModelBenchmarkJob(activeJobID);
+        if (stopped || activeJobIDRef.current !== activeJobID) return;
+        setResult(response);
+        if (response.status && response.status !== 'running') {
+          setActiveJobID(null);
+          if (response.status === 'failed' && response.error) setError(response.error);
+          if (response.status === 'cancelled') setError(t('testField.benchmark.cancelled'));
+        }
+      } catch (err) {
+        if (stopped) return;
+        setActiveJobID(null);
+        setError(err instanceof Error ? err.message : t('testField.benchmark.failed'));
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [activeJobID, t]);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -327,15 +372,15 @@ export function TestFieldPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="test-field-max-models">
-                    {t('testField.benchmark.maxModelsPerProvider')}
+                    {t('testField.benchmark.minModelsPerProvider')}
                   </Label>
                   <Input
                     id="test-field-max-models"
                     type="number"
                     min={1}
                     max={50}
-                    value={maxModelsPerProvider}
-                    onChange={(event) => setMaxModelsPerProvider(Number(event.target.value) || 20)}
+                    value={minModelsPerProvider}
+                    onChange={(event) => setMinModelsPerProvider(Number(event.target.value) || 20)}
                     disabled={isRunning}
                   />
                 </div>
@@ -373,6 +418,10 @@ export function TestFieldPage() {
                   {t('testField.benchmark.resultsDescription', {
                     count: result.results.length,
                     concurrency: result.concurrency,
+                    completed: result.completedTargets,
+                    total: result.totalTargets,
+                    cached: result.cachedResultCount,
+                    status: result.status ?? 'completed',
                   })}
                 </CardDescription>
               </CardHeader>
@@ -392,6 +441,7 @@ export function TestFieldPage() {
                           tested: provider.testedCount,
                           total: provider.modelCount,
                         })}
+                        {provider.cachedModels ? ` · ${t('testField.benchmark.cachedModels')}` : ''}
                       </div>
                       {provider.error && (
                         <div className="mt-1 text-destructive">{provider.error}</div>
@@ -427,6 +477,11 @@ export function TestFieldPage() {
                             ) : (
                               <Badge variant="destructive">
                                 {t('testField.benchmark.unavailable')}
+                              </Badge>
+                            )}
+                            {item.cached && (
+                              <Badge variant="outline" className="ml-2">
+                                {t('testField.benchmark.cached')}
                               </Badge>
                             )}
                           </TableCell>

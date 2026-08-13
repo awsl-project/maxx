@@ -89,6 +89,7 @@ import type {
   ClaudeProviderBatchRequest,
   ClaudeProviderBatchResponse,
   TestFieldModelBenchmarkRequest,
+  TestFieldModelBenchmarkJobStartResponse,
   TestFieldModelBenchmarkResponse,
   RouteTTFTProbeRequest,
   RouteTTFTProbeResponse,
@@ -125,6 +126,11 @@ export interface Transport {
     payload: TestFieldModelBenchmarkRequest,
     signal?: AbortSignal,
   ): Promise<TestFieldModelBenchmarkResponse>;
+  startTestFieldModelBenchmark(
+    payload: TestFieldModelBenchmarkRequest,
+  ): Promise<TestFieldModelBenchmarkJobStartResponse>;
+  getTestFieldModelBenchmarkJob(jobID: string): Promise<TestFieldModelBenchmarkResponse>;
+  cancelTestFieldModelBenchmarkJob(jobID: string): Promise<TestFieldModelBenchmarkResponse>;
   createProvider(data: CreateProviderData): Promise<Provider>;
   updateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
   deleteProvider(id: number): Promise<void>;

@@ -66,15 +66,45 @@ func TestRunTestFieldBenchmarkTargetsSortsAvailableByLatencyOutsideCaller(t *tes
 	defer slow.Close()
 
 	provider := &domain.Provider{ID: 1, Name: "p", Type: "custom"}
-	results := runTestFieldBenchmarkTargets(context.Background(), []testFieldBenchmarkTarget{
+	results, cachedCount := runTestFieldBenchmarkTargets(context.Background(), []testFieldBenchmarkTarget{
 		{provider: provider, model: "slow", endpoint: slow.URL, apiKey: ""},
 		{provider: provider, model: "fast", endpoint: fast.URL, apiKey: ""},
-	}, "ping", 2, time.Second)
+	}, "ping", 2, time.Second, nil)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
+	if cachedCount != 0 {
+		t.Fatalf("expected no cached results, got %d", cachedCount)
+	}
 	if !results[0].Available || !results[1].Available {
 		t.Fatalf("expected available results: %+v", results)
+	}
+}
+
+func TestRunTestFieldBenchmarkTargetsReportsIncrementalCachedResults(t *testing.T) {
+	serverCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverCalls++
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{ID: 99, Name: "cached", Type: "custom"}
+	target := testFieldBenchmarkTarget{provider: provider, model: "cached-model", endpoint: server.URL, reuseCachedResults: true}
+	first, firstCached := runTestFieldBenchmarkTargets(context.Background(), []testFieldBenchmarkTarget{target}, "ping", 1, time.Second, nil)
+	if len(first) != 1 || !first[0].Available || firstCached != 0 || serverCalls != 1 {
+		t.Fatalf("unexpected first run results=%+v cached=%d calls=%d", first, firstCached, serverCalls)
+	}
+
+	var incremental []TestFieldModelBenchmarkResult
+	second, secondCached := runTestFieldBenchmarkTargets(context.Background(), []testFieldBenchmarkTarget{target}, "ping", 1, time.Second, func(result TestFieldModelBenchmarkResult, cached bool) {
+		if !cached || !result.Cached {
+			t.Fatalf("expected cached incremental result, got cached=%v result=%+v", cached, result)
+		}
+		incremental = append(incremental, result)
+	})
+	if len(second) != 1 || secondCached != 1 || serverCalls != 1 || len(incremental) != 1 {
+		t.Fatalf("unexpected cached run results=%+v cached=%d calls=%d incremental=%d", second, secondCached, serverCalls, len(incremental))
 	}
 }
 
