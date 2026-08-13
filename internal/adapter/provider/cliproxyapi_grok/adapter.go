@@ -145,12 +145,41 @@ func (a *CLIProxyAPIGrokAdapter) Execute(c *flow.Ctx, p *domain.Provider) error 
 	}
 
 	sourceFormat := translator.FormatOpenAI
-	execReq := executor.Request{Model: model, Payload: requestBody, Format: sourceFormat}
-	execOpts := executor.Options{Stream: stream, OriginalRequest: requestBody, SourceFormat: sourceFormat}
+	metadata := requestMetadata(flow.GetRequestURI(c))
+	if isOpenAIImagesRequest(flow.GetRequestURI(c)) {
+		sourceFormat = translator.FromString("openai-image")
+	}
+	execReq := executor.Request{Model: model, Payload: requestBody, Format: sourceFormat, Metadata: metadata}
+	execOpts := executor.Options{Stream: stream, OriginalRequest: requestBody, SourceFormat: sourceFormat, Metadata: metadata}
 	if stream {
 		return a.executeStream(c, w, execReq, execOpts)
 	}
 	return a.executeNonStream(c, w, execReq, execOpts)
+}
+
+func requestMetadata(requestURI string) map[string]any {
+	path := requestPath(requestURI)
+	if path == "" {
+		return nil
+	}
+	return map[string]any{executor.RequestPathMetadataKey: path}
+}
+
+func requestPath(requestURI string) string {
+	path := strings.TrimSpace(requestURI)
+	if path == "" {
+		return ""
+	}
+	if i := strings.Index(path, "?"); i >= 0 {
+		path = path[:i]
+	}
+	return strings.TrimSpace(path)
+}
+
+func isOpenAIImagesRequest(requestURI string) bool {
+	path := requestPath(requestURI)
+	return path == "/v1/images" || path == "/images" ||
+		strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/images/")
 }
 
 func updateModelInBody(body []byte, model string) ([]byte, error) {
@@ -214,6 +243,8 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 	eventChan := flow.GetEventChan(c)
 	var sseBuffer bytes.Buffer
 	firstChunkSent := false
+	sawFinishReason := false
+	sawDone := false
 	var streamErr error
 	for chunk := range stream.Chunks {
 		if chunk.Err != nil {
@@ -222,13 +253,27 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 		}
 		if len(chunk.Payload) > 0 {
 			sseBuffer.Write(chunk.Payload)
-			_, _ = w.Write(chunk.Payload)
+			out, chunkSawFinishReason, chunkSawDone := ensureOpenAIStreamFinishBeforeDone(chunk.Payload, execReq.Model, sawFinishReason)
+			if chunkSawFinishReason {
+				sawFinishReason = true
+			}
+			if chunkSawDone {
+				sawDone = true
+			}
+			_, _ = w.Write(out)
 			flusher.Flush()
 			if !firstChunkSent && eventChan != nil {
 				eventChan.SendFirstToken(time.Now().UnixMilli())
 				firstChunkSent = true
 			}
 		}
+	}
+	if streamErr == nil && !sawDone {
+		if !sawFinishReason {
+			_, _ = w.Write(openAIStreamFinishChunk(execReq.Model))
+		}
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
 	}
 	if eventChan != nil && sseBuffer.Len() > 0 {
 		eventChan.SendResponseInfo(&domain.ResponseInfo{Status: http.StatusOK, Body: sseBuffer.String()})
@@ -246,6 +291,72 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 		return proxyErr
 	}
 	return nil
+}
+
+func ensureOpenAIStreamFinishBeforeDone(payload []byte, model string, alreadySawFinishReason bool) ([]byte, bool, bool) {
+	if len(payload) == 0 {
+		return payload, false, false
+	}
+	var out bytes.Buffer
+	sawFinishReason := false
+	sawDone := false
+	finishInserted := false
+	for _, line := range strings.SplitAfter(string(payload), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+			if data == "[DONE]" {
+				sawDone = true
+				if !alreadySawFinishReason && !sawFinishReason && !finishInserted {
+					out.Write(openAIStreamFinishChunk(model))
+					finishInserted = true
+				}
+			} else if openAIChunkHasFinishReason([]byte(data)) {
+				sawFinishReason = true
+			}
+		}
+		out.WriteString(line)
+	}
+	if out.Len() == 0 {
+		return payload, sawFinishReason, sawDone
+	}
+	return out.Bytes(), sawFinishReason || finishInserted, sawDone
+}
+
+func openAIChunkHasFinishReason(data []byte) bool {
+	var root struct {
+		Choices []struct {
+			FinishReason *string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return false
+	}
+	for _, choice := range root.Choices {
+		if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func openAIStreamFinishChunk(model string) []byte {
+	if strings.TrimSpace(model) == "" {
+		model = "grok"
+	}
+	payload := map[string]any{
+		"id":      "chatcmpl-grok-final",
+		"object":  "chat.completion.chunk",
+		"created": time.Now().Unix(),
+		"model":   model,
+		"choices": []map[string]any{{
+			"index":         0,
+			"delta":         map[string]any{},
+			"finish_reason": "stop",
+		}},
+	}
+	encoded, _ := json.Marshal(payload)
+	return []byte("data: " + string(encoded) + "\n\n")
 }
 
 func extractModelFromResponse(payload []byte) string {

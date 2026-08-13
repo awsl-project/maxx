@@ -1,9 +1,11 @@
 package cliproxyapi_grok
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
 
 func TestNewAdapterAcceptsCPAExportedXAIOAuthJSONShape(t *testing.T) {
@@ -52,5 +54,58 @@ func TestNewAdapterAcceptsCPAExportedXAIOAuthJSONShape(t *testing.T) {
 	}
 	if got := grok.authObj.Metadata["base_url"]; got != "https://cli-chat-proxy.grok.com/v1" {
 		t.Fatalf("base_url metadata = %v", got)
+	}
+}
+
+func TestEnsureOpenAIStreamFinishBeforeDoneInsertsFinishReason(t *testing.T) {
+	input := []byte("data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"model\":\"grok-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
+
+	out, sawFinishReason, sawDone := ensureOpenAIStreamFinishBeforeDone(input, "grok-test", false)
+	body := string(out)
+	if !sawFinishReason {
+		t.Fatalf("sawFinishReason = false, want true; body=%s", body)
+	}
+	if !sawDone {
+		t.Fatalf("sawDone = false, want true; body=%s", body)
+	}
+	if !strings.Contains(body, `"finish_reason":"stop"`) {
+		t.Fatalf("stream body missing terminal finish_reason stop: %s", body)
+	}
+	finishIdx := strings.Index(body, `"finish_reason":"stop"`)
+	doneIdx := strings.Index(body, "data: [DONE]")
+	if finishIdx < 0 || doneIdx < 0 || finishIdx > doneIdx {
+		t.Fatalf("finish_reason must be emitted before [DONE]; body=%s", body)
+	}
+}
+
+func TestEnsureOpenAIStreamFinishBeforeDoneDoesNotDuplicateFinishReason(t *testing.T) {
+	input := []byte("data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"model\":\"grok-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+
+	out, sawFinishReason, sawDone := ensureOpenAIStreamFinishBeforeDone(input, "grok-test", false)
+	body := string(out)
+	if !sawFinishReason || !sawDone {
+		t.Fatalf("sawFinishReason=%v sawDone=%v body=%s", sawFinishReason, sawDone, body)
+	}
+	if count := strings.Count(body, `"finish_reason":"stop"`); count != 1 {
+		t.Fatalf("finish_reason stop count = %d, want 1; body=%s", count, body)
+	}
+}
+
+func TestGrokImagesRequestUsesOpenAIImageSourceFormat(t *testing.T) {
+	if !isOpenAIImagesRequest("/v1/images/generations") {
+		t.Fatalf("/v1/images/generations should be treated as an OpenAI Images request")
+	}
+	if !isOpenAIImagesRequest("/images/generations?source=test") {
+		t.Fatalf("/images/generations?source=test should be treated as an OpenAI Images request")
+	}
+	if isOpenAIImagesRequest("/v1/chat/completions") {
+		t.Fatalf("/v1/chat/completions must not be treated as an OpenAI Images request")
+	}
+}
+
+func TestGrokRequestMetadataCarriesRequestPath(t *testing.T) {
+	metadata := requestMetadata("/v1/images/generations?source=test")
+	if got := metadata[executor.RequestPathMetadataKey]; got != "/v1/images/generations" {
+		t.Fatalf("request_path metadata = %v, want /v1/images/generations", got)
 	}
 }
