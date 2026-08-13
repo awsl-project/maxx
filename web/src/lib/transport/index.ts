@@ -38,6 +38,7 @@ export type {
   RouteSyncRequest,
   RouteSyncResult,
   TestFieldModelBenchmarkRequest,
+  TestFieldModelBenchmarkJobStartResponse,
   TestFieldModelBenchmarkProviderSummary,
   TestFieldModelBenchmarkResult,
   TestFieldModelBenchmarkResponse,

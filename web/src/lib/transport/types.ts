@@ -396,7 +396,10 @@ export interface TestFieldModelBenchmarkRequest {
   prompt?: string;
   concurrency?: number;
   timeoutMs?: number;
+  minModelsPerProvider?: number;
   maxModelsPerProvider?: number;
+  reuseCachedResults?: boolean;
+  reuseCachedModelLists?: boolean;
 }
 
 export interface TestFieldModelBenchmarkProviderSummary {
@@ -407,6 +410,7 @@ export interface TestFieldModelBenchmarkProviderSummary {
   modelCount: number;
   testedCount: number;
   error?: string;
+  cachedModels?: boolean;
 }
 
 export interface TestFieldModelBenchmarkResult {
@@ -421,16 +425,28 @@ export interface TestFieldModelBenchmarkResult {
   response?: string;
   startedAt: string;
   finishedAt: string;
+  cached?: boolean;
 }
 
 export interface TestFieldModelBenchmarkResponse {
+  jobID?: string;
+  status?: 'running' | 'completed' | 'cancelled' | 'failed';
   prompt: string;
   concurrency: number;
   timeoutMs: number;
+  minModelsPerProvider: number;
   startedAt: string;
   finishedAt: string;
   providers: TestFieldModelBenchmarkProviderSummary[];
   results: TestFieldModelBenchmarkResult[];
+  totalTargets: number;
+  completedTargets: number;
+  cachedResultCount: number;
+  error?: string;
+}
+
+export interface TestFieldModelBenchmarkJobStartResponse {
+  jobID: string;
 }
 
 export type ClaudeProviderBatchPersistMode = 'none' | 'passed' | 'all_disabled';
