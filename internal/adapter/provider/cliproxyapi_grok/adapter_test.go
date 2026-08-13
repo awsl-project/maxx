@@ -78,6 +78,20 @@ func TestEnsureOpenAIStreamFinishBeforeDoneInsertsFinishReason(t *testing.T) {
 	}
 }
 
+func TestEnsureOpenAIStreamFinishBeforeDonePassesThroughChunkWithoutNewline(t *testing.T) {
+	input := []byte(`data: {"id":"chunk-1","object":"chat.completion.chunk","model":"grok-test","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}`)
+	out, pending, sawFinishReason, sawDone := ensureOpenAIStreamFinishBeforeDoneWithPending("", input, "grok-test", false)
+	if pending != "" {
+		t.Fatalf("pending = %q, want empty", pending)
+	}
+	if sawFinishReason || sawDone {
+		t.Fatalf("sawFinishReason=%v sawDone=%v, want false/false", sawFinishReason, sawDone)
+	}
+	if string(out) != string(input) {
+		t.Fatalf("output changed: got %q want %q", string(out), string(input))
+	}
+}
+
 func TestEnsureOpenAIStreamFinishBeforeDoneHandlesDoneSplitAcrossChunks(t *testing.T) {
 	first := []byte("data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"model\":\"grok-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\ndata: [")
 	second := []byte("DONE]\n\n")
