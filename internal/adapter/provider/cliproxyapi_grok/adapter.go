@@ -324,7 +324,24 @@ func ensureOpenAIStreamFinishBeforeDoneWithPending(pending string, payload []byt
 	for len(combined) > 0 {
 		idx := strings.IndexByte(combined, '\n')
 		if idx < 0 {
-			return out.Bytes(), combined, sawFinishReason || finishInserted, sawDone
+			trimmed := strings.TrimSpace(combined)
+			if isPotentialOpenAIDoneLinePrefix(trimmed) {
+				return out.Bytes(), combined, sawFinishReason || finishInserted, sawDone
+			}
+			if strings.HasPrefix(trimmed, "data:") {
+				data := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+				if data == "[DONE]" {
+					sawDone = true
+					if !alreadySawFinishReason && !sawFinishReason && !finishInserted {
+						out.Write(openAIStreamFinishChunk(model))
+						finishInserted = true
+					}
+				} else if openAIChunkHasFinishReason([]byte(data)) {
+					sawFinishReason = true
+				}
+			}
+			out.WriteString(combined)
+			return out.Bytes(), "", sawFinishReason || finishInserted, sawDone
 		}
 		line := combined[:idx+1]
 		combined = combined[idx+1:]
@@ -344,6 +361,17 @@ func ensureOpenAIStreamFinishBeforeDoneWithPending(pending string, payload []byt
 		out.WriteString(line)
 	}
 	return out.Bytes(), "", sawFinishReason || finishInserted, sawDone
+}
+
+func isPotentialOpenAIDoneLinePrefix(line string) bool {
+	if !strings.HasPrefix(line, "data:") {
+		return false
+	}
+	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if data == "" {
+		return true
+	}
+	return strings.HasPrefix("[DONE]", data)
 }
 
 func openAIChunkHasFinishReason(data []byte) bool {
