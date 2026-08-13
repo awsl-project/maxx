@@ -172,6 +172,52 @@ func TestDispatchForceRetryUpstreamErrorsDoesNotOverrideCanceledContext(t *testi
 	}
 }
 
+func TestDispatchProviderConcurrencyLimitFailsBeforeUpstreamWithExplicit429(t *testing.T) {
+	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		&forceRetrySequenceAdapter{},
+		&domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	)
+	e.router = router.NewRouter(nil, nil, nil, nil, nil)
+	storedState, ok := c.Get(flow.KeyExecutorState)
+	if !ok {
+		t.Fatal("executor state missing")
+	}
+	provider := storedState.(*execState).routes[0].Provider
+	provider.MaxConcurrency = 1
+	release, acquired := e.router.TryAcquireProvider(provider)
+	if !acquired {
+		t.Fatal("failed to acquire provider slot for test setup")
+	}
+	defer release()
+
+	e.dispatch(c)
+
+	if adapter.calls != 0 {
+		t.Fatalf("adapter calls = %d, want 0", adapter.calls)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 0 {
+		t.Fatalf("attempt count = %d, want 0", proxyReq.ProxyUpstreamAttemptCount)
+	}
+	if proxyReq.Status != "FAILED" {
+		t.Fatalf("proxy request status = %q, want FAILED", proxyReq.Status)
+	}
+	if proxyReq.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status code = %d, want %d", proxyReq.StatusCode, http.StatusTooManyRequests)
+	}
+	if c.Err == nil || !errors.Is(c.Err, domain.ErrNoAvailableProviders) {
+		t.Fatalf("dispatch error = %v, want ErrNoAvailableProviders", c.Err)
+	}
+	var proxyErr *domain.ProxyError
+	if !errors.As(c.Err, &proxyErr) {
+		t.Fatalf("dispatch error type = %T, want ProxyError", c.Err)
+	}
+	if proxyErr.Reason != domain.CooldownReasonConcurrentLimit {
+		t.Fatalf("proxy error reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonConcurrentLimit)
+	}
+}
+
 func newForceRetryDispatchHarness(
 	t *testing.T,
 	forceRetry bool,

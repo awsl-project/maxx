@@ -174,9 +174,11 @@ routeLoop:
 				var acquired bool
 				releaseProvider, acquired = e.router.TryAcquireProvider(matchedRoute.Provider)
 				if !acquired {
-					log.Printf("[Executor] Provider %d is at its concurrency limit; trying the next route", matchedRoute.Provider.ID)
-					proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, true, "provider concurrency limit reached")
+					log.Printf("[Executor] Provider %d is at its concurrency limit before upstream dispatch; trying the next route", matchedRoute.Provider.ID)
+					proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, true, "provider concurrency limit reached before upstream dispatch")
 					proxyErr.Scope = domain.ScopeProvider
+					proxyErr.Reason = domain.CooldownReasonConcurrentLimit
+					proxyErr.HTTPStatusCode = http.StatusTooManyRequests
 					state.lastErr = proxyErr
 					continue routeLoop
 				}
