@@ -23,7 +23,12 @@ import (
 type CLIProxyAPIGrokAdapter struct {
 	provider *domain.Provider
 	authObj  *auth.Auth
-	executor *exec.XAIExecutor
+	executor grokExecutor
+}
+
+type grokExecutor interface {
+	Execute(context.Context, *auth.Auth, executor.Request, executor.Options) (executor.Response, error)
+	ExecuteStream(context.Context, *auth.Auth, executor.Request, executor.Options) (*executor.StreamResult, error)
 }
 
 func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
