@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
 
 func TestNewAdapterAcceptsCPAExportedXAIOAuthJSONShape(t *testing.T) {
@@ -87,5 +88,24 @@ func TestEnsureOpenAIStreamFinishBeforeDoneDoesNotDuplicateFinishReason(t *testi
 	}
 	if count := strings.Count(body, `"finish_reason":"stop"`); count != 1 {
 		t.Fatalf("finish_reason stop count = %d, want 1; body=%s", count, body)
+	}
+}
+
+func TestGrokImagesRequestUsesOpenAIImageSourceFormat(t *testing.T) {
+	if !isOpenAIImagesRequest("/v1/images/generations") {
+		t.Fatalf("/v1/images/generations should be treated as an OpenAI Images request")
+	}
+	if !isOpenAIImagesRequest("/images/generations?source=test") {
+		t.Fatalf("/images/generations?source=test should be treated as an OpenAI Images request")
+	}
+	if isOpenAIImagesRequest("/v1/chat/completions") {
+		t.Fatalf("/v1/chat/completions must not be treated as an OpenAI Images request")
+	}
+}
+
+func TestGrokRequestMetadataCarriesRequestPath(t *testing.T) {
+	metadata := requestMetadata("/v1/images/generations?source=test")
+	if got := metadata[executor.RequestPathMetadataKey]; got != "/v1/images/generations" {
+		t.Fatalf("request_path metadata = %v, want /v1/images/generations", got)
 	}
 }

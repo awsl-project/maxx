@@ -145,12 +145,41 @@ func (a *CLIProxyAPIGrokAdapter) Execute(c *flow.Ctx, p *domain.Provider) error 
 	}
 
 	sourceFormat := translator.FormatOpenAI
-	execReq := executor.Request{Model: model, Payload: requestBody, Format: sourceFormat}
-	execOpts := executor.Options{Stream: stream, OriginalRequest: requestBody, SourceFormat: sourceFormat}
+	metadata := requestMetadata(flow.GetRequestURI(c))
+	if isOpenAIImagesRequest(flow.GetRequestURI(c)) {
+		sourceFormat = translator.FromString("openai-image")
+	}
+	execReq := executor.Request{Model: model, Payload: requestBody, Format: sourceFormat, Metadata: metadata}
+	execOpts := executor.Options{Stream: stream, OriginalRequest: requestBody, SourceFormat: sourceFormat, Metadata: metadata}
 	if stream {
 		return a.executeStream(c, w, execReq, execOpts)
 	}
 	return a.executeNonStream(c, w, execReq, execOpts)
+}
+
+func requestMetadata(requestURI string) map[string]any {
+	path := requestPath(requestURI)
+	if path == "" {
+		return nil
+	}
+	return map[string]any{executor.RequestPathMetadataKey: path}
+}
+
+func requestPath(requestURI string) string {
+	path := strings.TrimSpace(requestURI)
+	if path == "" {
+		return ""
+	}
+	if i := strings.Index(path, "?"); i >= 0 {
+		path = path[:i]
+	}
+	return strings.TrimSpace(path)
+}
+
+func isOpenAIImagesRequest(requestURI string) bool {
+	path := requestPath(requestURI)
+	return path == "/v1/images" || path == "/images" ||
+		strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/images/")
 }
 
 func updateModelInBody(body []byte, model string) ([]byte, error) {
