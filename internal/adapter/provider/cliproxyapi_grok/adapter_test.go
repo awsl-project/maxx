@@ -1,6 +1,7 @@
 package cliproxyapi_grok
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -52,5 +53,39 @@ func TestNewAdapterAcceptsCPAExportedXAIOAuthJSONShape(t *testing.T) {
 	}
 	if got := grok.authObj.Metadata["base_url"]; got != "https://cli-chat-proxy.grok.com/v1" {
 		t.Fatalf("base_url metadata = %v", got)
+	}
+}
+
+func TestEnsureOpenAIStreamFinishBeforeDoneInsertsFinishReason(t *testing.T) {
+	input := []byte("data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"model\":\"grok-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
+
+	out, sawFinishReason, sawDone := ensureOpenAIStreamFinishBeforeDone(input, "grok-test", false)
+	body := string(out)
+	if !sawFinishReason {
+		t.Fatalf("sawFinishReason = false, want true; body=%s", body)
+	}
+	if !sawDone {
+		t.Fatalf("sawDone = false, want true; body=%s", body)
+	}
+	if !strings.Contains(body, `"finish_reason":"stop"`) {
+		t.Fatalf("stream body missing terminal finish_reason stop: %s", body)
+	}
+	finishIdx := strings.Index(body, `"finish_reason":"stop"`)
+	doneIdx := strings.Index(body, "data: [DONE]")
+	if finishIdx < 0 || doneIdx < 0 || finishIdx > doneIdx {
+		t.Fatalf("finish_reason must be emitted before [DONE]; body=%s", body)
+	}
+}
+
+func TestEnsureOpenAIStreamFinishBeforeDoneDoesNotDuplicateFinishReason(t *testing.T) {
+	input := []byte("data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"model\":\"grok-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+
+	out, sawFinishReason, sawDone := ensureOpenAIStreamFinishBeforeDone(input, "grok-test", false)
+	body := string(out)
+	if !sawFinishReason || !sawDone {
+		t.Fatalf("sawFinishReason=%v sawDone=%v body=%s", sawFinishReason, sawDone, body)
+	}
+	if count := strings.Count(body, `"finish_reason":"stop"`); count != 1 {
+		t.Fatalf("finish_reason stop count = %d, want 1; body=%s", count, body)
 	}
 }
