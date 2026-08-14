@@ -113,6 +113,7 @@ type testFieldResultCacheEntry struct {
 
 type testFieldBenchmarkJob struct {
 	id                   string
+	baseURL              string
 	tenantID             uint64
 	request              TestFieldModelBenchmarkRequest
 	status               string
@@ -161,7 +162,7 @@ func (h *AdminHandler) handleTestField(w http.ResponseWriter, r *http.Request, p
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		resp, err := h.runTestFieldModelBenchmark(r.Context(), maxxctx.GetTenantID(r.Context()), req)
+		resp, err := h.runTestFieldModelBenchmark(r.Context(), maxxctx.GetTenantID(r.Context()), req, testFieldRequestBaseURL(r))
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -187,7 +188,7 @@ func (h *AdminHandler) handleTestFieldModelBenchmarkJobs(w http.ResponseWriter, 
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		job, err := h.startTestFieldModelBenchmarkJob(tenantID, req)
+		job, err := h.startTestFieldModelBenchmarkJob(tenantID, req, testFieldRequestBaseURL(r))
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -217,7 +218,7 @@ func (h *AdminHandler) handleTestFieldModelBenchmarkJobs(w http.ResponseWriter, 
 	}
 }
 
-func (h *AdminHandler) startTestFieldModelBenchmarkJob(tenantID uint64, req TestFieldModelBenchmarkRequest) (*testFieldBenchmarkJob, error) {
+func (h *AdminHandler) startTestFieldModelBenchmarkJob(tenantID uint64, req TestFieldModelBenchmarkRequest, baseURL string) (*testFieldBenchmarkJob, error) {
 	prompt, concurrency, timeout, minModels, err := normalizeTestFieldBenchmarkRequest(req)
 	if err != nil {
 		return nil, err
@@ -225,6 +226,7 @@ func (h *AdminHandler) startTestFieldModelBenchmarkJob(tenantID uint64, req Test
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &testFieldBenchmarkJob{
 		id:                   nextTestFieldBenchmarkJobID(),
+		baseURL:              strings.TrimRight(baseURL, "/"),
 		tenantID:             tenantID,
 		request:              req,
 		status:               "running",
@@ -240,13 +242,13 @@ func (h *AdminHandler) startTestFieldModelBenchmarkJob(tenantID uint64, req Test
 	return job, nil
 }
 
-func (h *AdminHandler) runTestFieldModelBenchmark(ctx context.Context, tenantID uint64, req TestFieldModelBenchmarkRequest) (*TestFieldModelBenchmarkResponse, error) {
+func (h *AdminHandler) runTestFieldModelBenchmark(ctx context.Context, tenantID uint64, req TestFieldModelBenchmarkRequest, baseURL string) (*TestFieldModelBenchmarkResponse, error) {
 	prompt, concurrency, timeout, minModels, err := normalizeTestFieldBenchmarkRequest(req)
 	if err != nil {
 		return nil, err
 	}
 	started := time.Now()
-	providers, targets := h.buildTestFieldBenchmarkTargets(ctx, tenantID, req, minModels)
+	providers, targets := h.buildTestFieldBenchmarkTargets(ctx, tenantID, req, minModels, baseURL)
 	results, cachedCount := runTestFieldBenchmarkTargets(ctx, targets, prompt, concurrency, timeout, nil)
 	results = sortTestFieldBenchmarkResults(results)
 	finished := time.Now()
@@ -299,7 +301,7 @@ func normalizeTestFieldBenchmarkRequest(req TestFieldModelBenchmarkRequest) (str
 }
 
 func (h *AdminHandler) runTestFieldModelBenchmarkJob(ctx context.Context, job *testFieldBenchmarkJob) {
-	providers, targets := h.buildTestFieldBenchmarkTargets(ctx, job.tenantID, job.request, job.minModelsPerProvider)
+	providers, targets := h.buildTestFieldBenchmarkTargets(ctx, job.tenantID, job.request, job.minModelsPerProvider, job.baseURL)
 	job.mu.Lock()
 	job.providers = providers
 	job.totalTargets = len(targets)
@@ -329,7 +331,7 @@ func (h *AdminHandler) runTestFieldModelBenchmarkJob(ctx context.Context, job *t
 	}
 }
 
-func (h *AdminHandler) buildTestFieldBenchmarkTargets(ctx context.Context, tenantID uint64, req TestFieldModelBenchmarkRequest, minModels int) ([]TestFieldModelBenchmarkProviderSummary, []testFieldBenchmarkTarget) {
+func (h *AdminHandler) buildTestFieldBenchmarkTargets(ctx context.Context, tenantID uint64, req TestFieldModelBenchmarkRequest, minModels int, baseURL string) ([]TestFieldModelBenchmarkProviderSummary, []testFieldBenchmarkTarget) {
 	providerSummaries := make([]TestFieldModelBenchmarkProviderSummary, 0, len(req.ProviderIDs))
 	targets := make([]testFieldBenchmarkTarget, 0)
 	for _, providerID := range uniqueUint64s(req.ProviderIDs) {
@@ -339,13 +341,17 @@ func (h *AdminHandler) buildTestFieldBenchmarkTargets(ctx context.Context, tenan
 			continue
 		}
 		summary := TestFieldModelBenchmarkProviderSummary{ProviderID: provider.ID, ProviderName: provider.Name, ProviderType: provider.Type}
-		endpoint, apiKey, ok, errText := testFieldOpenAICompatibleEndpoint(provider)
+		endpoint, apiKey, ok, errText := testFieldOpenAICompatibleEndpoint(provider, baseURL)
 		if !ok {
 			summary.Error = errText
 			providerSummaries = append(providerSummaries, summary)
 			continue
 		}
 		modelsResult, cachedModels := h.fetchTestFieldRuntimeModels(ctx, provider, reuseBool(req.ReuseCachedModelLists, true))
+		if (!modelsResult.Available || len(modelsResult.Models) == 0) && strings.EqualFold(strings.TrimSpace(provider.Type), "grok") {
+			modelsResult = providerRuntimeModelsResult{Available: true, Models: defaultTestFieldGrokModels()}
+			cachedModels = false
+		}
 		if !modelsResult.Available || len(modelsResult.Models) == 0 {
 			summary.Error = strings.TrimSpace(modelsResult.Error)
 			if summary.Error == "" {
@@ -391,6 +397,47 @@ func (h *AdminHandler) fetchTestFieldRuntimeModels(ctx context.Context, provider
 	}
 	testFieldBenchmarks.Unlock()
 	return modelsResult, false
+}
+
+func testFieldRequestBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	if idx := strings.Index(proto, ","); idx >= 0 {
+		proto = strings.TrimSpace(proto[:idx])
+	}
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if idx := strings.Index(host, ","); idx >= 0 {
+		host = strings.TrimSpace(host[:idx])
+	}
+	if proto == "" || host == "" {
+		return ""
+	}
+	return proto + "://" + host
+}
+
+func defaultTestFieldGrokModels() []string {
+	return []string{
+		"grok-3",
+		"grok-3-mini",
+		"grok-3-mini-fast",
+		"grok-4",
+		"grok-4.1",
+		"grok-4.3",
+		"grok-4.5",
+		"grok-latest",
+	}
 }
 
 func runTestFieldBenchmarkTargets(ctx context.Context, targets []testFieldBenchmarkTarget, prompt string, concurrency int, timeout time.Duration, onResult func(TestFieldModelBenchmarkResult, bool)) ([]TestFieldModelBenchmarkResult, int) {
@@ -461,7 +508,7 @@ func callTestFieldOpenAIChatBenchmarkWithCache(ctx context.Context, target testF
 	return result, false
 }
 
-func testFieldOpenAICompatibleEndpoint(provider *domain.Provider) (endpoint string, apiKey string, ok bool, errText string) {
+func testFieldOpenAICompatibleEndpoint(provider *domain.Provider, baseURL string) (endpoint string, apiKey string, ok bool, errText string) {
 	if provider == nil || provider.Config == nil {
 		return "", "", false, "provider config unavailable"
 	}
@@ -480,6 +527,15 @@ func testFieldOpenAICompatibleEndpoint(provider *domain.Provider) (endpoint stri
 			return "", "", false, "openrouter api key unavailable"
 		}
 		return "https://openrouter.ai/api/v1/chat/completions", provider.Config.OpenRouter.APIKey, true, ""
+	case "grok":
+		if provider.Config.Grok == nil {
+			return "", "", false, "grok provider config unavailable"
+		}
+		baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+		if baseURL == "" {
+			return "", "", false, "test field base url unavailable for grok provider proxy"
+		}
+		return fmt.Sprintf("%s/provider/%d/v1/chat/completions", baseURL, provider.ID), "", true, ""
 	default:
 		return "", "", false, "test field benchmark currently supports OpenAI-compatible providers only"
 	}
@@ -663,8 +719,25 @@ func testFieldProviderCacheKey(provider *domain.Provider) string {
 	if provider == nil {
 		return "nil"
 	}
-	endpoint, apiKey, _, _ := testFieldOpenAICompatibleEndpoint(provider)
-	return hashStrings(strconv.FormatUint(provider.ID, 10), provider.Type, endpoint, apiKey)
+	parts := []string{strconv.FormatUint(provider.ID, 10), provider.Type}
+	if provider.Config == nil {
+		return hashStrings(parts...)
+	}
+	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
+	case "custom", "newapi":
+		if provider.Config.Custom != nil {
+			parts = append(parts, customRuntimeModelsBaseURL(provider.Config.Custom), provider.Config.Custom.APIKey)
+		}
+	case "openrouter":
+		if provider.Config.OpenRouter != nil {
+			parts = append(parts, provider.Config.OpenRouter.APIKey)
+		}
+	case "grok":
+		if provider.Config.Grok != nil {
+			parts = append(parts, provider.Config.Grok.Type, provider.Config.Grok.AuthKind, provider.Config.Grok.AccessToken, provider.Config.Grok.RefreshToken)
+		}
+	}
+	return hashStrings(parts...)
 }
 
 func testFieldResultCacheKey(target testFieldBenchmarkTarget, prompt string, timeout time.Duration) string {

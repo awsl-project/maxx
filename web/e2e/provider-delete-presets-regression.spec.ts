@@ -90,19 +90,16 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png`, fullPage: true });
 }
 
-async function selectCustomProvider(page: Page) {
-  await page.goto('/providers/create');
-  await page.getByRole('button', { name: /Custom|自定义/ }).click();
-}
-
 test.use({ viewport: { width: 1920, height: 1400 }, locale: 'zh-CN' });
 
 test.describe('Provider delete and preset regression', () => {
   test('quick templates fill Zhipu and DeepSeek compatibility URLs', async ({ page }) => {
     await installCommonMocks(page);
 
-    await selectCustomProvider(page);
-    await page.getByRole('button', { name: /智谱|Zhipu/i }).click();
+    await page.goto('/providers/create');
+    const zhipuTemplate = page.getByRole('button', { name: /智谱|Zhipu/i });
+    await expect(zhipuTemplate).toBeVisible();
+    await zhipuTemplate.click();
     await expect(page).toHaveURL(/\/providers\/create\/custom/);
     await expect(page.locator('input[value="https://open.bigmodel.cn/api/paas/v4"]')).toBeVisible();
     await expect(
@@ -110,8 +107,10 @@ test.describe('Provider delete and preset regression', () => {
     ).toBeVisible();
     await screenshot(page, '01-zhipu-claude-openai-preset-filled');
 
-    await selectCustomProvider(page);
-    await page.getByRole('button', { name: /DeepSeek.*Claude.*OpenAI/i }).click();
+    await page.goto('/providers/create');
+    const deepSeekTemplate = page.getByRole('button', { name: /DeepSeek.*Claude.*OpenAI/i });
+    await expect(deepSeekTemplate).toBeVisible();
+    await deepSeekTemplate.click();
     await expect(page.locator('input[value="https://api.deepseek.com"]')).toBeVisible();
     await expect(page.locator('input[value="https://api.deepseek.com/anthropic"]')).toBeVisible();
     await screenshot(page, '02-deepseek-claude-openai-preset-filled');

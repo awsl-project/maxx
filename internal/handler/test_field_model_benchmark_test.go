@@ -109,8 +109,27 @@ func TestRunTestFieldBenchmarkTargetsReportsIncrementalCachedResults(t *testing.
 }
 
 func TestTestFieldOpenAICompatibleEndpointRejectsUnsupportedProvider(t *testing.T) {
-	_, _, ok, errText := testFieldOpenAICompatibleEndpoint(&domain.Provider{Type: "claude", Config: &domain.ProviderConfig{}})
+	_, _, ok, errText := testFieldOpenAICompatibleEndpoint(&domain.Provider{Type: "claude", Config: &domain.ProviderConfig{}}, "http://maxx.test")
 	if ok || errText == "" {
 		t.Fatalf("expected unsupported provider rejection, ok=%v err=%q", ok, errText)
+	}
+}
+
+func TestTestFieldOpenAICompatibleEndpointSupportsGrokProviderProxy(t *testing.T) {
+	endpoint, apiKey, ok, errText := testFieldOpenAICompatibleEndpoint(&domain.Provider{
+		ID:   42,
+		Type: "grok",
+		Config: &domain.ProviderConfig{Grok: &domain.ProviderConfigGrok{
+			Type:         "xai",
+			AuthKind:     "oauth",
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+		}},
+	}, "http://maxx.test")
+	if !ok || errText != "" {
+		t.Fatalf("expected grok provider proxy endpoint, ok=%v err=%q", ok, errText)
+	}
+	if endpoint != "http://maxx.test/provider/42/v1/chat/completions" || apiKey != "" {
+		t.Fatalf("unexpected endpoint/apiKey: %q %q", endpoint, apiKey)
 	}
 }

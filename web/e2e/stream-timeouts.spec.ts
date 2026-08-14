@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 const SETTINGS = [
-  'stream_timeouts_enabled',
-  'stream_first_event_timeout_ms',
-  'stream_idle_timeout_ms',
+  'openai_chat_stream_timeouts_enabled',
+  'openai_chat_stream_first_event_timeout_ms',
+  'openai_chat_stream_idle_timeout_ms',
 ];
 
 async function resetStreamTimeoutSettings(request: Parameters<typeof test>[0]['request']) {
@@ -24,10 +24,15 @@ test.describe('stream timeout settings', () => {
   test('keeps upstream stream timeouts opt-in and persists user values', async ({ page }) => {
     await page.goto('/settings');
 
-    await expect(page.getByText('Stream timeouts', { exact: true })).toBeVisible();
-    const enabledSwitch = page.getByRole('switch', { name: 'Enable upstream stream timeouts' });
-    const firstEventInput = page.getByLabel('First event timeout');
-    const idleInput = page.getByLabel('Event idle timeout');
+    const streamTimeoutsTitle = page.getByText('OpenAI Chat stream timeouts', { exact: true });
+    await expect(streamTimeoutsTitle).toBeAttached({ timeout: 15000 });
+    await streamTimeoutsTitle.scrollIntoViewIfNeeded();
+    await expect(streamTimeoutsTitle).toBeVisible();
+    const enabledSwitch = page.getByRole('switch', {
+      name: 'Enable OpenAI Chat upstream stream timeouts',
+    });
+    const firstEventInput = page.getByLabel('OpenAI Chat first event timeout');
+    const idleInput = page.getByLabel('OpenAI Chat event idle timeout');
 
     await expect(enabledSwitch).not.toBeChecked();
     await expect(firstEventInput).toBeDisabled();
@@ -43,21 +48,18 @@ test.describe('stream timeout settings', () => {
     await idleInput.fill('55000');
     const saveButton = page.getByRole('button', { name: 'Save', exact: true });
     await expect(saveButton).toBeEnabled();
+    const saveResponses = Promise.all(
+      SETTINGS.map((key) =>
+        page.waitForResponse(
+          (response) =>
+            response.url().includes(`/api/admin/settings/${key}`) &&
+            response.request().method() === 'PUT' &&
+            response.ok(),
+        ),
+      ),
+    );
     await saveButton.click();
-
-    await expect
-      .poll(async () => {
-        return page.evaluate(async () => {
-          const resp = await fetch('/api/admin/settings');
-          const settings = await resp.json();
-          return {
-            enabled: settings.stream_timeouts_enabled,
-            first: settings.stream_first_event_timeout_ms,
-            idle: settings.stream_idle_timeout_ms,
-          };
-        });
-      })
-      .toEqual({ enabled: 'true', first: '15000', idle: '55000' });
+    await saveResponses;
 
     await page.reload();
     await expect(enabledSwitch).toBeChecked();

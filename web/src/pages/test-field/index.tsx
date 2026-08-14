@@ -32,7 +32,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useProviders } from '@/hooks/queries';
 import { getTransport, type Provider, type TestFieldModelBenchmarkResponse } from '@/lib/transport';
 
-const SUPPORTED_PROVIDER_TYPES = new Set(['custom', 'newapi', 'openrouter']);
+const SUPPORTED_PROVIDER_TYPES = new Set(['custom', 'newapi', 'openrouter', 'grok']);
 
 function formatDuration(durationMs: number) {
   if (!Number.isFinite(durationMs) || durationMs < 0) return '-';
@@ -87,6 +87,8 @@ export function TestFieldPage() {
     cachedBenchmarkState?.activeJobID ?? null,
   );
   const [error, setError] = useState<string | null>(null);
+  const safeResultProviders = Array.isArray(result?.providers) ? result.providers : [];
+  const safeResultRows = Array.isArray(result?.results) ? result.results : [];
   const isRunning = result?.status === 'running' || activeJobID !== null;
   const activeJobIDRef = useRef<string | null>(activeJobID);
   const resultsCardRef = useRef<HTMLDivElement | null>(null);
@@ -416,7 +418,7 @@ export function TestFieldPage() {
                 </CardTitle>
                 <CardDescription>
                   {t('testField.benchmark.resultsDescription', {
-                    count: result.results.length,
+                    count: safeResultRows.length,
                     concurrency: result.concurrency,
                     completed: result.completedTargets,
                     total: result.totalTargets,
@@ -427,7 +429,7 @@ export function TestFieldPage() {
               </CardHeader>
               <CardContent className="space-y-4 p-6">
                 <div className="grid gap-2 md:grid-cols-2">
-                  {result.providers.map((provider) => (
+                  {safeResultProviders.map((provider) => (
                     <div
                       key={provider.providerID}
                       className="rounded-md border border-border p-3 text-sm"
@@ -463,7 +465,7 @@ export function TestFieldPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {result.results.map((item, index) => (
+                      {safeResultRows.map((item, index) => (
                         <TableRow key={`${item.providerID}:${item.model}`}>
                           <TableCell>{index + 1}</TableCell>
                           <TableCell>{item.providerName}</TableCell>
