@@ -719,8 +719,25 @@ func testFieldProviderCacheKey(provider *domain.Provider) string {
 	if provider == nil {
 		return "nil"
 	}
-	endpoint, apiKey, _, _ := testFieldOpenAICompatibleEndpoint(provider, "")
-	return hashStrings(strconv.FormatUint(provider.ID, 10), provider.Type, endpoint, apiKey)
+	parts := []string{strconv.FormatUint(provider.ID, 10), provider.Type}
+	if provider.Config == nil {
+		return hashStrings(parts...)
+	}
+	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
+	case "custom", "newapi":
+		if provider.Config.Custom != nil {
+			parts = append(parts, customRuntimeModelsBaseURL(provider.Config.Custom), provider.Config.Custom.APIKey)
+		}
+	case "openrouter":
+		if provider.Config.OpenRouter != nil {
+			parts = append(parts, provider.Config.OpenRouter.APIKey)
+		}
+	case "grok":
+		if provider.Config.Grok != nil {
+			parts = append(parts, provider.Config.Grok.Type, provider.Config.Grok.AuthKind, provider.Config.Grok.AccessToken, provider.Config.Grok.RefreshToken)
+		}
+	}
+	return hashStrings(parts...)
 }
 
 func testFieldResultCacheKey(target testFieldBenchmarkTarget, prompt string, timeout time.Duration) string {
