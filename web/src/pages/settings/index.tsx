@@ -142,6 +142,7 @@ export function SettingsPage() {
           {isAdmin && (
             <>
               <SupportModelRoutingSection />
+              <OpenAIChatStreamTimeoutSection />
               <TestFieldTabSection />
               <MultiTenantUISection />
               <TimezoneSection />

@@ -210,14 +210,14 @@ test('test field runs a Grok provider benchmark without blank-screening', async 
   const providerInput = page.getByRole('combobox').first();
   await providerInput.click();
   await page.getByRole('option', { name: /Mock Grok OAuth Provider · grok · #42/ }).click();
-  await page.getByRole('button', { name: /添加|Add/ }).click();
+  await page.getByRole('button', { name: /新增|Add/ }).click();
   await expect(page.getByText('Mock Grok OAuth Provider · grok · #42')).toBeVisible();
-  await expect(page.getByText(/暂不支持|Unsupported/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Run|运行|开始测试|开始/ })).toBeEnabled();
 
-  await page.getByLabel(/Prompt|提示词|测试提示/).fill('端到端回归：请返回 mock-grok-ok');
-  await page.getByLabel(/Concurrency|并发/).fill('1');
-  await page.getByLabel(/Timeout|超时/).fill('5000');
-  await page.getByLabel(/Models|模型/).fill('2');
+  await page.getByLabel(/^测试问题$/).fill('端到端回归：请返回 mock-grok-ok');
+  await page.getByLabel(/^并发数$/).fill('1');
+  await page.getByLabel(/^单模型超时 ms$/).fill('5000');
+  await page.getByLabel(/^每个提供商最少测试模型数$/).fill('2');
 
   await attachMockEvidence(page, calls);
   await page.screenshot({ path: testInfo.outputPath('01-before-run-grok-provider-selected.png'), fullPage: true });
@@ -227,8 +227,8 @@ test('test field runs a Grok provider benchmark without blank-screening', async 
   await expect(page.getByText(/mock-grok-ok via \/provider\/42\/v1\/chat\/completions/)).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.getByText('grok-4')).toBeVisible();
-  await expect(page.getByText('grok-latest')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'grok-4', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'grok-latest', exact: true })).toBeVisible();
   await expect(page.getByText(/2\/2|completed: 2|已完成/)).toBeVisible();
 
   expect(calls.some((call) => call.path === '/api/admin/test-field/model-benchmark-jobs' && call.method === 'POST')).toBe(true);

@@ -181,20 +181,22 @@ test.describe('route exposure follows public route settings', () => {
   test('user panel endpoint hints and quickstart follow route exposure settings', async ({ page }, testInfo) => {
     const hits = await installRouteExposureMocks(page, filteredSettings, 'user');
     await page.goto('/');
-    await expect(page.getByText('OpenAI / Codex')).toBeVisible();
-    await expect(page.getByText('Gemini')).toBeVisible();
-    await expect(page.getByText('Claude')).not.toBeVisible();
+    await expect(page.getByText('OpenAI', { exact: true })).toBeVisible();
+    await expect(page.getByText('Codex', { exact: true })).not.toBeVisible();
+    await expect(page.getByText('Gemini', { exact: true })).toBeVisible();
+    await expect(page.getByText('Claude', { exact: true })).not.toBeVisible();
     await expect(page.getByText('/v1beta/models/{model}:generateContent')).toBeVisible();
-    await expect(page.getByText('/v1/chat/completions')).toBeVisible();
+    await expect(page.getByText(/\/v1$/)).toBeVisible();
     await attachMockEvidence(page, 'user panel filtered route exposure', filteredSettings, hits);
     await page.screenshot({ path: testInfo.outputPath('03-user-panel-filtered-endpoints.png'), fullPage: true });
 
     const disabledPage = await page.context().newPage();
     const disabledHits = await installRouteExposureMocks(disabledPage, allOpenAiAndCodexDisabledSettings, 'user');
     await disabledPage.goto('/');
-    await expect(disabledPage.getByText('OpenAI / Codex')).not.toBeVisible();
-    await expect(disabledPage.getByText('/v1/chat/completions')).not.toBeVisible();
-    await expect(disabledPage.getByText('Gemini')).toBeVisible();
+    await expect(disabledPage.getByText('OpenAI', { exact: true })).not.toBeVisible();
+    await expect(disabledPage.getByText('Codex', { exact: true })).not.toBeVisible();
+    await expect(disabledPage.getByText(/\/v1$/)).not.toBeVisible();
+    await expect(disabledPage.getByText('Gemini', { exact: true })).toBeVisible();
     await attachMockEvidence(
       disabledPage,
       'user panel OpenAI and Codex disabled',
