@@ -139,7 +139,7 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
               available: true,
               durationMs: 37,
               statusCode: 200,
-              response: 'mock-grok-ok via /provider/42/v1/chat/completions',
+              response: 'mock-grok-ok: client /provider/42/v1/chat/completions -> xAI /responses',
               startedAt: now,
               finishedAt: new Date(Date.now() + 37).toISOString(),
             },
@@ -151,7 +151,7 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
               available: true,
               durationMs: 42,
               statusCode: 200,
-              response: 'mock-grok-latest-ok',
+              response: 'mock-grok-latest-ok via xAI /responses',
               startedAt: now,
               finishedAt: new Date(Date.now() + 42).toISOString(),
             },
@@ -224,7 +224,7 @@ test('test field runs a Grok provider benchmark without blank-screening', async 
 
   await page.getByRole('button', { name: /Run|运行|开始测试|开始/ }).click();
 
-  await expect(page.getByText(/mock-grok-ok via \/provider\/42\/v1\/chat\/completions/)).toBeVisible({
+  await expect(page.getByText(/mock-grok-ok: client \/provider\/42\/v1\/chat\/completions -> xAI \/responses/)).toBeVisible({
     timeout: 10_000,
   });
   await expect(page.getByRole('cell', { name: 'grok-4', exact: true })).toBeVisible();
