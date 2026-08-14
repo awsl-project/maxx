@@ -380,7 +380,7 @@ export function TestFieldPage() {
                     id="test-field-max-models"
                     type="number"
                     min={1}
-                    max={50}
+                    max={500}
                     value={minModelsPerProvider}
                     onChange={(event) => setMinModelsPerProvider(Number(event.target.value) || 20)}
                     disabled={isRunning}

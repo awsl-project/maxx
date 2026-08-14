@@ -108,6 +108,38 @@ func TestRunTestFieldBenchmarkTargetsReportsIncrementalCachedResults(t *testing.
 	}
 }
 
+func TestNormalizeTestFieldBenchmarkRequestAllowsTwoHundredModels(t *testing.T) {
+	_, _, _, minModels, err := normalizeTestFieldBenchmarkRequest(TestFieldModelBenchmarkRequest{
+		ProviderIDs:          []uint64{42},
+		MinModelsPerProvider: 200,
+	})
+	if err != nil {
+		t.Fatalf("normalizeTestFieldBenchmarkRequest() error = %v", err)
+	}
+	if minModels != 200 {
+		t.Fatalf("minModels = %d, want 200", minModels)
+	}
+}
+
+func TestLimitTestFieldBenchmarkModelsUsesAllDiscoveredModelsBelowRequestedMinimum(t *testing.T) {
+	models := make([]string, 102)
+	for i := range models {
+		models[i] = "model"
+	}
+	limited := limitTestFieldBenchmarkModels(models, 200)
+	if len(limited) != 102 {
+		t.Fatalf("planned models = %d, want all 102 discovered models when requested minimum is 200", len(limited))
+	}
+}
+
+func TestLimitTestFieldBenchmarkModelsCapsAboveRequestedMinimum(t *testing.T) {
+	models := make([]string, 250)
+	limited := limitTestFieldBenchmarkModels(models, 200)
+	if len(limited) != 200 {
+		t.Fatalf("planned models = %d, want requested minimum 200", len(limited))
+	}
+}
+
 func TestTestFieldOpenAICompatibleEndpointRejectsUnsupportedProvider(t *testing.T) {
 	_, _, ok, errText := testFieldOpenAICompatibleEndpoint(&domain.Provider{Type: "claude", Config: &domain.ProviderConfig{}}, "http://maxx.test")
 	if ok || errText == "" {

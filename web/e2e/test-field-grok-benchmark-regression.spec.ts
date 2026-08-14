@@ -102,7 +102,7 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
         providerIDs: [42],
         concurrency: 1,
         timeoutMs: 5000,
-        minModelsPerProvider: 2,
+        minModelsPerProvider: 200,
         reuseCachedModelLists: true,
         reuseCachedResults: true,
       });
@@ -116,7 +116,7 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
           prompt: '端到端回归：请返回 mock-grok-ok',
           concurrency: 1,
           timeoutMs: 5000,
-          minModelsPerProvider: 2,
+          minModelsPerProvider: 200,
           startedAt: now,
           finishedAt: new Date(Date.now() + 12).toISOString(),
           providers: [
@@ -125,8 +125,8 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
               providerName: 'Mock Grok OAuth Provider',
               providerType: 'grok',
               available: true,
-              modelCount: 8,
-              testedCount: 2,
+              modelCount: 102,
+              testedCount: 102,
               cachedModels: false,
             },
           ],
@@ -139,7 +139,7 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
               available: true,
               durationMs: 37,
               statusCode: 200,
-              response: 'mock-grok-ok via /provider/42/v1/chat/completions',
+              response: 'mock-grok-ok: client /provider/42/v1/chat/completions -> xAI /responses',
               startedAt: now,
               finishedAt: new Date(Date.now() + 37).toISOString(),
             },
@@ -151,13 +151,13 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
               available: true,
               durationMs: 42,
               statusCode: 200,
-              response: 'mock-grok-latest-ok',
+              response: 'mock-grok-latest-ok via xAI /responses',
               startedAt: now,
               finishedAt: new Date(Date.now() + 42).toISOString(),
             },
           ],
-          totalTargets: 2,
-          completedTargets: 2,
+          totalTargets: 102,
+          completedTargets: 102,
           cachedResultCount: 0,
         },
         200,
@@ -217,19 +217,20 @@ test('test field runs a Grok provider benchmark without blank-screening', async 
   await page.getByLabel(/^测试问题$/).fill('端到端回归：请返回 mock-grok-ok');
   await page.getByLabel(/^并发数$/).fill('1');
   await page.getByLabel(/^单模型超时 ms$/).fill('5000');
-  await page.getByLabel(/^每个提供商最少测试模型数$/).fill('2');
+  await page.getByLabel(/^每个提供商最少测试模型数$/).fill('200');
 
   await attachMockEvidence(page, calls);
   await page.screenshot({ path: testInfo.outputPath('01-before-run-grok-provider-selected.png'), fullPage: true });
 
   await page.getByRole('button', { name: /Run|运行|开始测试|开始/ }).click();
 
-  await expect(page.getByText(/mock-grok-ok via \/provider\/42\/v1\/chat\/completions/)).toBeVisible({
+  await expect(page.getByText(/mock-grok-ok: client \/provider\/42\/v1\/chat\/completions -> xAI \/responses/)).toBeVisible({
     timeout: 10_000,
   });
   await expect(page.getByRole('cell', { name: 'grok-4', exact: true })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'grok-latest', exact: true })).toBeVisible();
-  await expect(page.getByText(/2\/2|completed: 2|已完成/)).toBeVisible();
+  await expect(page.getByText(/102\/102|completed: 102|已完成/)).toBeVisible();
+  await expect(page.getByText(/计划测试 102 \/ 发现 102 个模型/)).toBeVisible();
 
   expect(calls.some((call) => call.path === '/api/admin/test-field/model-benchmark-jobs' && call.method === 'POST')).toBe(true);
   expect(calls.some((call) => call.path === '/api/admin/test-field/model-benchmark-jobs/mock-grok-job-1' && call.method === 'GET')).toBe(true);

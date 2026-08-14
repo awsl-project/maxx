@@ -3,6 +3,7 @@ package cliproxyapi_grok
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -156,6 +157,81 @@ func TestEnsureOpenAIStreamFinishBeforeDoneDoesNotDuplicateFinishReason(t *testi
 	}
 	if count := strings.Count(body, `"finish_reason":"stop"`); count != 1 {
 		t.Fatalf("finish_reason stop count = %d, want 1; body=%s", count, body)
+	}
+}
+
+func TestExecuteOpenAIChatUsesXAIResponsesUpstreamAndReturnsOpenAIShape(t *testing.T) {
+	var gotPath string
+	var gotAuth string
+	var gotAccept string
+	var gotBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotAccept = r.Header.Get("Accept")
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_grok_1","object":"response","created_at":0,"status":"completed","model":"grok-4","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"mock-grok-ok via /responses"}]}],"usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}}` + "\n\n"))
+	}))
+	defer upstream.Close()
+
+	provider := &domain.Provider{
+		ID:   42,
+		Type: "grok",
+		Name: "Grok Test",
+		Config: &domain.ProviderConfig{Grok: &domain.ProviderConfigGrok{
+			Type:         "xai",
+			AuthKind:     "oauth",
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+			BaseURL:      upstream.URL,
+		}},
+	}
+	adapter, err := NewAdapter(provider)
+	if err != nil {
+		t.Fatalf("NewAdapter() error = %v", err)
+	}
+	grok := adapter.(*CLIProxyAPIGrokAdapter)
+
+	body := []byte(`{"model":"grok-4","messages":[{"role":"user","content":"say ok"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
+	rec := httptest.NewRecorder()
+	c := flow.NewCtx(rec, req)
+	c.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+	c.Set(flow.KeyRequestBody, body)
+	c.Set(flow.KeyRequestModel, "grok-4")
+	c.Set(flow.KeyMappedModel, "grok-4")
+	c.Set(flow.KeyIsStream, false)
+	c.Set(flow.KeyRequestURI, "/v1/chat/completions")
+
+	if err := grok.Execute(c, provider); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, got)
+	}
+	if gotPath != "/responses" {
+		t.Fatalf("upstream path = %q, want /responses", gotPath)
+	}
+	if gotAuth != "Bearer access-token" {
+		t.Fatalf("Authorization = %q, want Bearer access-token", gotAuth)
+	}
+	if gotAccept != "text/event-stream" {
+		t.Fatalf("Accept = %q, want text/event-stream", gotAccept)
+	}
+	if strings.Contains(string(gotBody), "chat/completions") {
+		t.Fatalf("upstream body leaked client chat endpoint: %s", string(gotBody))
+	}
+	if !strings.Contains(string(gotBody), `"model":"grok-4"`) || !strings.Contains(string(gotBody), `"stream":true`) {
+		t.Fatalf("upstream body was not shaped as xAI Responses payload: %s", string(gotBody))
+	}
+	if !strings.Contains(got, `"object":"chat.completion"`) || !strings.Contains(got, "mock-grok-ok via /responses") {
+		t.Fatalf("client-visible OpenAI response missing translated content: %s", got)
 	}
 }
 

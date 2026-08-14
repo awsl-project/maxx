@@ -24,7 +24,7 @@ const (
 	testFieldDefaultConcurrency   = 4
 	testFieldMaxConcurrency       = 10
 	testFieldDefaultTimeout       = 30 * time.Second
-	testFieldMaxModelsPerProv     = 50
+	testFieldMaxModelsPerProv     = 500
 	testFieldModelCacheTTL        = 2 * time.Minute
 	testFieldResultCacheTTL       = 5 * time.Minute
 	testFieldFinishedJobRetention = 10 * time.Minute
@@ -360,10 +360,7 @@ func (h *AdminHandler) buildTestFieldBenchmarkTargets(ctx context.Context, tenan
 			providerSummaries = append(providerSummaries, summary)
 			continue
 		}
-		models := modelsResult.Models
-		if len(models) > minModels {
-			models = models[:minModels]
-		}
+		models := limitTestFieldBenchmarkModels(modelsResult.Models, minModels)
 		summary.Available = true
 		summary.ModelCount = len(modelsResult.Models)
 		summary.TestedCount = len(models)
@@ -374,6 +371,13 @@ func (h *AdminHandler) buildTestFieldBenchmarkTargets(ctx context.Context, tenan
 		}
 	}
 	return providerSummaries, targets
+}
+
+func limitTestFieldBenchmarkModels(models []string, minModels int) []string {
+	if minModels <= 0 || len(models) <= minModels {
+		return models
+	}
+	return models[:minModels]
 }
 
 func (h *AdminHandler) fetchTestFieldRuntimeModels(ctx context.Context, provider *domain.Provider, reuseCache bool) (providerRuntimeModelsResult, bool) {
