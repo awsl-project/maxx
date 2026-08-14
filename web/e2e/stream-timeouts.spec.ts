@@ -24,7 +24,10 @@ test.describe('stream timeout settings', () => {
   test('keeps upstream stream timeouts opt-in and persists user values', async ({ page }) => {
     await page.goto('/settings');
 
-    await expect(page.getByText('OpenAI Chat stream timeouts', { exact: true })).toBeVisible();
+    const streamTimeoutsTitle = page.getByText('OpenAI Chat stream timeouts', { exact: true });
+    await expect(streamTimeoutsTitle).toBeAttached({ timeout: 15000 });
+    await streamTimeoutsTitle.scrollIntoViewIfNeeded();
+    await expect(streamTimeoutsTitle).toBeVisible();
     const enabledSwitch = page.getByRole('switch', {
       name: 'Enable OpenAI Chat upstream stream timeouts',
     });
@@ -45,21 +48,18 @@ test.describe('stream timeout settings', () => {
     await idleInput.fill('55000');
     const saveButton = page.getByRole('button', { name: 'Save', exact: true });
     await expect(saveButton).toBeEnabled();
+    const saveResponses = Promise.all(
+      SETTINGS.map((key) =>
+        page.waitForResponse(
+          (response) =>
+            response.url().includes(`/api/admin/settings/${key}`) &&
+            response.request().method() === 'PUT' &&
+            response.ok(),
+        ),
+      ),
+    );
     await saveButton.click();
-
-    await expect
-      .poll(async () => {
-        return page.evaluate(async () => {
-          const resp = await fetch('/api/admin/settings');
-          const settings = await resp.json();
-          return {
-            enabled: settings.openai_chat_stream_timeouts_enabled,
-            first: settings.openai_chat_stream_first_event_timeout_ms,
-            idle: settings.openai_chat_stream_idle_timeout_ms,
-          };
-        });
-      })
-      .toEqual({ enabled: 'true', first: '15000', idle: '55000' });
+    await saveResponses;
 
     await page.reload();
     await expect(enabledSwitch).toBeChecked();

@@ -90,11 +90,6 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png`, fullPage: true });
 }
 
-async function selectCustomProvider(page: Page) {
-  await page.goto('/providers/create');
-  await page.getByRole('button', { name: /Custom|自定义/ }).click();
-}
-
 test.use({ viewport: { width: 1920, height: 1400 }, locale: 'zh-CN' });
 
 test.describe('Provider delete and preset regression', () => {
