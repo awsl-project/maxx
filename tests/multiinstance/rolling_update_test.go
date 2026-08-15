@@ -37,6 +37,7 @@ func TestSeamlessRollingUpdate(t *testing.T) {
 		TenantID: domain.DefaultTenantID,
 		Name:     "rolling-update-claude",
 		Type:     "claude",
+		Config:   &domain.ProviderConfig{Claude: &domain.ProviderConfigClaude{}},
 	}
 	if err := a.Comp.Provider.Create(prov); err != nil {
 		t.Fatalf("seed provider: %v", err)

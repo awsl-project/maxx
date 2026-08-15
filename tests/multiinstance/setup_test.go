@@ -16,25 +16,31 @@ import (
 
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/coordinator"
+	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
+	"github.com/awsl-project/maxx/internal/router"
 )
 
 // instance 是单进程视图。生产中由 cmd/maxx 装配;这里我们只装配集成测试
 // 实际涉及的子系统:DB、coordinator、cooldown.Manager、cached repos。
 type instance struct {
-	ID    string
-	Coord coordinator.Coordinator
-	DB    *sqlite.DB
-	Mgr   *cooldown.Manager
-	Comp  *componentSet
-	ctx   context.Context
-	stop  context.CancelFunc
+	ID     string
+	Coord  coordinator.Coordinator
+	DB     *sqlite.DB
+	Mgr    *cooldown.Manager
+	Comp   *componentSet
+	Router *router.Router
+	ctx    context.Context
+	stop   context.CancelFunc
 }
 
 type componentSet struct {
 	Provider     *cached.ProviderRepository
 	Route        *cached.RouteRepository
+	RetryConfig  *cached.RetryConfigRepository
+	Strategy     *cached.RoutingStrategyRepository
+	Project      *cached.ProjectRepository
 	Session      *cached.SessionRepository
 	APIToken     *cached.APITokenRepository
 	ModelMapping *cached.ModelMappingRepository
@@ -113,6 +119,9 @@ func (c *cluster) newInstance(t testing.TB, instanceID string) *instance {
 	comp := &componentSet{
 		Provider:     cached.NewProviderRepository(sqlite.NewProviderRepository(db)),
 		Route:        cached.NewRouteRepository(sqlite.NewRouteRepository(db)),
+		RetryConfig:  cached.NewRetryConfigRepository(sqlite.NewRetryConfigRepository(db)),
+		Strategy:     cached.NewRoutingStrategyRepository(sqlite.NewRoutingStrategyRepository(db)),
+		Project:      cached.NewProjectRepository(sqlite.NewProjectRepository(db)),
 		Session:      cached.NewSessionRepository(sqlite.NewSessionRepository(db)),
 		APIToken:     cached.NewAPITokenRepository(sqlite.NewAPITokenRepository(db)),
 		ModelMapping: cached.NewModelMappingRepository(sqlite.NewModelMappingRepository(db)),
@@ -121,30 +130,55 @@ func (c *cluster) newInstance(t testing.TB, instanceID string) *instance {
 
 	comp.Provider.SetCoordinator(coord)
 	comp.Route.SetCoordinator(coord)
+	comp.RetryConfig.SetCoordinator(coord)
+	comp.Strategy.SetCoordinator(coord)
+	comp.Project.SetCoordinator(coord)
 	comp.Session.SetCoordinator(coord, time.Hour)
 	comp.APIToken.SetCoordinator(coord)
 	comp.ModelMapping.SetCoordinator(coord)
 
-	// 订阅失效事件
-	cached.AttachInvalidation(ctx, coord, cached.InvalidateProvider, func() { _ = comp.Provider.Load() })
-	cached.AttachInvalidation(ctx, coord, cached.InvalidateRoute, func() { _ = comp.Route.Load() })
-	cached.AttachInvalidation(ctx, coord, cached.InvalidateAPIToken, func() { _ = comp.APIToken.Load() })
-	cached.AttachInvalidation(ctx, coord, cached.InvalidateModelMapping, func() { _ = comp.ModelMapping.Load() })
+	r := router.NewRouter(comp.Route, comp.Provider, comp.Strategy, comp.RetryConfig, comp.Project)
+
+	core.AttachCachedReposToCoordinator(ctx, coord, &core.DatabaseRepos{
+		CachedProviderRepo:        comp.Provider,
+		CachedRouteRepo:           comp.Route,
+		CachedRetryConfigRepo:     comp.RetryConfig,
+		CachedRoutingStrategyRepo: comp.Strategy,
+		CachedProjectRepo:         comp.Project,
+		CachedAPITokenRepo:        comp.APIToken,
+		CachedModelMappingRepo:    comp.ModelMapping,
+		CachedSessionRepo:         comp.Session,
+	}, r)
 
 	// 预加载缓存
-	_ = comp.Provider.Load()
-	_ = comp.Route.Load()
-	_ = comp.APIToken.Load()
-	_ = comp.ModelMapping.Load()
+	loadSteps := []struct {
+		name string
+		fn   func() error
+	}{
+		{"providers", comp.Provider.Load},
+		{"routes", comp.Route.Load},
+		{"retry configs", comp.RetryConfig.Load},
+		{"routing strategies", comp.Strategy.Load},
+		{"projects", comp.Project.Load},
+		{"api tokens", comp.APIToken.Load},
+		{"model mappings", comp.ModelMapping.Load},
+		{"provider adapters", r.InitAdapters},
+	}
+	for _, step := range loadSteps {
+		if err := step.fn(); err != nil {
+			t.Fatalf("load %s: %v", step.name, err)
+		}
+	}
 
 	inst := &instance{
-		ID:    instanceID,
-		Coord: coord,
-		DB:    db,
-		Mgr:   mgr,
-		Comp:  comp,
-		ctx:   ctx,
-		stop:  cancel,
+		ID:     instanceID,
+		Coord:  coord,
+		DB:     db,
+		Mgr:    mgr,
+		Comp:   comp,
+		Router: r,
+		ctx:    ctx,
+		stop:   cancel,
 	}
 
 	t.Cleanup(func() {

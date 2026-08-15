@@ -244,8 +244,6 @@ func InitializeServerComponents(
 			coordComp.Cleanup()
 		}
 	}()
-	AttachCachedReposToCoordinator(coordComp.Ctx, coordComp.Coordinator, repos)
-
 	log.Printf("[Core] Marking stale requests as failed")
 	alive, err := coordComp.Coordinator.ListAliveInstances(coordComp.Ctx)
 	if err != nil {
@@ -272,6 +270,18 @@ func InitializeServerComponents(
 	} else if count > 0 {
 		log.Printf("[Core] Fixed %d failed attempts without end_time", count)
 	}
+
+	log.Printf("[Core] Creating router")
+	r := router.NewRouter(
+		repos.CachedRouteRepo,
+		repos.CachedProviderRepo,
+		repos.CachedRoutingStrategyRepo,
+		repos.CachedRetryConfigRepo,
+		repos.CachedProjectRepo,
+		repos.SettingRepo,
+	)
+
+	AttachCachedReposToCoordinator(coordComp.Ctx, coordComp.Coordinator, repos, r)
 
 	log.Printf("[Core] Loading cached data")
 	if err := repos.CachedProviderRepo.Load(); err != nil {
@@ -300,15 +310,6 @@ func InitializeServerComponents(
 	if err := InitializeModelPrices(repos.ModelPriceRepo); err != nil {
 		log.Printf("[Core] Warning: Failed to initialize model prices: %v", err)
 	}
-
-	log.Printf("[Core] Creating router")
-	r := router.NewRouter(
-		repos.CachedRouteRepo,
-		repos.CachedProviderRepo,
-		repos.CachedRoutingStrategyRepo,
-		repos.CachedRetryConfigRepo,
-		repos.CachedProjectRepo,
-	)
 
 	log.Printf("[Core] Initializing provider adapters")
 	if err := r.InitAdapters(); err != nil {

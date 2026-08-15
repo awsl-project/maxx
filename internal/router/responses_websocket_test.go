@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
@@ -13,7 +14,10 @@ import (
 const (
 	wsRouterNativeType   = "responses-ws-router-native-test"
 	wsRouterHTTPOnlyType = "responses-ws-router-http-only-test"
+	wsRouterStatefulType = "responses-ws-router-stateful-test"
 )
+
+var wsRouterStatefulFactoryCalls atomic.Int64
 
 func init() {
 	provideradapter.RegisterAdapterFactory(wsRouterNativeType, func(p *domain.Provider) (provideradapter.ProviderAdapter, error) {
@@ -21,6 +25,12 @@ func init() {
 	})
 	provideradapter.RegisterAdapterFactory(wsRouterHTTPOnlyType, func(*domain.Provider) (provideradapter.ProviderAdapter, error) {
 		return wsRouterHTTPOnlyAdapter{}, nil
+	})
+	provideradapter.RegisterAdapterFactory(wsRouterStatefulType, func(p *domain.Provider) (provideradapter.ProviderAdapter, error) {
+		return &wsRouterStatefulAdapter{
+			providerID: p.ID,
+			instance:   wsRouterStatefulFactoryCalls.Add(1),
+		}, nil
 	})
 }
 
@@ -51,6 +61,17 @@ func (wsRouterHTTPOnlyAdapter) SupportedClientTypes() []domain.ClientType {
 }
 
 func (wsRouterHTTPOnlyAdapter) Execute(*flow.Ctx, *domain.Provider) error { return nil }
+
+type wsRouterStatefulAdapter struct {
+	providerID uint64
+	instance   int64
+}
+
+func (wsRouterStatefulAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeCodex}
+}
+
+func (wsRouterStatefulAdapter) Execute(*flow.Ctx, *domain.Provider) error { return nil }
 
 type wsRouterRouteRepo struct{ routes []*domain.Route }
 
@@ -219,6 +240,119 @@ func matchedProviderIDs(result *MatchResult) []uint64 {
 		ids = append(ids, mr.Provider.ID)
 	}
 	return ids
+}
+
+func TestReconcileAdaptersPreservesUnchangedStatefulAdapters(t *testing.T) {
+	wsRouterStatefulFactoryCalls.Store(0)
+	provideradapter.MarkResponsesWebSocketTransportUnavailable(101)
+	provideradapter.MarkResponsesWebSocketTransportUnavailable(102)
+	t.Cleanup(func() {
+		provideradapter.ClearResponsesWebSocketTransportCooldown(101)
+		provideradapter.ClearResponsesWebSocketTransportCooldown(102)
+	})
+
+	providers := &wsRouterProviderRepo{providers: []*domain.Provider{
+		{
+			ID:                   101,
+			TenantID:             1,
+			Type:                 wsRouterStatefulType,
+			Name:                 "keep-state",
+			SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex},
+			Config:               &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{APIKey: "keep"}},
+		},
+		{
+			ID:                   102,
+			TenantID:             1,
+			Type:                 wsRouterStatefulType,
+			Name:                 "changed",
+			SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex},
+			Config:               &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{APIKey: "before"}},
+		},
+	}}
+
+	providerRepo := cached.NewProviderRepository(providers)
+	if err := providerRepo.Load(); err != nil {
+		t.Fatalf("load providers: %v", err)
+	}
+	r := NewRouter(
+		cached.NewRouteRepository(&wsRouterRouteRepo{}),
+		providerRepo,
+		cached.NewRoutingStrategyRepository(wsRouterStrategyRepo{}),
+		cached.NewRetryConfigRepository(wsRouterRetryRepo{}),
+		cached.NewProjectRepository(&wsRouterProjectRepo{}),
+	)
+	if err := r.InitAdapters(); err != nil {
+		t.Fatalf("InitAdapters: %v", err)
+	}
+	originalKeep, ok := r.GetAdapter(101)
+	if !ok {
+		t.Fatal("missing initial unchanged provider adapter")
+	}
+	originalChanged, ok := r.GetAdapter(102)
+	if !ok {
+		t.Fatal("missing initial changed provider adapter")
+	}
+
+	providers.providers = []*domain.Provider{
+		{
+			ID:                   101,
+			TenantID:             1,
+			Type:                 wsRouterStatefulType,
+			Name:                 "keep-state-renamed",
+			SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex},
+			Config:               &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{APIKey: "keep"}},
+		},
+		{
+			ID:                   102,
+			TenantID:             1,
+			Type:                 wsRouterStatefulType,
+			Name:                 "changed",
+			SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex},
+			Config:               &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{APIKey: "after"}},
+		},
+		{
+			ID:                   103,
+			TenantID:             1,
+			Type:                 wsRouterStatefulType,
+			Name:                 "added",
+			SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex},
+			Config:               &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{APIKey: "new"}},
+		},
+	}
+	if err := providerRepo.Load(); err != nil {
+		t.Fatalf("reload providers: %v", err)
+	}
+	if err := r.ReconcileAdapters(); err != nil {
+		t.Fatalf("ReconcileAdapters: %v", err)
+	}
+
+	kept, ok := r.GetAdapter(101)
+	if !ok {
+		t.Fatal("unchanged provider adapter disappeared")
+	}
+	if kept != originalKeep {
+		t.Fatal("unchanged provider adapter was replaced")
+	}
+	if provideradapter.ResponsesWebSocketTransportAvailable(101) {
+		t.Fatal("unchanged provider websocket transport cooldown was cleared")
+	}
+
+	replaced, ok := r.GetAdapter(102)
+	if !ok {
+		t.Fatal("changed provider adapter disappeared")
+	}
+	if replaced == originalChanged {
+		t.Fatal("changed provider adapter was not replaced")
+	}
+	if !provideradapter.ResponsesWebSocketTransportAvailable(102) {
+		t.Fatal("changed provider websocket transport cooldown was not cleared")
+	}
+	if _, ok := r.GetAdapter(103); !ok {
+		t.Fatal("added provider adapter was not created")
+	}
+	if got := wsRouterStatefulFactoryCalls.Load(); got != 4 {
+		t.Fatalf("adapter factory calls = %d, want 4", got)
+	}
 }
 
 func TestHasResponsesWebSocketProvider(t *testing.T) {

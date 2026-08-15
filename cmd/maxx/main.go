@@ -237,6 +237,10 @@ func main() {
 	cachedAPITokenRepo := cached.NewAPITokenRepository(apiTokenRepo)
 	cachedModelMappingRepo := cached.NewModelMappingRepository(modelMappingRepo)
 
+	// Create router before wiring invalidation so provider changes from peers
+	// can reload both the provider cache and the runtime adapter map.
+	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo, settingRepo)
+
 	// Wire cross-instance cache invalidation. AttachCachedReposToCoordinator
 	// 是 desktop launcher 也走的同一个 helper,保证两条启动路径行为一致。
 	core.AttachCachedReposToCoordinator(coordCtx, coord, &core.DatabaseRepos{
@@ -248,7 +252,7 @@ func main() {
 		CachedAPITokenRepo:        cachedAPITokenRepo,
 		CachedModelMappingRepo:    cachedModelMappingRepo,
 		CachedSessionRepo:         cachedSessionRepo,
-	})
+	}, r)
 
 	// Load cached data
 	startupStep = time.Now()
@@ -275,9 +279,6 @@ func main() {
 		log.Printf("Warning: Failed to load model mappings cache: %v", err)
 	}
 	log.Printf("[Startup] Caches loaded (%v)", time.Since(startupStep))
-
-	// Create router
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo, settingRepo)
 
 	// Initialize provider adapters
 	startupStep = time.Now()
