@@ -11,6 +11,12 @@ import (
 	"github.com/awsl-project/maxx/internal/sticky"
 )
 
+// ProviderAdapterReconciler is implemented by Router. It keeps runtime
+// provider adapters in sync with the cached provider repository.
+type ProviderAdapterReconciler interface {
+	ReconcileAdapters() error
+}
+
 // CoordinatorComponents 是 SetupCoordinator 的输出。
 // Cleanup 是收尾函数,顺序为 Unregister → Cancel → Close。
 type CoordinatorComponents struct {
@@ -80,7 +86,7 @@ func SetupCoordinator(parentCtx context.Context, instanceID string, forceStandal
 //
 // 必须在 repos.CachedXxxRepo.Load() 之前调用,这样订阅 goroutine 就位后
 // 任何后续 mutation 都会被广播。
-func AttachCachedReposToCoordinator(ctx context.Context, coord coordinator.Coordinator, repos *DatabaseRepos) {
+func AttachCachedReposToCoordinator(ctx context.Context, coord coordinator.Coordinator, repos *DatabaseRepos, adapterReconciler ProviderAdapterReconciler) {
 	repos.CachedProviderRepo.SetCoordinator(coord)
 	repos.CachedRouteRepo.SetCoordinator(coord)
 	repos.CachedRetryConfigRepo.SetCoordinator(coord)
@@ -93,6 +99,12 @@ func AttachCachedReposToCoordinator(ctx context.Context, coord coordinator.Coord
 	cached.AttachInvalidation(ctx, coord, cached.InvalidateProvider, func() {
 		if err := repos.CachedProviderRepo.Load(); err != nil {
 			log.Printf("[Cache] reload providers failed: %v", err)
+			return
+		}
+		if adapterReconciler != nil {
+			if err := adapterReconciler.ReconcileAdapters(); err != nil {
+				log.Printf("[Cache] reconcile provider adapters failed: %v", err)
+			}
 		}
 	})
 	cached.AttachInvalidation(ctx, coord, cached.InvalidateRoute, func() {

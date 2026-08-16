@@ -17,6 +17,7 @@ func TestProviderCreateInvalidatesPeer(t *testing.T) {
 		TenantID: domain.DefaultTenantID,
 		Name:     "shared-claude",
 		Type:     "claude",
+		Config:   &domain.ProviderConfig{Claude: &domain.ProviderConfigClaude{}},
 	}
 	if err := a.Comp.Provider.Create(p); err != nil {
 		t.Fatalf("Create provider on A: %v", err)

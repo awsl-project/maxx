@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"math/rand"
 	"os"
@@ -75,9 +76,10 @@ type Router struct {
 	settingRepo         repository.SystemSettingRepository
 
 	// Adapter cache
-	adapters map[uint64]provider.ProviderAdapter
-	mu       sync.RWMutex
-	limiter  *ProviderLimiter
+	adapters            map[uint64]provider.ProviderAdapter
+	adapterFingerprints map[uint64]string
+	mu                  sync.RWMutex
+	limiter             *ProviderLimiter
 
 	// Cooldown manager
 	cooldownManager *cooldown.Manager
@@ -104,6 +106,7 @@ func NewRouter(
 		projectRepo:         projectRepo,
 		settingRepo:         settings,
 		adapters:            make(map[uint64]provider.ProviderAdapter),
+		adapterFingerprints: make(map[uint64]string),
 		limiter:             NewProviderLimiter(),
 		cooldownManager:     cooldown.Default(),
 	}
@@ -124,8 +127,8 @@ func (r *Router) isProviderAtConcurrencyLimit(p *domain.Provider) bool {
 // InitAdapters initializes adapters for all providers
 func (r *Router) InitAdapters() error {
 	providers := r.providerRepo.GetAll()
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	next := make(map[uint64]provider.ProviderAdapter, len(providers))
+	nextFingerprints := make(map[uint64]string, len(providers))
 
 	for _, p := range providers {
 		factory, ok := provider.GetAdapterFactory(p.Type)
@@ -137,7 +140,71 @@ func (r *Router) InitAdapters() error {
 			return err
 		}
 		r.injectProviderUpdate(a, p)
-		r.adapters[p.ID] = a
+		next[p.ID] = a
+		nextFingerprints[p.ID] = adapterFingerprint(p)
+	}
+
+	r.mu.Lock()
+	r.adapters = next
+	r.adapterFingerprints = nextFingerprints
+	r.mu.Unlock()
+	return nil
+}
+
+// ReconcileAdapters refreshes the adapter map to match the current provider
+// cache. It is used after cross-instance provider invalidation: reloading the
+// provider repository alone is not enough because Match also requires a live
+// adapter for each candidate provider.
+func (r *Router) ReconcileAdapters() error {
+	providers := r.providerRepo.GetAll()
+	r.mu.RLock()
+	currentAdapters := make(map[uint64]provider.ProviderAdapter, len(r.adapters))
+	for id, adapter := range r.adapters {
+		currentAdapters[id] = adapter
+	}
+	currentFingerprints := make(map[uint64]string, len(r.adapterFingerprints))
+	for id, fingerprint := range r.adapterFingerprints {
+		currentFingerprints[id] = fingerprint
+	}
+	r.mu.RUnlock()
+
+	next := make(map[uint64]provider.ProviderAdapter, len(providers))
+	nextFingerprints := make(map[uint64]string, len(providers))
+	var changedProviderIDs []uint64
+	for _, p := range providers {
+		fingerprint := adapterFingerprint(p)
+		if current, ok := currentAdapters[p.ID]; ok && currentFingerprints[p.ID] == fingerprint {
+			next[p.ID] = current
+			nextFingerprints[p.ID] = fingerprint
+			continue
+		}
+
+		factory, ok := provider.GetAdapterFactory(p.Type)
+		if !ok {
+			changedProviderIDs = append(changedProviderIDs, p.ID)
+			continue
+		}
+		a, err := factory(p)
+		if err != nil {
+			return err
+		}
+		r.injectProviderUpdate(a, p)
+		next[p.ID] = a
+		nextFingerprints[p.ID] = fingerprint
+		changedProviderIDs = append(changedProviderIDs, p.ID)
+	}
+	for id := range currentAdapters {
+		if _, ok := providers[id]; !ok {
+			changedProviderIDs = append(changedProviderIDs, id)
+		}
+	}
+
+	r.mu.Lock()
+	r.adapters = next
+	r.adapterFingerprints = nextFingerprints
+	r.mu.Unlock()
+	for _, providerID := range changedProviderIDs {
+		provider.ClearResponsesWebSocketTransportCooldown(providerID)
 	}
 	return nil
 }
@@ -156,6 +223,7 @@ func (r *Router) RefreshAdapter(p *domain.Provider) error {
 	provider.ClearResponsesWebSocketTransportCooldown(p.ID)
 	r.mu.Lock()
 	r.adapters[p.ID] = a
+	r.adapterFingerprints[p.ID] = adapterFingerprint(p)
 	r.mu.Unlock()
 	return nil
 }
@@ -165,6 +233,7 @@ func (r *Router) RemoveAdapter(providerID uint64) {
 	provider.ClearResponsesWebSocketTransportCooldown(providerID)
 	r.mu.Lock()
 	delete(r.adapters, providerID)
+	delete(r.adapterFingerprints, providerID)
 	r.mu.Unlock()
 }
 
@@ -558,6 +627,31 @@ func (r *Router) isModelSupported(model string, supportModels []string) bool {
 		}
 	}
 	return false
+}
+
+// adapterFingerprint covers the provider fields captured by adapter
+// construction. Route-only fields such as SupportModels intentionally stay out
+// so unrelated routing edits do not drop stateful adapter instances.
+func adapterFingerprint(p *domain.Provider) string {
+	if p == nil {
+		return ""
+	}
+	supportedClientTypes := append([]domain.ClientType(nil), p.SupportedClientTypes...)
+	sort.Slice(supportedClientTypes, func(i, j int) bool {
+		return supportedClientTypes[i] < supportedClientTypes[j]
+	})
+	payload := struct {
+		Type                 string
+		Config               *domain.ProviderConfig
+		SupportedClientTypes []domain.ClientType
+	}{
+		Type:                 p.Type,
+		Config:               p.Config,
+		SupportedClientTypes: supportedClientTypes,
+	}
+	data, _ := json.Marshal(payload)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.RoutingStrategy {
