@@ -237,12 +237,19 @@ func (c *codexToClaudeResponse) TransformChunk(chunk []byte, state *TransformSta
 				if orig, ok := st.ShortToOrig[name]; ok {
 					name = orig
 				}
+				// Prefer call_id ("call_..."), the id Claude clients echo back on the
+				// tool_result; fall back to the item id ("fc_...") so a stream that
+				// omits call_id still yields a non-empty, self-consistent tool_use id.
+				toolUseID := item.Get("call_id").String()
+				if toolUseID == "" {
+					toolUseID = item.Get("id").String()
+				}
 				blockStart := map[string]interface{}{
 					"type":  "content_block_start",
 					"index": st.BlockIndex,
 					"content_block": map[string]interface{}{
 						"type":  "tool_use",
-						"id":    item.Get("call_id").String(),
+						"id":    toolUseID,
 						"name":  name,
 						"input": map[string]interface{}{},
 					},

@@ -44,7 +44,10 @@ func runOpenRouterExecuteMapped(t *testing.T, clientType domain.ClientType, requ
 		t.Fatalf("NewAdapter: %v", err)
 	}
 
-	req, _ := http.NewRequest(http.MethodPost, "http://localhost"+requestURI, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost"+requestURI, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
 	rec := httptest.NewRecorder()
 	ctx := flow.NewCtx(rec, req)
 	ctx.Set(flow.KeyClientType, clientType)

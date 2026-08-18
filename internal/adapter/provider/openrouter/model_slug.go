@@ -13,17 +13,24 @@ import (
 // every user hand-author a ModelMapping per model, the adapter derives the slug
 // automatically. See normalizeModelSlug.
 
+// anthropicSlug is the one OpenRouter namespace whose maxx-native ids need the
+// dash→dot version rewrite and datestamp strip below; every other vendor's ids
+// are already in OpenRouter's form (see normalizeModelSlug).
+const anthropicSlug = "anthropic/"
+
 // vendorPrefixes maps a bare model-id prefix to the OpenRouter "vendor/" slug
 // namespace it belongs to. Only vendors listed here are rewritten — an
 // unrecognized id is left untouched so OpenRouter's own auto-resolution (or a
 // clear upstream error) still applies exactly as before this normalization. The
-// list is longest-prefix-first where prefixes could overlap, so the most specific
-// vendor wins.
+// list is longest-prefix-first within each vendor where prefixes could overlap
+// (ministral > mistral > mixtral), so the most specific vendor wins — though
+// here the overlapping entries all map to the same slug, so ordering is only for
+// the documented invariant, not correctness.
 var vendorPrefixes = []struct {
 	prefix string
 	slug   string
 }{
-	{"claude", "anthropic/"},
+	{"claude", anthropicSlug},
 	{"chatgpt", "openai/"},
 	{"codex", "openai/"},
 	{"gpt", "openai/"},
@@ -36,20 +43,22 @@ var vendorPrefixes = []struct {
 	{"deepseek", "deepseek/"},
 	{"qwen", "qwen/"},
 	{"llama", "meta-llama/"},
-	{"mixtral", "mistralai/"},
-	{"mistral", "mistralai/"},
 	{"ministral", "mistralai/"},
+	{"mistral", "mistralai/"},
+	{"mixtral", "mistralai/"},
 	{"codestral", "mistralai/"},
 }
 
 // datestampSuffix matches a trailing Anthropic-style release datestamp
-// (e.g. "-20250514"), which OpenRouter slugs never carry.
+// (e.g. "-20250514"), which OpenRouter slugs never carry. Applied to Anthropic
+// ids only (OpenAI dated snapshots use 4-digit suffixes like -0613, not 8).
 var datestampSuffix = regexp.MustCompile(`-\d{8}$`)
 
 // versionDash matches a dash that separates two version digits — the "4-6" in
-// claude-sonnet-4-6, which OpenRouter writes as a dot ("4.6"). A dash between a
-// letter and a digit (the "sonnet-4" boundary) is a name separator and is left
-// alone.
+// claude-sonnet-4-6, which OpenRouter writes as a dot ("4.6"). This is applied to
+// Anthropic ids ONLY: other vendors legitimately carry digit-dash-digit runs that
+// are NOT version separators (gpt-4-32k, gpt-4-0613, qwen3-8b, gemma-3-4b-it,
+// llama-3-70b), and rewriting those would corrupt them into non-existent slugs.
 var versionDash = regexp.MustCompile(`(\d)-(\d)`)
 
 // normalizeModelSlug rewrites a maxx/vendor-native model id into the
@@ -59,10 +68,12 @@ var versionDash = regexp.MustCompile(`(\d)-(\d)`)
 //   - ids whose vendor it does not recognize — left untouched so nothing that
 //     worked before (OpenRouter bare-name auto-resolution) regresses.
 //
-// For a recognized vendor it prepends the slug namespace, strips a trailing
-// release datestamp, and converts version dashes to dots, so claude-sonnet-4-6
-// becomes anthropic/claude-sonnet-4.6 with no manual mapping. The transform is
-// idempotent on its own output.
+// For a recognized vendor it prepends the slug namespace. For Anthropic only it
+// also strips a trailing release datestamp and converts version dashes to dots,
+// so claude-sonnet-4-6 becomes anthropic/claude-sonnet-4.6 with no manual
+// mapping. Non-Anthropic ids get the prefix and nothing else, because their
+// digit-dash-digit runs (gpt-4-32k, qwen3-8b) are not version separators. The
+// transform is idempotent on its own output.
 func normalizeModelSlug(model string) string {
 	m := strings.TrimSpace(model)
 	if m == "" || strings.Contains(m, "/") {
@@ -70,11 +81,15 @@ func normalizeModelSlug(model string) string {
 	}
 	low := strings.ToLower(m)
 	for _, v := range vendorPrefixes {
-		if strings.HasPrefix(low, v.prefix) {
-			core := datestampSuffix.ReplaceAllString(m, "")
-			core = versionDash.ReplaceAllString(core, "$1.$2")
-			return v.slug + core
+		if !strings.HasPrefix(low, v.prefix) {
+			continue
 		}
+		core := m
+		if v.slug == anthropicSlug {
+			core = datestampSuffix.ReplaceAllString(core, "")
+			core = versionDash.ReplaceAllString(core, "$1.$2")
+		}
+		return v.slug + core
 	}
 	return model
 }

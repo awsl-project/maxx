@@ -23,6 +23,16 @@ func TestNormalizeModelSlug(t *testing.T) {
 		{"gemini-3.5-flash", "google/gemini-3.5-flash"},
 		{"gemini-3-pro-image", "google/gemini-3-pro-image"},
 		{"grok-4.6", "x-ai/grok-4.6"},
+		// Non-Anthropic digit-dash-digit runs are NOT version separators and must
+		// survive prefixing unchanged (regression: the dash→dot rewrite is
+		// Anthropic-scoped). These are all real OpenRouter ids.
+		{"gpt-4-32k", "openai/gpt-4-32k"},
+		{"gpt-4-0613", "openai/gpt-4-0613"},
+		{"qwen3-8b", "qwen/qwen3-8b"},
+		{"qwen3-235b-a22b-instruct", "qwen/qwen3-235b-a22b-instruct"},
+		{"gemma-3-4b-it", "google/gemma-3-4b-it"},
+		{"llama-3-70b", "meta-llama/llama-3-70b"},
+		{"ministral-8b", "mistralai/ministral-8b"},
 		// Explicit slugs and unknown vendors pass through untouched.
 		{"anthropic/claude-sonnet-4.6", "anthropic/claude-sonnet-4.6"},
 		{"openai/gpt-5.5", "openai/gpt-5.5"},
