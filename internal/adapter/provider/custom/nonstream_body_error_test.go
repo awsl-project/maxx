@@ -20,12 +20,24 @@ func mkNonStreamResp(body string) *http.Response {
 	}
 }
 
+// drainEvents closes an event channel and collects every event that was sent.
+func drainEvents(ch domain.AdapterEventChan) []*domain.AdapterEvent {
+	ch.Close()
+	var events []*domain.AdapterEvent
+	for ev := range ch {
+		events = append(events, ev)
+	}
+	return events
+}
+
 func TestNonStreamDetectsClaudeErrorBodyOn200(t *testing.T) {
 	adapter := newTestCustomAdapter()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	rec := httptest.NewRecorder()
 	ctx := flow.NewCtx(rec, req)
 	ctx.Set(flow.KeyClientType, domain.ClientTypeClaude)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
 
 	resp := mkNonStreamResp(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
 
@@ -42,6 +54,13 @@ func TestNonStreamDetectsClaudeErrorBodyOn200(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("error body was forwarded to client: %q", rec.Body.String())
+	}
+	// A 200-body error must NOT emit a success-shaped ResponseInfo event, which
+	// would record the upstream error as a successful 200 response.
+	for _, ev := range drainEvents(eventChan) {
+		if ev.Type == domain.EventResponseInfo {
+			t.Fatalf("error envelope emitted a ResponseInfo event: %+v", ev.ResponseInfo)
+		}
 	}
 }
 
@@ -73,6 +92,8 @@ func TestNonStreamForwardsNormalBody(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ctx := flow.NewCtx(rec, req)
 	ctx.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
 
 	// A normal success body that carries a null "error" field must NOT be
 	// treated as an error.
@@ -84,5 +105,16 @@ func TestNonStreamForwardsNormalBody(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"content":"hi"`) {
 		t.Fatalf("normal body was not forwarded: %q", rec.Body.String())
+	}
+	// The success path must still emit a ResponseInfo event (the reorder only
+	// suppresses it for error envelopes).
+	sawResponseInfo := false
+	for _, ev := range drainEvents(eventChan) {
+		if ev.Type == domain.EventResponseInfo {
+			sawResponseInfo = true
+		}
+	}
+	if !sawResponseInfo {
+		t.Fatal("normal body did not emit a ResponseInfo event")
 	}
 }

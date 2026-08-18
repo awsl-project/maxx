@@ -526,19 +526,15 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 
 	eventChan := flow.GetEventChan(c)
 
-	if eventChan != nil {
-		eventChan.SendResponseInfo(&domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    string(body),
-		})
-	}
-
 	// Some upstreams answer HTTP 200 while the body is actually an error
-	// envelope. Detect that before writing anything to the client so the
-	// request fails (and can be retried / cooled down) instead of forwarding a
-	// success. Nothing has been written to c.Writer yet at this point, so
-	// returning an error here is safe. Only attempt on a JSON object body.
+	// envelope. Detect that before writing anything to the client — and before
+	// emitting the success-shaped ResponseInfo event below — so the request
+	// fails (and can be retried / cooled down) instead of being recorded and
+	// forwarded as a success. Nothing has been written to c.Writer yet at this
+	// point, so returning an error here is safe. The returned ProxyError's
+	// message is persisted on the attempt (attempt.Error), so the upstream
+	// failure is still captured without a misleading 200 response event. Only
+	// attempt on a JSON object body.
 	if len(bytes.TrimSpace(body)) > 0 {
 		var payload map[string]interface{}
 		if jsonutil.Unmarshal(body, &payload) == nil {
@@ -546,6 +542,14 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 				return proxyErr
 			}
 		}
+	}
+
+	if eventChan != nil {
+		eventChan.SendResponseInfo(&domain.ResponseInfo{
+			Status:  resp.StatusCode,
+			Headers: flattenHeaders(resp.Header),
+			Body:    string(body),
+		})
 	}
 
 	// Extract and send token usage metrics
