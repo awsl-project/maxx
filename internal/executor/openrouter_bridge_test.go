@@ -131,6 +131,48 @@ func TestShouldNotBridgeLookalikeOpenRouterHost(t *testing.T) {
 	}
 }
 
+func TestBridgeCodexForOpenRouter_DefaultPassthrough(t *testing.T) {
+	// The kill switch is off by default: even a native OpenRouter provider that
+	// the legacy predicate would bridge must pass through natively to /responses.
+	provider := &domain.Provider{
+		Type: "openrouter",
+		Name: "my-openrouter",
+		Config: &domain.ProviderConfig{OpenRouter: &domain.ProviderConfigOpenRouter{
+			APIKey: "sk-or-test",
+		}},
+	}
+	supported := []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex}
+
+	// Sanity: the underlying predicate still wants to bridge this route.
+	if !shouldBridgeCustomCodexViaOpenAI(provider, domain.ClientTypeCodex, supported) {
+		t.Fatal("precondition: predicate should recognize native OpenRouter Codex route")
+	}
+	// But with the bridge disabled (default), we must NOT bridge — passthrough wins.
+	if bridgeCodexForOpenRouter(false, provider, domain.ClientTypeCodex, supported) {
+		t.Fatal("bridge disabled: Codex→OpenRouter must pass through to /responses, not bridge to chat")
+	}
+}
+
+func TestBridgeCodexForOpenRouter_KillSwitchRestoresBridge(t *testing.T) {
+	provider := &domain.Provider{
+		Type: "openrouter",
+		Name: "my-openrouter",
+		Config: &domain.ProviderConfig{OpenRouter: &domain.ProviderConfigOpenRouter{
+			APIKey: "sk-or-test",
+		}},
+	}
+	supported := []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex}
+
+	// With the kill switch on, behavior falls back to the legacy predicate.
+	if !bridgeCodexForOpenRouter(true, provider, domain.ClientTypeCodex, supported) {
+		t.Fatal("bridge enabled: native OpenRouter Codex route should bridge through OpenAI")
+	}
+	// Enabling the switch never bridges a route the predicate rejects (no OpenAI target).
+	if bridgeCodexForOpenRouter(true, provider, domain.ClientTypeCodex, []domain.ClientType{domain.ClientTypeClaude}) {
+		t.Fatal("bridge enabled but no OpenAI support: must not bridge")
+	}
+}
+
 func TestOpenRouterCodexBridgeUsesChatCompletionsPath(t *testing.T) {
 	if got := ConvertRequestURI("/responses", domain.ClientTypeCodex, domain.ClientTypeOpenAI, "", true); got != "/v1/chat/completions" {
 		t.Fatalf("ConvertRequestURI(/responses) = %q, want /v1/chat/completions", got)

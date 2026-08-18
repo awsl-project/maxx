@@ -979,6 +979,7 @@ const (
 	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"           // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
 	SettingKeyTestFieldTabEnabled                  = "ui_test_field_tab_enabled"                 // 是否显示测试场 tab，"true" 或 "false"，默认 "false"
 	SettingKeyStrictSupportModelsRoutingEnabled    = "strict_support_models_routing_enabled"     // 是否按提供商支持模型严格跳过不匹配路由，"true" 或 "false"，默认 "false"
+	SettingKeyCodexOpenRouterBridgeEnabled         = "codex_openrouter_bridge_enabled"           // 是否把 Codex→OpenRouter 请求桥接为 OpenAI Chat Completions；"false"（默认）走原生 /responses 透传，保留 custom/freeform 工具（code mode）；"true" 恢复旧的 chat 桥接作为应急开关
 	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                   // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
 	SettingKeyUserPanelDailyCheckInEnabled         = "user_panel_daily_checkin_enabled"          // 用户控制台每日签到，"true" 或 "false"，默认 "false"
 	SettingKeyUserPanelDailyCheckInAmount          = "user_panel_daily_checkin_amount"           // 用户控制台每日签到额度（美元），默认 "10"
