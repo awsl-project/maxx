@@ -29,15 +29,37 @@ func CanonicalSupportedClientTypes(providerType string, configured []ClientType)
 		}
 
 	case "openrouter":
-		if len(configured) == 0 {
-			return []ClientType{
-				ClientTypeClaude,
-				ClientTypeOpenAI,
-			}
+		// OpenRouter natively speaks Claude (/v1/messages), OpenAI
+		// (/v1/chat/completions) AND Codex (/v1/responses) — Responses/Codex is a
+		// first-class capability, not an add-on. Always include Codex so a
+		// pre-Codex [claude, openai] config (or an empty default) can't suppress
+		// native /responses passthrough, while still honoring any other configured
+		// protocols. A Codex request still only reaches this provider when an
+		// explicit Codex route points at it.
+		base := configured
+		if len(base) == 0 {
+			base = []ClientType{ClientTypeClaude, ClientTypeOpenAI}
 		}
+		return ensureClientType(base, ClientTypeCodex)
 	}
 
 	return append([]ClientType(nil), configured...)
+}
+
+// ensureClientType returns a copy of types with ct appended if not already present.
+func ensureClientType(types []ClientType, ct ClientType) []ClientType {
+	out := make([]ClientType, 0, len(types)+1)
+	found := false
+	for _, t := range types {
+		out = append(out, t)
+		if t == ct {
+			found = true
+		}
+	}
+	if !found {
+		out = append(out, ct)
+	}
+	return out
 }
 
 // NormalizeProviderSupportedClientTypes rewrites provider.SupportedClientTypes
