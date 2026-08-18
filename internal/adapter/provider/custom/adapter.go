@@ -526,6 +526,24 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 
 	eventChan := flow.GetEventChan(c)
 
+	// Some upstreams answer HTTP 200 while the body is actually an error
+	// envelope. Detect that before writing anything to the client — and before
+	// emitting the success-shaped ResponseInfo event below — so the request
+	// fails (and can be retried / cooled down) instead of being recorded and
+	// forwarded as a success. Nothing has been written to c.Writer yet at this
+	// point, so returning an error here is safe. The returned ProxyError's
+	// message is persisted on the attempt (attempt.Error), so the upstream
+	// failure is still captured without a misleading 200 response event. Only
+	// attempt on a JSON object body.
+	if len(bytes.TrimSpace(body)) > 0 {
+		var payload map[string]interface{}
+		if jsonutil.Unmarshal(body, &payload) == nil {
+			if proxyErr := classifyBodyError(payload, "upstream 200 body error"); proxyErr != nil {
+				return proxyErr
+			}
+		}
+	}
+
 	if eventChan != nil {
 		eventChan.SendResponseInfo(&domain.ResponseInfo{
 			Status:  resp.StatusCode,
@@ -689,61 +707,12 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	}
 
 	// Helper to inspect an already decoded SSE payload for provider errors.
+	// Returns nil (not a typed nil *ProxyError) for normal frames to avoid the
+	// nil-interface trap when the result is assigned to an `error`.
 	parseSSEErrorPayload := func(payload map[string]interface{}) error {
-		// Check for Claude-style error: {"type": "error", "error": {...}}
-		if payloadType, ok := payload["type"].(string); ok && payloadType == "error" {
-			if errObj, ok := payload["error"].(map[string]interface{}); ok {
-				msg := "SSE error"
-				if m, ok := errObj["message"].(string); ok {
-					msg = m
-				}
-				code := 0
-				if c, ok := errObj["code"].(float64); ok {
-					code = int(c)
-				}
-				errType := ""
-				if t, ok := errObj["type"].(string); ok {
-					errType = t
-				}
-				proxyErr := domain.NewProxyErrorWithMessage(
-					fmt.Errorf("SSE error (code=%d): %s", code, msg),
-					isRetryableSSEError(code, errType, msg),
-					msg,
-				)
-				proxyErr.Scope = domain.ScopeProvider
-				proxyErr.Reason = domain.CooldownReasonServerError
-				return proxyErr
-			}
+		if proxyErr := classifyBodyError(payload, "SSE error"); proxyErr != nil {
+			return proxyErr
 		}
-
-		// Check for OpenAI-style error: {"error": {"message": "...", "type": "..."}}
-		// This format is used by some upstream providers (e.g., Poe, OpenAI-compatible APIs)
-		if errObj, ok := payload["error"].(map[string]interface{}); ok {
-			// Ensure this is an error object, not a normal response that happens to have an "error" field
-			if _, hasMsg := errObj["message"]; hasMsg {
-				msg := "SSE error"
-				if m, ok := errObj["message"].(string); ok {
-					msg = m
-				}
-				code := 0
-				if c, ok := errObj["code"].(float64); ok {
-					code = int(c)
-				}
-				errType := ""
-				if t, ok := errObj["type"].(string); ok {
-					errType = t
-				}
-				proxyErr := domain.NewProxyErrorWithMessage(
-					fmt.Errorf("SSE error (code=%d): %s", code, msg),
-					isRetryableSSEError(code, errType, msg),
-					msg,
-				)
-				proxyErr.Scope = domain.ScopeProvider
-				proxyErr.Reason = domain.CooldownReasonServerError
-				return proxyErr
-			}
-		}
-
 		return nil
 	}
 
@@ -1307,6 +1276,60 @@ func copyResponseHeaders(dst, src http.Header) {
 			dst.Add(key, v)
 		}
 	}
+}
+
+// classifyBodyError inspects an already-decoded JSON payload and returns a
+// ProxyError when it represents an upstream error envelope rather than a
+// successful result. Some upstreams (and OpenAI-compatible gateways) answer
+// with HTTP 200 while the body is actually an error — this lets callers treat
+// those as failures so retry / cooldown logic can kick in. It recognizes:
+//   - Claude-style: {"type": "error", "error": {...}}
+//   - OpenAI/Gemini-style: {"error": {"message": "...", "type": "..."}}
+//
+// label describes the source (e.g. "SSE error", "upstream 200 body error") and
+// is woven into the resulting message. It returns nil for normal payloads,
+// including ones that merely carry a null/absent "error" field.
+func classifyBodyError(payload map[string]interface{}, label string) *domain.ProxyError {
+	// Claude-style error: {"type": "error", "error": {...}}
+	if payloadType, _ := payload["type"].(string); payloadType == "error" {
+		if errObj, ok := payload["error"].(map[string]interface{}); ok {
+			return proxyErrorFromErrObj(errObj, label)
+		}
+	}
+
+	// OpenAI-style error: {"error": {"message": "...", "type": "..."}}
+	// Ensure this is an error object, not a normal response that happens to
+	// carry an "error" field (e.g. "error": null).
+	if errObj, ok := payload["error"].(map[string]interface{}); ok {
+		if _, hasMsg := errObj["message"]; hasMsg {
+			return proxyErrorFromErrObj(errObj, label)
+		}
+	}
+
+	return nil
+}
+
+// proxyErrorFromErrObj builds a provider-scoped ProxyError from an error object
+// ({"message":..., "type":..., "code":...}), reusing the same retryability
+// heuristic as SSE error frames.
+func proxyErrorFromErrObj(errObj map[string]interface{}, label string) *domain.ProxyError {
+	msg := label
+	if m, ok := errObj["message"].(string); ok && m != "" {
+		msg = m
+	}
+	code := 0
+	if c, ok := errObj["code"].(float64); ok {
+		code = int(c)
+	}
+	errType, _ := errObj["type"].(string)
+	proxyErr := domain.NewProxyErrorWithMessage(
+		fmt.Errorf("%s (code=%d): %s", label, code, msg),
+		isRetryableSSEError(code, errType, msg),
+		msg,
+	)
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	return proxyErr
 }
 
 // classifyHTTPError creates a structured ProxyError from an HTTP error response.
