@@ -121,27 +121,74 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 						Content:    codexToolOutputToOpenAI(m["output"]),
 						ToolCallID: callID,
 					})
+				case "custom_tool_call":
+					// A freeform tool call: Codex carries the raw text in `input`.
+					// The upstream saw this tool as a function taking `input`, so the
+					// assistant tool_call must re-wrap the raw text as {"input":"..."}
+					// JSON arguments, keyed on call_id like function_call above.
+					id, _ := m["call_id"].(string)
+					if id == "" {
+						id, _ = m["id"].(string)
+					}
+					name, _ := m["name"].(string)
+					input, _ := m["input"].(string)
+					openaiReq.Messages = append(openaiReq.Messages, OpenAIMessage{
+						Role: "assistant",
+						ToolCalls: []OpenAIToolCall{{
+							ID:   id,
+							Type: "function",
+							Function: OpenAIFunctionCall{
+								Name:      name,
+								Arguments: wrapFreeformInputAsArgs(input),
+							},
+						}},
+					})
+				case "custom_tool_call_output":
+					callID, _ := m["call_id"].(string)
+					if callID == "" {
+						continue
+					}
+					openaiReq.Messages = append(openaiReq.Messages, OpenAIMessage{
+						Role:       "tool",
+						Content:    codexToolOutputToOpenAI(m["output"]),
+						ToolCallID: callID,
+					})
 				}
 			}
 		}
 	}
 
-	// Convert tools. Chat Completions can carry function tools, but Responses-only
-	// built-ins such as web_search do not have an OpenAI Chat function shape.
-	// Dropping those keeps Codex/OpenRouter-compatible fallbacks from sending
-	// invalid {type:"web_search"} or empty function names upstream.
+	// Convert tools. Chat Completions carries function tools directly. Codex
+	// freeform/custom tools (e.g. apply_patch) have no OpenAI Chat shape, so they
+	// are represented as a function taking a single raw-text `input` parameter and
+	// translated back on the response side (see codex_freeform_tools.go). Genuinely
+	// unrepresentable Responses-only built-ins (web_search, tool_search, ...) carry
+	// no usable function name and are dropped, so nothing invalid reaches upstream.
 	for _, tool := range req.Tools {
-		if !strings.EqualFold(strings.TrimSpace(tool.Type), "function") || strings.TrimSpace(tool.Name) == "" {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
 			continue
 		}
-		openaiReq.Tools = append(openaiReq.Tools, OpenAITool{
-			Type: "function",
-			Function: OpenAIFunction{
-				Name:        tool.Name,
-				Description: tool.Description,
-				Parameters:  tool.Parameters,
-			},
-		})
+		switch {
+		case strings.EqualFold(strings.TrimSpace(tool.Type), "function"):
+			openaiReq.Tools = append(openaiReq.Tools, OpenAITool{
+				Type: "function",
+				Function: OpenAIFunction{
+					Name:        tool.Name,
+					Description: tool.Description,
+					Parameters:  tool.Parameters,
+				},
+			})
+		case isCodexFreeformToolType(tool.Type):
+			openaiReq.Tools = append(openaiReq.Tools, OpenAITool{
+				Type: "function",
+				Function: OpenAIFunction{
+					Name:        tool.Name,
+					Description: tool.Description,
+					Parameters:  codexFreeformFunctionParameters(),
+				},
+			})
+		}
 	}
 
 	return json.Marshal(openaiReq)

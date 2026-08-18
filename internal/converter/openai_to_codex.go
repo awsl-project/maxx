@@ -261,6 +261,7 @@ func (c *openaiToCodexResponse) TransformWithState(body []byte, state *Transform
 	if state != nil {
 		requestRaw = state.OriginalRequestBody
 	}
+	customTools := codexCustomToolNames(requestRaw)
 
 	resp := `{"id":"","object":"response","created_at":0,"status":"completed","background":false,"error":null,"incomplete_details":null}`
 	respID := root.Get("id").String()
@@ -305,6 +306,17 @@ func (c *openaiToCodexResponse) TransformWithState(body []byte, state *Transform
 						callID := tc.Get("id").String()
 						name := tc.Get("function.name").String()
 						args := tc.Get("function.arguments").String()
+						if customTools[name] {
+							// Re-emit a wrapped freeform tool as a Codex custom_tool_call
+							// carrying the raw text (unwrapped from {"input":"..."}).
+							item := `{"id":"","type":"custom_tool_call","status":"completed","call_id":"","name":"","input":""}`
+							item, _ = sjson.Set(item, "id", fmt.Sprintf("ctc_%s", callID))
+							item, _ = sjson.Set(item, "call_id", callID)
+							item, _ = sjson.Set(item, "name", name)
+							item, _ = sjson.Set(item, "input", unwrapFreeformArgsToInput(args))
+							outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
+							return true
+						}
 						item := `{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`
 						item, _ = sjson.Set(item, "id", fmt.Sprintf("fc_%s", callID))
 						item, _ = sjson.Set(item, "arguments", args)
@@ -395,10 +407,11 @@ type openaiToResponsesState struct {
 	TotalTokens      int64
 	ReasoningTokens  int64
 	UsageSeen        bool
-	NextOutputIndex  int            // global counter for unique output_index across messages and function calls
-	MsgOutputIndex   map[int]int    // choice idx -> assigned output_index
-	FuncOutputIndex  map[int]int    // callIndex -> assigned output_index
-	CompletedSent    bool           // guards against duplicate response.completed
+	NextOutputIndex  int             // global counter for unique output_index across messages and function calls
+	MsgOutputIndex   map[int]int     // choice idx -> assigned output_index
+	FuncOutputIndex  map[int]int     // callIndex -> assigned output_index
+	CompletedSent    bool            // guards against duplicate response.completed
+	CustomTools      map[string]bool // tool names the Codex request declared freeform/custom
 }
 
 var responseIDCounter uint64
@@ -493,6 +506,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 		st.TotalTokens = 0
 		st.ReasoningTokens = 0
 		st.UsageSeen = false
+		st.CustomTools = codexCustomToolNames(state.OriginalRequestBody)
 
 		created := `{"type":"response.created","sequence_number":0,"response":{"id":"","object":"response","created_at":0,"status":"in_progress","background":false,"error":null,"output":[]}}`
 		created, _ = sjson.Set(created, "sequence_number", nextSeq())
@@ -608,7 +622,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 					if st.ReasoningID == "" {
 						st.ReasoningID = fmt.Sprintf("rs_%s_%d", st.ResponseID, idx)
 						st.ReasoningIndex = st.NextOutputIndex
-					st.NextOutputIndex++
+						st.NextOutputIndex++
 						item := `{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"id":"","type":"reasoning","status":"in_progress","summary":[]}}`
 						item, _ = sjson.Set(item, "sequence_number", nextSeq())
 						item, _ = sjson.Set(item, "output_index", st.ReasoningIndex)
@@ -684,31 +698,51 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 							shouldEmitItem = true
 						}
 
+						isCustom := st.CustomTools[st.FuncNames[callIndex]]
+
 						if shouldEmitItem && effectiveCallID != "" {
-							o := `{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"id":"","type":"function_call","status":"in_progress","arguments":"","call_id":"","name":""}}`
-							o, _ = sjson.Set(o, "sequence_number", nextSeq())
-							o, _ = sjson.Set(o, "output_index", st.funcOutIdx(callIndex))
-							o, _ = sjson.Set(o, "item.id", fmt.Sprintf("fc_%s", effectiveCallID))
-							o, _ = sjson.Set(o, "item.call_id", effectiveCallID)
-							o, _ = sjson.Set(o, "item.name", st.FuncNames[callIndex])
-							out = append(out, FormatSSE("response.output_item.added", []byte(o)))
+							if isCustom {
+								// Freeform tool: emit a custom_tool_call item. The raw
+								// `input` is filled in at output_item.done once the full
+								// {"input":"..."} arguments have been buffered.
+								o := `{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"id":"","type":"custom_tool_call","status":"in_progress","input":"","call_id":"","name":""}}`
+								o, _ = sjson.Set(o, "sequence_number", nextSeq())
+								o, _ = sjson.Set(o, "output_index", st.funcOutIdx(callIndex))
+								o, _ = sjson.Set(o, "item.id", fmt.Sprintf("ctc_%s", effectiveCallID))
+								o, _ = sjson.Set(o, "item.call_id", effectiveCallID)
+								o, _ = sjson.Set(o, "item.name", st.FuncNames[callIndex])
+								out = append(out, FormatSSE("response.output_item.added", []byte(o)))
+							} else {
+								o := `{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"id":"","type":"function_call","status":"in_progress","arguments":"","call_id":"","name":""}}`
+								o, _ = sjson.Set(o, "sequence_number", nextSeq())
+								o, _ = sjson.Set(o, "output_index", st.funcOutIdx(callIndex))
+								o, _ = sjson.Set(o, "item.id", fmt.Sprintf("fc_%s", effectiveCallID))
+								o, _ = sjson.Set(o, "item.call_id", effectiveCallID)
+								o, _ = sjson.Set(o, "item.name", st.FuncNames[callIndex])
+								out = append(out, FormatSSE("response.output_item.added", []byte(o)))
+							}
 						}
 
 						if st.FuncArgsBuf[callIndex] == nil {
 							st.FuncArgsBuf[callIndex] = &strings.Builder{}
 						}
 						if args := tc.Get("function.arguments"); args.Exists() && args.String() != "" {
-							refCallID := st.FuncCallIDs[callIndex]
-							if refCallID == "" {
-								refCallID = newCallID
-							}
-							if refCallID != "" {
-								ad := `{"type":"response.function_call_arguments.delta","sequence_number":0,"item_id":"","output_index":0,"delta":""}`
-								ad, _ = sjson.Set(ad, "sequence_number", nextSeq())
-								ad, _ = sjson.Set(ad, "item_id", fmt.Sprintf("fc_%s", refCallID))
-								ad, _ = sjson.Set(ad, "output_index", st.funcOutIdx(callIndex))
-								ad, _ = sjson.Set(ad, "delta", args.String())
-								out = append(out, FormatSSE("response.function_call_arguments.delta", []byte(ad)))
+							// Freeform tools buffer arguments silently and surface the
+							// unwrapped raw text once at output_item.done — Codex pairs a
+							// custom_tool_call by its final input, not per-delta events.
+							if !isCustom {
+								refCallID := st.FuncCallIDs[callIndex]
+								if refCallID == "" {
+									refCallID = newCallID
+								}
+								if refCallID != "" {
+									ad := `{"type":"response.function_call_arguments.delta","sequence_number":0,"item_id":"","output_index":0,"delta":""}`
+									ad, _ = sjson.Set(ad, "sequence_number", nextSeq())
+									ad, _ = sjson.Set(ad, "item_id", fmt.Sprintf("fc_%s", refCallID))
+									ad, _ = sjson.Set(ad, "output_index", st.funcOutIdx(callIndex))
+									ad, _ = sjson.Set(ad, "delta", args.String())
+									out = append(out, FormatSSE("response.function_call_arguments.delta", []byte(ad)))
+								}
 							}
 							st.FuncArgsBuf[callIndex].WriteString(args.String())
 						}
@@ -766,6 +800,23 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 						if b := st.FuncArgsBuf[i]; b != nil && b.Len() > 0 {
 							args = b.String()
 						}
+
+						if st.CustomTools[st.FuncNames[i]] {
+							// Freeform tool: finalize as a custom_tool_call carrying the
+							// raw text unwrapped from {"input":"..."}, no arguments.done.
+							itemDone := `{"type":"response.output_item.done","sequence_number":0,"output_index":0,"item":{"id":"","type":"custom_tool_call","status":"completed","input":"","call_id":"","name":""}}`
+							itemDone, _ = sjson.Set(itemDone, "sequence_number", nextSeq())
+							itemDone, _ = sjson.Set(itemDone, "output_index", st.funcOutIdx(i))
+							itemDone, _ = sjson.Set(itemDone, "item.id", fmt.Sprintf("ctc_%s", callID))
+							itemDone, _ = sjson.Set(itemDone, "item.input", unwrapFreeformArgsToInput(args))
+							itemDone, _ = sjson.Set(itemDone, "item.call_id", callID)
+							itemDone, _ = sjson.Set(itemDone, "item.name", st.FuncNames[i])
+							out = append(out, FormatSSE("response.output_item.done", []byte(itemDone)))
+							st.FuncItemDone[i] = true
+							st.FuncArgsDone[i] = true
+							continue
+						}
+
 						fcDone := `{"type":"response.function_call_arguments.done","sequence_number":0,"item_id":"","output_index":0,"arguments":""}`
 						fcDone, _ = sjson.Set(fcDone, "sequence_number", nextSeq())
 						fcDone, _ = sjson.Set(fcDone, "item_id", fmt.Sprintf("fc_%s", callID))
