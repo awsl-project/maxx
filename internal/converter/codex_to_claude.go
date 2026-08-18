@@ -75,10 +75,16 @@ func (c *codexToClaudeRequest) Transform(body []byte, model string, stream bool)
 					Content: m["content"],
 				})
 			case "function_call":
-				// Convert function call to tool_use block
-				id, _ := m["id"].(string)
+				// Convert function call to tool_use block. Claude pairs a tool_use
+				// block to its tool_result by matching tool_use.id with
+				// tool_result.tool_use_id. A Codex Responses function_call carries both
+				// an item id ("fc_...") and a call_id ("call_..."), and its matching
+				// function_call_output references the call_id (see below). Key the
+				// tool_use on call_id so the two sides match — using the item id makes
+				// the upstream reject the turn (no tool_result for the tool_use).
+				id, _ := m["call_id"].(string)
 				if id == "" {
-					id, _ = m["call_id"].(string)
+					id, _ = m["id"].(string)
 				}
 				name, _ := m["name"].(string)
 				argStr, _ := m["arguments"].(string)
@@ -235,9 +241,9 @@ func (c *codexToClaudeResponse) TransformChunk(chunk []byte, state *TransformSta
 					"type":  "content_block_start",
 					"index": st.BlockIndex,
 					"content_block": map[string]interface{}{
-						"type": "tool_use",
-						"id":   item.Get("call_id").String(),
-						"name": name,
+						"type":  "tool_use",
+						"id":    item.Get("call_id").String(),
+						"name":  name,
 						"input": map[string]interface{}{},
 					},
 				}

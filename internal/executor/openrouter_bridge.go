@@ -7,18 +7,32 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
-// shouldBridgeCustomCodexViaOpenAI returns true for custom OpenRouter-style
-// providers that are reachable through OpenAI Chat Completions but reject Codex
-// Responses API tool schemas. Codex CLI sends Responses-shaped tool definitions
-// such as web_search/image_generation, while OpenRouter accepts only its own
-// openrouter:* built-in tool types on /responses. Routing through OpenAI keeps
-// user-defined function tools compatible and avoids breaking normal Codex
-// providers.
+// shouldBridgeCustomCodexViaOpenAI returns true for OpenRouter-style providers
+// that are reachable through OpenAI Chat Completions but reject Codex Responses
+// API tool schemas. Codex CLI sends Responses-shaped tool definitions such as
+// web_search/image_generation, while OpenRouter accepts only its own openrouter:*
+// built-in tool types on /responses. Routing through OpenAI keeps user-defined
+// function tools compatible and avoids breaking normal Codex providers. This
+// covers both the native `openrouter` provider type and a `custom` provider
+// pointed at OpenRouter (baseURL, per-client baseURL, or a name containing
+// "openrouter").
 func shouldBridgeCustomCodexViaOpenAI(provider *domain.Provider, clientType domain.ClientType, supportedTypes []domain.ClientType) bool {
-	if provider == nil || clientType != domain.ClientTypeCodex || provider.Type != "custom" {
+	if provider == nil || clientType != domain.ClientTypeCodex {
 		return false
 	}
 	if !supportsClientType(supportedTypes, domain.ClientTypeOpenAI) {
+		return false
+	}
+
+	// A native OpenRouter provider IS OpenRouter, so always bridge its Codex
+	// requests through OpenAI Chat Completions. Its config lives in
+	// Config.OpenRouter (Config.Custom is nil), so the custom-URL probes below
+	// never apply — this branch is the only thing that makes Codex usable on the
+	// first-class openrouter type.
+	if provider.Type == "openrouter" {
+		return true
+	}
+	if provider.Type != "custom" {
 		return false
 	}
 	if provider.Config == nil || provider.Config.Custom == nil {

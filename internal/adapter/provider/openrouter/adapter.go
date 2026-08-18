@@ -97,6 +97,17 @@ func (a *Adapter) SupportedClientTypes() []domain.ClientType {
 // normalizeImageConfigBody), so each protocol can express sizing its own standard
 // way and still reach the upstream image model correctly.
 func (a *Adapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	// Normalize the mapped model into OpenRouter's "<vendor>/<model>" slug form so
+	// vendor-native ids (e.g. claude-sonnet-4-6) resolve without a hand-authored
+	// ModelMapping. The custom core rewrites the outbound body/URI from flow's
+	// mapped model (see custom.adapter updateModelInBody), so overriding it here is
+	// the single lever that covers every client type and endpoint. Explicit slugs
+	// (already containing "/") and unrecognized vendors pass through unchanged.
+	if mm := flow.GetMappedModel(c); mm != "" {
+		if slug := normalizeModelSlug(mm); slug != mm {
+			c.Set(flow.KeyMappedModel, slug)
+		}
+	}
 	if body := flow.GetRequestBody(c); len(body) > 0 {
 		if nb := normalizeImageConfigBody(body, flow.GetRequestURI(c)); len(nb) > 0 {
 			c.Set(flow.KeyRequestBody, nb)

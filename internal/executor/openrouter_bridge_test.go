@@ -20,6 +20,39 @@ func TestShouldBridgeCustomCodexViaOpenAIForOpenRouter(t *testing.T) {
 	}
 }
 
+func TestShouldBridgeNativeOpenRouterCodex(t *testing.T) {
+	// The first-class openrouter provider type carries its config in
+	// Config.OpenRouter (Config.Custom is nil); it must still bridge Codex through
+	// OpenAI Chat Completions.
+	provider := &domain.Provider{
+		Type: "openrouter",
+		Name: "my-openrouter",
+		Config: &domain.ProviderConfig{OpenRouter: &domain.ProviderConfigOpenRouter{
+			APIKey: "sk-or-test",
+		}},
+	}
+
+	if !shouldBridgeCustomCodexViaOpenAI(provider, domain.ClientTypeCodex, []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI}) {
+		t.Fatal("native openrouter provider must bridge Codex through OpenAI Chat Completions")
+	}
+}
+
+func TestShouldNotBridgeNativeOpenRouterWithoutOpenAISupport(t *testing.T) {
+	// Without OpenAI in the supported set there is no Chat Completions target to
+	// bridge to, so the native provider must not claim the Codex bridge.
+	provider := &domain.Provider{
+		Type: "openrouter",
+		Name: "my-openrouter",
+		Config: &domain.ProviderConfig{OpenRouter: &domain.ProviderConfigOpenRouter{
+			APIKey: "sk-or-test",
+		}},
+	}
+
+	if shouldBridgeCustomCodexViaOpenAI(provider, domain.ClientTypeCodex, []domain.ClientType{domain.ClientTypeClaude}) {
+		t.Fatal("native openrouter provider without OpenAI support must not bridge Codex")
+	}
+}
+
 func TestShouldNotBridgeOpenRouterWithoutOpenAISupport(t *testing.T) {
 	provider := &domain.Provider{
 		Type: "custom",
