@@ -192,6 +192,75 @@ func TestOpenAIToCodexResponse_StreamEmitsCustomToolCall(t *testing.T) {
 	}
 }
 
+// A freeform tool whose name arrives in a later stream chunk than its id must
+// still be added as a custom_tool_call (not function_call), so the added/done
+// item type and id stay consistent for one output_index.
+func TestOpenAIToCodexResponse_StreamCustomToolNameAfterID(t *testing.T) {
+	origReq := `{"tools":[{"type":"custom","name":"apply_patch"}]}`
+	state := NewTransformState()
+	state.OriginalRequestBody = []byte(origReq)
+	conv := &openaiToCodexResponse{}
+
+	chunks := []map[string]interface{}{
+		// id only, no name yet
+		{"object": "chat.completion.chunk", "id": "cc1", "choices": []map[string]interface{}{{"index": 0, "delta": map[string]interface{}{"tool_calls": []map[string]interface{}{{"index": 0, "id": "call_ap1"}}}}}},
+		// name + args in a later chunk
+		{"object": "chat.completion.chunk", "id": "cc1", "choices": []map[string]interface{}{{"index": 0, "delta": map[string]interface{}{"tool_calls": []map[string]interface{}{{"index": 0, "function": map[string]interface{}{"name": "apply_patch", "arguments": `{"input":"X"}`}}}}}}},
+		{"object": "chat.completion.chunk", "id": "cc1", "choices": []map[string]interface{}{{"index": 0, "delta": map[string]interface{}{}, "finish_reason": "tool_calls"}}},
+	}
+	var all strings.Builder
+	for _, ch := range chunks {
+		raw, _ := json.Marshal(ch)
+		got, err := conv.TransformChunk(FormatSSE("", raw), state)
+		if err != nil {
+			t.Fatalf("TransformChunk: %v", err)
+		}
+		all.Write(got)
+	}
+	s := all.String()
+	// The tool call must never be rendered as a function_call (fc_) — only ctc_.
+	if strings.Contains(s, `"type":"function_call"`) || strings.Contains(s, `fc_call_ap1`) {
+		t.Fatalf("freeform tool leaked a function_call item:\n%s", s)
+	}
+	var addedType, doneInput string
+	for _, ev := range strings.Split(s, "\n\n") {
+		line := sseDataLine(ev)
+		if line == "" {
+			continue
+		}
+		r := gjson.Parse(line)
+		switch r.Get("type").String() {
+		case "response.output_item.added":
+			if r.Get("item.call_id").String() == "call_ap1" {
+				addedType = r.Get("item.type").String()
+			}
+		case "response.output_item.done":
+			if r.Get("item.type").String() == "custom_tool_call" {
+				doneInput = r.Get("item.input").String()
+			}
+		}
+	}
+	if addedType != "custom_tool_call" {
+		t.Fatalf("output_item.added type = %q, want custom_tool_call", addedType)
+	}
+	if doneInput != "X" {
+		t.Fatalf("done input = %q, want X", doneInput)
+	}
+}
+
+// On a name declared as both function and custom, the function representation
+// wins so a real function call keeps its JSON arguments.
+func TestCodexCustomToolNames_FunctionWinsOnCollision(t *testing.T) {
+	req := `{"tools":[{"type":"function","name":"foo"},{"type":"custom","name":"foo"},{"type":"custom","name":"bar"}]}`
+	got := codexCustomToolNames([]byte(req))
+	if got["foo"] {
+		t.Fatalf("foo declared as function+custom must not be treated as custom")
+	}
+	if !got["bar"] {
+		t.Fatalf("bar (custom only) must be treated as custom")
+	}
+}
+
 func mustJSON(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)

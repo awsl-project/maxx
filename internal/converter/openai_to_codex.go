@@ -396,6 +396,7 @@ type openaiToResponsesState struct {
 	FuncArgsBuf      map[int]*strings.Builder
 	FuncNames        map[int]string
 	FuncCallIDs      map[int]string
+	FuncItemAdded    map[int]bool
 	MsgItemAdded     map[int]bool
 	MsgContentAdded  map[int]bool
 	MsgItemDone      map[int]bool
@@ -450,6 +451,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 			FuncArgsBuf:     make(map[int]*strings.Builder),
 			FuncNames:       make(map[int]string),
 			FuncCallIDs:     make(map[int]string),
+			FuncItemAdded:   make(map[int]bool),
 			MsgTextBuf:      make(map[int]*strings.Builder),
 			MsgItemAdded:    make(map[int]bool),
 			MsgContentAdded: make(map[int]bool),
@@ -491,6 +493,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 		st.FuncArgsBuf = make(map[int]*strings.Builder)
 		st.FuncNames = make(map[int]string)
 		st.FuncCallIDs = make(map[int]string)
+		st.FuncItemAdded = make(map[int]bool)
 		st.MsgItemAdded = make(map[int]bool)
 		st.MsgContentAdded = make(map[int]bool)
 		st.MsgItemDone = make(map[int]bool)
@@ -689,18 +692,21 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 						if nameChunk != "" {
 							st.FuncNames[callIndex] = nameChunk
 						}
-						existingCallID := st.FuncCallIDs[callIndex]
-						effectiveCallID := existingCallID
-						shouldEmitItem := false
-						if existingCallID == "" && newCallID != "" {
-							effectiveCallID = newCallID
+						if st.FuncCallIDs[callIndex] == "" && newCallID != "" {
 							st.FuncCallIDs[callIndex] = newCallID
-							shouldEmitItem = true
 						}
+						effectiveCallID := st.FuncCallIDs[callIndex]
 
 						isCustom := st.CustomTools[st.FuncNames[callIndex]]
 
-						if shouldEmitItem && effectiveCallID != "" {
+						// Emit output_item.added exactly once per tool call, and only once
+						// BOTH the call_id and the tool name are known. A freeform tool whose
+						// name arrives after its id would otherwise be added as function_call
+						// (fc_) yet finalized as custom_tool_call (ctc_) — an inconsistent
+						// item type/id for one output_index.
+						shouldEmitItem := !st.FuncItemAdded[callIndex] && effectiveCallID != "" && st.FuncNames[callIndex] != ""
+						if shouldEmitItem {
+							st.FuncItemAdded[callIndex] = true
 							if isCustom {
 								// Freeform tool: emit a custom_tool_call item. The raw
 								// `input` is filled in at output_item.done once the full
