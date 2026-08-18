@@ -890,6 +890,18 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 					}
 					callID := st.FuncCallIDs[i]
 					name := st.FuncNames[i]
+					if st.CustomTools[name] {
+						// Freeform tool: the terminal output array must match the
+						// output_item.done above — a custom_tool_call carrying the raw
+						// text, not a function_call with wrapped {"input":...} args.
+						item := `{"id":"","type":"custom_tool_call","status":"completed","input":"","call_id":"","name":""}`
+						item, _ = sjson.Set(item, "id", fmt.Sprintf("ctc_%s", callID))
+						item, _ = sjson.Set(item, "input", unwrapFreeformArgsToInput(args))
+						item, _ = sjson.Set(item, "call_id", callID)
+						item, _ = sjson.Set(item, "name", name)
+						outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
+						continue
+					}
 					item := `{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`
 					item, _ = sjson.Set(item, "id", fmt.Sprintf("fc_%s", callID))
 					item, _ = sjson.Set(item, "arguments", args)

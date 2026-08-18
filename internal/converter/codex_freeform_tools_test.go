@@ -154,20 +154,41 @@ func TestOpenAIToCodexResponse_StreamEmitsCustomToolCall(t *testing.T) {
 	if strings.Contains(s, "response.function_call_arguments.delta") || strings.Contains(s, "response.function_call_arguments.done") {
 		t.Fatalf("stream leaked function_call_arguments events for a freeform tool:\n%s", s)
 	}
-	// The final output_item.done must carry the unwrapped raw patch as input.
-	var doneInput string
+	// Both the intermediate output_item.done AND the terminal response.completed
+	// output array must render the freeform call as a custom_tool_call carrying the
+	// unwrapped raw patch — the terminal array is what a client reconstructing final
+	// state reads, so a mismatch there reintroduces the corruption.
+	var doneInput, completedType, completedInput string
 	for _, ev := range strings.Split(s, "\n\n") {
 		line := sseDataLine(ev)
 		if line == "" {
 			continue
 		}
 		r := gjson.Parse(line)
-		if r.Get("type").String() == "response.output_item.done" && r.Get("item.type").String() == "custom_tool_call" {
-			doneInput = r.Get("item.input").String()
+		switch r.Get("type").String() {
+		case "response.output_item.done":
+			if r.Get("item.type").String() == "custom_tool_call" {
+				doneInput = r.Get("item.input").String()
+			}
+		case "response.completed":
+			out := r.Get("response.output")
+			out.ForEach(func(_, it gjson.Result) bool {
+				if it.Get("name").String() == "apply_patch" {
+					completedType = it.Get("type").String()
+					completedInput = it.Get("input").String()
+				}
+				return true
+			})
 		}
 	}
 	if doneInput != applyPatchRaw {
 		t.Fatalf("custom_tool_call done input = %q, want raw patch", doneInput)
+	}
+	if completedType != "custom_tool_call" {
+		t.Fatalf("response.completed output type = %q, want custom_tool_call", completedType)
+	}
+	if completedInput != applyPatchRaw {
+		t.Fatalf("response.completed input = %q, want raw patch", completedInput)
 	}
 }
 

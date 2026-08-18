@@ -56,7 +56,9 @@ func isCodexFreeformToolType(toolType string) bool {
 
 // codexCustomToolNames returns the set of tool names the original Codex request
 // declared as freeform/custom, so the response side knows which upstream
-// function tool_calls to re-emit as Codex custom_tool_call items.
+// function tool_calls to re-emit as Codex custom_tool_call items. It keys on name
+// (Codex tool names are unique); a name declared as both function and custom in
+// one request — which Codex never emits — would resolve to custom.
 func codexCustomToolNames(requestRaw []byte) map[string]bool {
 	names := map[string]bool{}
 	tools := gjson.GetBytes(requestRaw, "tools")
