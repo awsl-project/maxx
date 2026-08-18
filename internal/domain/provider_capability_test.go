@@ -4,10 +4,10 @@ import "testing"
 
 func TestCanonicalSupportedClientTypes(t *testing.T) {
 	tests := []struct {
-		name       string
+		name         string
 		providerType string
-		configured []ClientType
-		want       []ClientType
+		configured   []ClientType
+		want         []ClientType
 	}{
 		{
 			name:         "codex ignores configured",
@@ -34,16 +34,28 @@ func TestCanonicalSupportedClientTypes(t *testing.T) {
 			want:         []ClientType{ClientTypeCodex},
 		},
 		{
-			name:         "openrouter empty defaults both",
+			name:         "openrouter empty defaults all three incl codex",
 			providerType: "openrouter",
 			configured:   nil,
-			want:         []ClientType{ClientTypeClaude, ClientTypeOpenAI},
+			want:         []ClientType{ClientTypeClaude, ClientTypeOpenAI, ClientTypeCodex},
 		},
 		{
-			name:         "openrouter keeps configured",
+			name:         "openrouter forces codex onto pre-codex config",
+			providerType: "openrouter",
+			configured:   []ClientType{ClientTypeClaude, ClientTypeOpenAI},
+			want:         []ClientType{ClientTypeClaude, ClientTypeOpenAI, ClientTypeCodex},
+		},
+		{
+			name:         "openrouter keeps other configured protocols and adds codex",
 			providerType: "openrouter",
 			configured:   []ClientType{ClientTypeOpenAI},
-			want:         []ClientType{ClientTypeOpenAI},
+			want:         []ClientType{ClientTypeOpenAI, ClientTypeCodex},
+		},
+		{
+			name:         "openrouter does not duplicate codex",
+			providerType: "openrouter",
+			configured:   []ClientType{ClientTypeOpenAI, ClientTypeCodex},
+			want:         []ClientType{ClientTypeOpenAI, ClientTypeCodex},
 		},
 		{
 			name:         "antigravity fixed",

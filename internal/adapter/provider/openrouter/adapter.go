@@ -85,10 +85,13 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 	return &Adapter{inner: inner, synth: &synth}, nil
 }
 
-// SupportedClientTypes reports the client types this OpenRouter provider serves
-// (typically claude + openai, both natively supported by OpenRouter).
+// SupportedClientTypes reports the client types this OpenRouter provider serves.
+// It returns the canonical native capability set rather than the possibly-stale
+// stored list, so Codex (/v1/responses) is always advertised — OpenRouter speaks
+// it natively, and a Codex route must pass through natively instead of falling
+// into a lossy Chat Completions conversion. See domain.CanonicalSupportedClientTypes.
 func (a *Adapter) SupportedClientTypes() []domain.ClientType {
-	return a.synth.SupportedClientTypes
+	return domain.CanonicalSupportedClientTypes("openrouter", a.synth.SupportedClientTypes)
 }
 
 // Execute delegates to the custom core, passing the synthesized provider so the

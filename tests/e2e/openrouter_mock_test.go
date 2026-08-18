@@ -555,8 +555,10 @@ func TestOpenRouterConfigRoundTrip(t *testing.T) {
 	}
 }
 
-// Creating an openrouter provider with no supportedClientTypes defaults to both
-// native protocols (claude + openai) instead of leaving it unserviceable.
+// Creating an openrouter provider with no supportedClientTypes defaults to all
+// three native protocols (claude + openai + codex) instead of leaving it
+// unserviceable. Codex is always advertised because OpenRouter speaks it
+// natively (/v1/responses); see domain.CanonicalSupportedClientTypes.
 func TestOpenRouterDefaultsClientTypes(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	cresp := env.AdminPost("/api/admin/providers", map[string]any{
@@ -578,8 +580,8 @@ func TestOpenRouterDefaultsClientTypes(t *testing.T) {
 	for _, ct := range created.SupportedClientTypes {
 		got[ct] = true
 	}
-	if len(created.SupportedClientTypes) != 2 || !got["claude"] || !got["openai"] {
-		t.Errorf("empty supportedClientTypes should default to [claude openai], got %v", created.SupportedClientTypes)
+	if len(created.SupportedClientTypes) != 3 || !got["claude"] || !got["openai"] || !got["codex"] {
+		t.Errorf("empty supportedClientTypes should default to [claude openai codex], got %v", created.SupportedClientTypes)
 	}
 }
 

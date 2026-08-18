@@ -73,9 +73,38 @@ func TestNewAdapterSynthesizesCustomConfig(t *testing.T) {
 		t.Error("real provider Config.Custom should stay nil")
 	}
 
-	// SupportedClientTypes passes through from the real provider.
+	// SupportedClientTypes reflects OpenRouter's native capabilities: the
+	// configured claude+openai PLUS codex, which OpenRouter always speaks
+	// natively (/v1/responses) even when the stored config predates Codex support.
 	got := a.SupportedClientTypes()
-	if len(got) != 2 || got[0] != domain.ClientTypeClaude || got[1] != domain.ClientTypeOpenAI {
-		t.Errorf("SupportedClientTypes = %v, want [claude openai]", got)
+	if len(got) != 3 || got[0] != domain.ClientTypeClaude || got[1] != domain.ClientTypeOpenAI || got[2] != domain.ClientTypeCodex {
+		t.Errorf("SupportedClientTypes = %v, want [claude openai codex]", got)
+	}
+}
+
+// TestSupportedClientTypesAlwaysAdvertisesCodex guards the core of the passthrough
+// fix: even a provider whose stored config omits codex (created before Codex
+// support) must advertise it, so Codex requests pass through to /responses rather
+// than being converted to Chat Completions.
+func TestSupportedClientTypesAlwaysAdvertisesCodex(t *testing.T) {
+	p := &domain.Provider{
+		Name:                 "legacy-openrouter",
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI},
+		Config: &domain.ProviderConfig{
+			OpenRouter: &domain.ProviderConfigOpenRouter{APIKey: "sk-or-secret"},
+		},
+	}
+	a, err := NewAdapter(p)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	found := false
+	for _, ct := range a.SupportedClientTypes() {
+		if ct == domain.ClientTypeCodex {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("SupportedClientTypes = %v, want it to include codex", a.SupportedClientTypes())
 	}
 }

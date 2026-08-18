@@ -57,7 +57,7 @@ func newCodexOpenRouterDispatchCtx(t *testing.T, adapter *codexOpenRouterRecordi
 	proxyRepo := &recordingProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(codexCustomToolRequest)).WithContext(context.Background())
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/responses", strings.NewReader(codexCustomToolRequest))
 	c := flow.NewCtx(rec, req)
 	proxyReq := &domain.ProxyRequest{
 		ID:           400,
@@ -97,13 +97,17 @@ func newCodexOpenRouterDispatchCtx(t *testing.T, adapter *codexOpenRouterRecordi
 	return c, proxyRepo, attemptRepo
 }
 
-func newCodexOpenRouterTestExecutor(proxyRepo *recordingProxyRequestRepo, attemptRepo *recordingAttemptRepo, bridgeEnabled bool) *Executor {
+func newCodexOpenRouterTestExecutor(t *testing.T, proxyRepo *recordingProxyRequestRepo, attemptRepo *recordingAttemptRepo, bridgeEnabled bool) *Executor {
+	t.Helper()
 	values := map[string]string{}
 	if bridgeEnabled {
 		values[domain.SettingKeyCodexOpenRouterBridgeEnabled] = "true"
 	}
-	// Clear any cached value so this executor reads its own setting deterministically.
+	// Clear any cached value so this executor reads its own setting deterministically,
+	// and clear it again afterwards so a cached "true" can't pollute later tests that
+	// share the process-global systemsettingcache.
 	systemsettingcache.Invalidate(domain.SettingKeyCodexOpenRouterBridgeEnabled)
+	t.Cleanup(func() { systemsettingcache.Invalidate(domain.SettingKeyCodexOpenRouterBridgeEnabled) })
 	return &Executor{
 		proxyRequestRepo: proxyRepo,
 		attemptRepo:      attemptRepo,
@@ -120,7 +124,7 @@ func newCodexOpenRouterTestExecutor(proxyRepo *recordingProxyRequestRepo, attemp
 func TestDispatchCodexOpenRouterPassthroughByDefault(t *testing.T) {
 	adapter := &codexOpenRouterRecordingAdapter{responseBody: `{"id":"resp_test","object":"response","status":"completed","output":[{"type":"custom_tool_call","id":"ctc_1","call_id":"call_1","name":"exec","input":"echo hi"}],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}`}
 	c, proxyRepo, attemptRepo := newCodexOpenRouterDispatchCtx(t, adapter)
-	e := newCodexOpenRouterTestExecutor(proxyRepo, attemptRepo, false)
+	e := newCodexOpenRouterTestExecutor(t, proxyRepo, attemptRepo, false)
 
 	e.dispatch(c)
 
@@ -151,7 +155,7 @@ func TestDispatchCodexOpenRouterPassthroughByDefault(t *testing.T) {
 func TestDispatchCodexOpenRouterBridgesWhenKillSwitchEnabled(t *testing.T) {
 	adapter := &codexOpenRouterRecordingAdapter{responseBody: `{"id":"chatcmpl_test","object":"chat.completion","created":1700000000,"model":"gpt-5.6-sol","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}`}
 	c, proxyRepo, attemptRepo := newCodexOpenRouterDispatchCtx(t, adapter)
-	e := newCodexOpenRouterTestExecutor(proxyRepo, attemptRepo, true)
+	e := newCodexOpenRouterTestExecutor(t, proxyRepo, attemptRepo, true)
 
 	e.dispatch(c)
 
@@ -175,6 +179,7 @@ func TestDispatchCodexOpenRouterBridgesWhenKillSwitchEnabled(t *testing.T) {
 // TestCodexOpenRouterBridgeEnabledReadsSetting guards the setting-key wiring in
 // isolation: default off, on when the setting is "true".
 func TestCodexOpenRouterBridgeEnabledReadsSetting(t *testing.T) {
+	t.Cleanup(func() { systemsettingcache.Invalidate(domain.SettingKeyCodexOpenRouterBridgeEnabled) })
 	systemsettingcache.Invalidate(domain.SettingKeyCodexOpenRouterBridgeEnabled)
 	off := &Executor{settingsRepo: &stubExecutorSettingsRepo{}}
 	if off.codexOpenRouterBridgeEnabled() {
