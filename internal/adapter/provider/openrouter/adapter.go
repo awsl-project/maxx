@@ -116,5 +116,16 @@ func (a *Adapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
 			c.Set(flow.KeyRequestBody, nb)
 		}
 	}
+	// Pin the Codex Responses passthrough to OpenRouter's /v1/responses endpoint.
+	// OpenRouter serves the OpenAI Responses API at <base>/v1/responses (base is
+	// https://openrouter.ai/api). The custom core echoes the client's original
+	// Responses path upstream, but a Codex client whose base_url omits /v1 reaches
+	// maxx at /responses — which would forward to https://openrouter.ai/api/responses,
+	// a 200 HTML SPA page (not the API), so Codex silently gets empty output. Unlike
+	// the OpenAI path (/v1/chat/completions carries its own /v1), the Responses path
+	// varies by client, so force the correct one here regardless of base_url config.
+	if flow.GetClientType(c) == domain.ClientTypeCodex {
+		c.Set(flow.KeyResponsesClientPath, "/v1/responses")
+	}
 	return a.inner.Execute(c, a.synth)
 }
