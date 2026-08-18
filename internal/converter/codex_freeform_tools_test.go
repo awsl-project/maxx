@@ -248,6 +248,63 @@ func TestOpenAIToCodexResponse_StreamCustomToolNameAfterID(t *testing.T) {
 	}
 }
 
+// For a normal function tool whose arguments stream ahead of its name, every
+// function_call_arguments.delta must still follow the item's output_item.added
+// (deferred until the name is known), and no argument bytes may be lost.
+func TestOpenAIToCodexResponse_StreamArgsBeforeName(t *testing.T) {
+	state := NewTransformState() // no custom tools declared
+	conv := &openaiToCodexResponse{}
+	chunks := []map[string]interface{}{
+		// id + first args fragment, NO name yet
+		{"object": "chat.completion.chunk", "id": "cc1", "choices": []map[string]interface{}{{"index": 0, "delta": map[string]interface{}{"tool_calls": []map[string]interface{}{{"index": 0, "id": "call_f1", "function": map[string]interface{}{"arguments": `{"a":`}}}}}}},
+		// name + rest of args
+		{"object": "chat.completion.chunk", "id": "cc1", "choices": []map[string]interface{}{{"index": 0, "delta": map[string]interface{}{"tool_calls": []map[string]interface{}{{"index": 0, "function": map[string]interface{}{"name": "do_thing", "arguments": `1}`}}}}}}},
+		{"object": "chat.completion.chunk", "id": "cc1", "choices": []map[string]interface{}{{"index": 0, "delta": map[string]interface{}{}, "finish_reason": "tool_calls"}}},
+	}
+	var types []string
+	var deltas, doneArgs string
+	for _, ch := range chunks {
+		raw, _ := json.Marshal(ch)
+		got, err := conv.TransformChunk(FormatSSE("", raw), state)
+		if err != nil {
+			t.Fatalf("TransformChunk: %v", err)
+		}
+		for _, ev := range strings.Split(string(got), "\n\n") {
+			line := sseDataLine(ev)
+			if line == "" {
+				continue
+			}
+			r := gjson.Parse(line)
+			typ := r.Get("type").String()
+			types = append(types, typ)
+			switch typ {
+			case "response.function_call_arguments.delta":
+				deltas += r.Get("delta").String()
+			case "response.function_call_arguments.done":
+				doneArgs = r.Get("arguments").String()
+			}
+		}
+	}
+	addedIdx, deltaIdx := -1, -1
+	for i, typ := range types {
+		if typ == "response.output_item.added" && addedIdx == -1 {
+			addedIdx = i
+		}
+		if typ == "response.function_call_arguments.delta" && deltaIdx == -1 {
+			deltaIdx = i
+		}
+	}
+	if addedIdx == -1 || deltaIdx == -1 {
+		t.Fatalf("missing added(%d)/delta(%d) events; types=%v", addedIdx, deltaIdx, types)
+	}
+	if addedIdx > deltaIdx {
+		t.Fatalf("output_item.added (%d) must precede first arguments.delta (%d); types=%v", addedIdx, deltaIdx, types)
+	}
+	if deltas != `{"a":1}` || doneArgs != `{"a":1}` {
+		t.Fatalf("args reconstruction: deltas=%q done=%q, want {\"a\":1}", deltas, doneArgs)
+	}
+}
+
 // On a name declared as both function and custom, the function representation
 // wins so a real function call keeps its JSON arguments.
 func TestCodexCustomToolNames_FunctionWinsOnCollision(t *testing.T) {

@@ -397,6 +397,7 @@ type openaiToResponsesState struct {
 	FuncNames        map[int]string
 	FuncCallIDs      map[int]string
 	FuncItemAdded    map[int]bool
+	FuncArgsEmitted  map[int]int
 	MsgItemAdded     map[int]bool
 	MsgContentAdded  map[int]bool
 	MsgItemDone      map[int]bool
@@ -452,6 +453,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 			FuncNames:       make(map[int]string),
 			FuncCallIDs:     make(map[int]string),
 			FuncItemAdded:   make(map[int]bool),
+			FuncArgsEmitted: make(map[int]int),
 			MsgTextBuf:      make(map[int]*strings.Builder),
 			MsgItemAdded:    make(map[int]bool),
 			MsgContentAdded: make(map[int]bool),
@@ -494,6 +496,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 		st.FuncNames = make(map[int]string)
 		st.FuncCallIDs = make(map[int]string)
 		st.FuncItemAdded = make(map[int]bool)
+		st.FuncArgsEmitted = make(map[int]int)
 		st.MsgItemAdded = make(map[int]bool)
 		st.MsgContentAdded = make(map[int]bool)
 		st.MsgItemDone = make(map[int]bool)
@@ -733,24 +736,25 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 							st.FuncArgsBuf[callIndex] = &strings.Builder{}
 						}
 						if args := tc.Get("function.arguments"); args.Exists() && args.String() != "" {
-							// Freeform tools buffer arguments silently and surface the
-							// unwrapped raw text once at output_item.done — Codex pairs a
-							// custom_tool_call by its final input, not per-delta events.
-							if !isCustom {
-								refCallID := st.FuncCallIDs[callIndex]
-								if refCallID == "" {
-									refCallID = newCallID
-								}
-								if refCallID != "" {
-									ad := `{"type":"response.function_call_arguments.delta","sequence_number":0,"item_id":"","output_index":0,"delta":""}`
-									ad, _ = sjson.Set(ad, "sequence_number", nextSeq())
-									ad, _ = sjson.Set(ad, "item_id", fmt.Sprintf("fc_%s", refCallID))
-									ad, _ = sjson.Set(ad, "output_index", st.funcOutIdx(callIndex))
-									ad, _ = sjson.Set(ad, "delta", args.String())
-									out = append(out, FormatSSE("response.function_call_arguments.delta", []byte(ad)))
-								}
-							}
 							st.FuncArgsBuf[callIndex].WriteString(args.String())
+						}
+						// Emit argument deltas only for a non-custom item that has already
+						// been added, flushing whatever hasn't been sent yet. This keeps
+						// every delta after its output_item.added even when arguments stream
+						// ahead of the tool name (the added event is deferred until the name
+						// is known). Freeform tools never emit deltas — they surface the
+						// unwrapped input once at output_item.done.
+						if !isCustom && st.FuncItemAdded[callIndex] && effectiveCallID != "" {
+							full := st.FuncArgsBuf[callIndex].String()
+							if sent := st.FuncArgsEmitted[callIndex]; len(full) > sent {
+								ad := `{"type":"response.function_call_arguments.delta","sequence_number":0,"item_id":"","output_index":0,"delta":""}`
+								ad, _ = sjson.Set(ad, "sequence_number", nextSeq())
+								ad, _ = sjson.Set(ad, "item_id", fmt.Sprintf("fc_%s", effectiveCallID))
+								ad, _ = sjson.Set(ad, "output_index", st.funcOutIdx(callIndex))
+								ad, _ = sjson.Set(ad, "delta", full[sent:])
+								out = append(out, FormatSSE("response.function_call_arguments.delta", []byte(ad)))
+								st.FuncArgsEmitted[callIndex] = len(full)
+							}
 						}
 					}
 				}

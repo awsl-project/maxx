@@ -164,6 +164,14 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 	// translated back on the response side (see codex_freeform_tools.go). Genuinely
 	// unrepresentable Responses-only built-ins (web_search, tool_search, ...) carry
 	// no usable function name and are dropped, so nothing invalid reaches upstream.
+	functionToolNames := map[string]bool{}
+	for _, tool := range req.Tools {
+		if strings.EqualFold(strings.TrimSpace(tool.Type), "function") {
+			if name := strings.TrimSpace(tool.Name); name != "" {
+				functionToolNames[tool.Name] = true
+			}
+		}
+	}
 	for _, tool := range req.Tools {
 		name := strings.TrimSpace(tool.Name)
 		if name == "" {
@@ -180,6 +188,11 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 				},
 			})
 		case isCodexFreeformToolType(tool.Type):
+			// A name already declared as a function wins (matches codexCustomToolNames),
+			// so we never emit two upstream tools with the same name.
+			if functionToolNames[tool.Name] {
+				continue
+			}
 			openaiReq.Tools = append(openaiReq.Tools, OpenAITool{
 				Type: "function",
 				Function: OpenAIFunction{
