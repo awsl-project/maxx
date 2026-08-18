@@ -112,7 +112,7 @@ routeLoop:
 			requestURI := state.requestURI
 
 			supportedTypes := matchedRoute.ProviderAdapter.SupportedClientTypes()
-			if shouldBridgeCustomCodexViaOpenAI(matchedRoute.Provider, clientType, supportedTypes) {
+			if bridgeCodexForOpenRouter(e.codexOpenRouterBridgeEnabled(), matchedRoute.Provider, clientType, supportedTypes) {
 				currentClientType = domain.ClientTypeOpenAI
 				needsConversion = true
 				log.Printf("[Executor] OpenRouter-compatible custom provider %s: bridging Codex request through OpenAI Chat Completions",

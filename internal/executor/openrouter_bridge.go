@@ -5,17 +5,46 @@ import (
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
 
-// shouldBridgeCustomCodexViaOpenAI returns true for OpenRouter-style providers
-// that are reachable through OpenAI Chat Completions but reject Codex Responses
-// API tool schemas. Codex CLI sends Responses-shaped tool definitions such as
-// web_search/image_generation, while OpenRouter accepts only its own openrouter:*
-// built-in tool types on /responses. Routing through OpenAI keeps user-defined
-// function tools compatible and avoids breaking normal Codex providers. This
-// covers both the native `openrouter` provider type and a `custom` provider
-// pointed at OpenRouter (baseURL, per-client baseURL, or a name containing
-// "openrouter").
+// codexOpenRouterBridgeEnabled reports whether the legacy Codex→OpenRouter chat
+// bridge kill switch is on. Default false → native /responses passthrough.
+func (e *Executor) codexOpenRouterBridgeEnabled() bool {
+	return systemsettingcache.GetBooleanDefault(e.settingsRepo, domain.SettingKeyCodexOpenRouterBridgeEnabled, false)
+}
+
+// bridgeCodexForOpenRouter reports whether a Codex request bound for an
+// OpenRouter-style provider should be bridged to OpenAI Chat Completions instead
+// of passing through natively to /responses.
+//
+// Default is passthrough (bridgeEnabled=false). OpenRouter's /responses endpoint
+// natively accepts Codex requests — function tools, the multi_agent namespace,
+// web_search, AND custom/freeform tools (apply_patch, "code mode" exec) — and
+// returns proper custom_tool_call items (empirically verified against
+// openai/gpt-5.5 and openai/gpt-5.6-sol). The old chat bridge, by contrast, is
+// lossy: it rewrites a Codex `custom` tool into an OpenAI `function(input)`,
+// which the model then refuses to drive ("no terminal tool"), silently breaking
+// code-mode agents while returning HTTP 200. Passthrough preserves fidelity and
+// is the only path on which code mode can work at all.
+//
+// The chat bridge is retained purely as an opt-in kill switch
+// (SettingKeyCodexOpenRouterBridgeEnabled) in case a future OpenRouter/model
+// regression makes /responses passthrough unviable.
+func bridgeCodexForOpenRouter(bridgeEnabled bool, provider *domain.Provider, clientType domain.ClientType, supportedTypes []domain.ClientType) bool {
+	if !bridgeEnabled {
+		return false
+	}
+	return shouldBridgeCustomCodexViaOpenAI(provider, clientType, supportedTypes)
+}
+
+// shouldBridgeCustomCodexViaOpenAI reports whether a provider is an
+// OpenRouter-style endpoint reachable through OpenAI Chat Completions — the
+// predicate the legacy chat bridge acted on. It covers both the native
+// `openrouter` provider type and a `custom` provider pointed at OpenRouter
+// (baseURL, per-client baseURL, or a name containing "openrouter"). It is now
+// only consulted when the bridge kill switch is enabled; see
+// bridgeCodexForOpenRouter for the default passthrough rationale.
 func shouldBridgeCustomCodexViaOpenAI(provider *domain.Provider, clientType domain.ClientType, supportedTypes []domain.ClientType) bool {
 	if provider == nil || clientType != domain.ClientTypeCodex {
 		return false
