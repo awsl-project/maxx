@@ -84,9 +84,19 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 						Content: codexContentToOpenAI(m["content"]),
 					})
 				case "function_call":
-					id, _ := m["id"].(string)
+					// Chat Completions pairs an assistant tool_call to its tool
+					// result by matching tool_calls[].id with the tool message's
+					// tool_call_id. A Codex Responses function_call item carries BOTH
+					// an item id ("fc_...") and a call_id ("call_..."), and its
+					// matching function_call_output references the call_id (see the
+					// "function_call_output" case below). So the assistant tool_call
+					// MUST be keyed on call_id too — keying it on the item id makes the
+					// upstream reject the turn with "No tool output found for function
+					// call fc_...", which breaks every Codex tool round-trip through an
+					// OpenAI Chat Completions upstream (e.g. OpenRouter).
+					id, _ := m["call_id"].(string)
 					if id == "" {
-						id, _ = m["call_id"].(string)
+						id, _ = m["id"].(string)
 					}
 					name, _ := m["name"].(string)
 					args, _ := m["arguments"].(string)
