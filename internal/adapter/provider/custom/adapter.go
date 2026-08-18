@@ -720,6 +720,7 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
+	sniffedBody := false    // Whether the non-SSE-JSON sniff has run (once, on first bytes)
 	sawTerminalSSEEvent := false
 	streamFirstEventTimeout := streamTimeoutFromFlow(c, "stream_first_event_timeout", 0)
 	streamIdleTimeout := streamTimeoutFromFlow(c, "stream_idle_timeout", 0)
@@ -847,6 +848,61 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 
 		if n > 0 {
 			lineBuffer.Write(buf[:n])
+
+			// Sniff the very first bytes: SSE frames always begin with a field
+			// name (`data:`, `event:`, `id:`, `:` comment) — never `{`. If the
+			// body instead starts with a JSON object, the upstream answered a
+			// stream request with a plain (non-SSE) JSON document, which is
+			// almost always a 200-with-error-body. Buffer the whole response and
+			// classify it: on an error envelope, fail before writing anything to
+			// the client so retry / cooldown can engage; otherwise forward it
+			// through unchanged.
+			if !sniffedBody {
+				sniffedBody = true
+				if trimmed := bytes.TrimLeft(lineBuffer.Bytes(), " \t\r\n"); len(trimmed) > 0 && trimmed[0] == '{' {
+					rest, _ := io.ReadAll(reader)
+					full := make([]byte, 0, lineBuffer.Len()+len(rest))
+					full = append(full, lineBuffer.Bytes()...)
+					full = append(full, rest...)
+					lineBuffer.Reset()
+					if isOAuthToken {
+						full = stripClaudeToolPrefixFromResponse(full, claudeToolPrefix)
+					}
+
+					var payload map[string]interface{}
+					if jsonutil.Unmarshal(full, &payload) == nil {
+						collector.ProcessParsedPayload(payload)
+						extractResponseModelFromPayload(payload, clientType, &responseModel)
+						if proxyErr := classifyBodyError(payload, "upstream 200 body error"); proxyErr != nil {
+							sendFinalEvents()
+							return proxyErr
+						}
+					}
+
+					// Not an error envelope (or unparseable JSON): forward as-is.
+					if len(full) > 0 {
+						if _, writeErr := c.Writer.Write(full); writeErr != nil {
+							sendFinalEvents()
+							if converter.IsResponseConversionError(writeErr) {
+								proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
+								proxyErr.Scope = domain.ScopeProvider
+								proxyErr.Reason = domain.CooldownReasonServerError
+								return proxyErr
+							}
+							proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+							proxyErr.Scope = domain.ScopeRequest
+							return proxyErr
+						}
+						flusher.Flush()
+						if !firstChunkSent && eventChan != nil {
+							firstChunkSent = true
+							eventChan.SendFirstToken(time.Now().UnixMilli())
+						}
+					}
+					sendFinalEvents()
+					return nil
+				}
+			}
 
 			// Process complete lines (lines ending with \n)
 			for {
