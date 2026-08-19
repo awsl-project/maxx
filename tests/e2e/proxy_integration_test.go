@@ -1338,6 +1338,285 @@ func TestProxyMatchedRouteWithUnsupportedModelAndCooldownProviderRecords503(t *t
 	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers", http.StatusServiceUnavailable)
 }
 
+func TestProxyHandlesClaudeCountTokensLocally(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages/count_tokens", map[string]any{
+		"model": "claude-sonnet-4-20250514",
+		"system": []map[string]any{{
+			"type": "text",
+			"text": "You are concise.",
+		}},
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Count this locally.",
+		}},
+		"tools": []map[string]any{{
+			"name":        "lookup",
+			"description": "Lookup a value.",
+			"input_schema": map[string]any{
+				"type": "object",
+			},
+		}},
+	}, nil)
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	var result struct {
+		InputTokens int `json:"input_tokens"`
+	}
+	DecodeJSON(t, resp, &result)
+	if result.InputTokens <= 0 {
+		t.Fatalf("input_tokens = %d, want positive local estimate", result.InputTokens)
+	}
+	if method, path, _, _ := captured.Get(); method != "" || path != "" {
+		t.Fatalf("count_tokens reached upstream: method=%q path=%q", method, path)
+	}
+	assertNoProxyRequestsRecorded(t, env)
+}
+
+func TestProxyHandlesClaudeCountTokensLocallyWithoutSystem(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages/count_tokens", map[string]any{
+		"model": "claude-sonnet-4-20250514",
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Count this locally without system.",
+		}},
+	}, nil)
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	var result struct {
+		InputTokens int `json:"input_tokens"`
+	}
+	DecodeJSON(t, resp, &result)
+	if result.InputTokens <= 0 {
+		t.Fatalf("input_tokens = %d, want positive local estimate", result.InputTokens)
+	}
+	if method, path, _, _ := captured.Get(); method != "" || path != "" {
+		t.Fatalf("count_tokens reached upstream: method=%q path=%q", method, path)
+	}
+	assertNoProxyRequestsRecorded(t, env)
+}
+
+func TestProxyDoesNotShortCircuitClaudeCountTokensSubpath(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages/count_tokens/extra", map[string]any{
+		"model": "claude-sonnet-4-20250514",
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "This subpath should not be handled locally.",
+		}},
+	}, nil)
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	if method, path, _, _ := captured.Get(); method != http.MethodPost || path != "/v1/messages/count_tokens/extra" {
+		t.Fatalf("Claude count_tokens subpath did not reach upstream: method=%q path=%q", method, path)
+	}
+	requests := getProxyRequests(t, env)
+	if len(requests) != 1 {
+		t.Fatalf("Claude count_tokens subpath should be recorded, got %d requests", len(requests))
+	}
+}
+
+func TestProxyHandlesClaudeWarmupProbeLocally(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := proxyStreamPost(t, env, "/v1/messages", map[string]any{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 1,
+		"stream":     true,
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Hello",
+		}},
+	}, map[string]string{
+		"anthropic-beta": "prompt-caching-scope-2026-01-05",
+	})
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	if got := resp.Header.Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "event: message_stop") {
+		t.Fatalf("warmup stream missing message_stop: %s", string(body))
+	}
+	if method, path, _, _ := captured.Get(); method != "" || path != "" {
+		t.Fatalf("warmup probe reached upstream: method=%q path=%q", method, path)
+	}
+	assertNoProxyRequestsRecorded(t, env)
+}
+
+func TestProxyDoesNotShortCircuitOrdinaryClaudeBetaNoToolsRequest(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages", map[string]any{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 64,
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Write a short greeting.",
+		}},
+	}, map[string]string{
+		"anthropic-beta": "prompt-caching-scope-2026-01-05",
+	})
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	if method, path, _, _ := captured.Get(); method != http.MethodPost || path != "/v1/messages" {
+		t.Fatalf("ordinary Claude beta request did not reach upstream: method=%q path=%q", method, path)
+	}
+	requests := getProxyRequests(t, env)
+	if len(requests) != 1 {
+		t.Fatalf("ordinary Claude beta request should be recorded, got %d requests", len(requests))
+	}
+}
+
+func TestProxyDoesNotShortCircuitClaudeRequestWithTools(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages", map[string]any{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 64,
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Hello",
+		}},
+		"tools": []map[string]any{{
+			"name":        "Read",
+			"description": "Read a file",
+			"input_schema": map[string]any{
+				"type": "object",
+			},
+		}},
+	}, map[string]string{
+		"anthropic-beta": "prompt-caching-scope-2026-01-05",
+	})
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	if method, path, _, _ := captured.Get(); method != http.MethodPost || path != "/v1/messages" {
+		t.Fatalf("Claude request with tools did not reach upstream: method=%q path=%q", method, path)
+	}
+	requests := getProxyRequests(t, env)
+	if len(requests) != 1 {
+		t.Fatalf("Claude request with tools should be recorded, got %d requests", len(requests))
+	}
+}
+
+func TestProxyDoesNotShortCircuitClaudeCompactRequest(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages", map[string]any{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 1024,
+		"system":     "You are a helpful AI assistant tasked with summarizing conversations for continuation.",
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Pending Tasks:\n- keep testing\n\nCurrent Work:\ncompact context",
+		}},
+	}, map[string]string{
+		"anthropic-beta": "prompt-caching-scope-2026-01-05",
+	})
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	if method, path, _, _ := captured.Get(); method != http.MethodPost || path != "/v1/messages" {
+		t.Fatalf("Claude compact request did not reach upstream: method=%q path=%q", method, path)
+	}
+	requests := getProxyRequests(t, env)
+	if len(requests) != 1 {
+		t.Fatalf("Claude compact request should be recorded, got %d requests", len(requests))
+	}
+}
+
+func TestProxyDoesNotShortCircuitOrdinarySmallClaudeMessages(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockClaudeUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-claude", mock.URL, []string{"claude"})
+	createRoute(t, env, "claude", providerID)
+
+	resp := proxyStreamPost(t, env, "/v1/messages", map[string]any{
+		"model":      "claude-3-5-haiku-20241022",
+		"max_tokens": 1,
+		"stream":     true,
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Who are you?",
+		}},
+	}, nil)
+	defer resp.Body.Close()
+
+	AssertStatus(t, resp, http.StatusOK)
+	if method, path, _, _ := captured.Get(); method != http.MethodPost || path != "/v1/messages" {
+		t.Fatalf("ordinary small Claude message did not reach upstream: method=%q path=%q", method, path)
+	}
+	requests := getProxyRequests(t, env)
+	if len(requests) != 1 {
+		t.Fatalf("ordinary small Claude message should be recorded, got %d requests", len(requests))
+	}
+}
+
+func assertNoProxyRequestsRecorded(t *testing.T, env *ProxyTestEnv) {
+	t.Helper()
+
+	requests := getProxyRequests(t, env)
+	if len(requests) != 0 {
+		t.Fatalf("expected local probe handling to stay out of requests tab, got %d requests: %#v", len(requests), requests)
+	}
+}
+
 func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTotal int, wantErrorPart string, wantStatus int) {
 	t.Helper()
 

@@ -301,6 +301,19 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		}
 	}
 
+	if isClaudeCountTokensRequest(r, clientType) {
+		log.Printf("[Proxy] Handling Claude count_tokens locally")
+		writeClaudeCountTokensResponse(w, body)
+		c.Abort()
+		return
+	}
+	if isClaudeWarmupRequest(r, body, clientType) {
+		log.Printf("[Proxy] Handling Claude warmup probe locally")
+		writeClaudeWarmupResponse(w, body)
+		c.Abort()
+		return
+	}
+
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
@@ -610,6 +623,248 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func isClaudeCountTokensRequest(req *http.Request, clientType domain.ClientType) bool {
+	return clientType == domain.ClientTypeClaude && req != nil && req.URL.Path == "/v1/messages/count_tokens"
+}
+
+func writeClaudeCountTokensResponse(w http.ResponseWriter, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]int{
+		"input_tokens": estimateClaudeInputTokens(body),
+	})
+}
+
+func isClaudeWarmupRequest(req *http.Request, body []byte, clientType domain.ClientType) bool {
+	if clientType != domain.ClientTypeClaude || req == nil || req.URL.Path != "/v1/messages" {
+		return false
+	}
+	if req.Header.Get("anthropic-beta") == "" {
+		return false
+	}
+
+	var claudeReq converter.ClaudeRequest
+	if err := json.Unmarshal(body, &claudeReq); err != nil {
+		return false
+	}
+	if len(claudeReq.Tools) > 0 {
+		return false
+	}
+	return !isClaudeCompactRequest(claudeReq) && isClaudeWarmupProbePayload(claudeReq)
+}
+
+func isClaudeWarmupProbePayload(req converter.ClaudeRequest) bool {
+	if !req.Stream || req.MaxTokens != 1 || req.System != nil || len(req.Messages) != 1 {
+		return false
+	}
+	msg := req.Messages[0]
+	if msg.Role != "user" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(extractClaudeText(msg.Content))) {
+	case "hi", "hello", "ok", "say hi", "say hello":
+		return true
+	default:
+		return false
+	}
+}
+
+func isClaudeCompactRequest(req converter.ClaudeRequest) bool {
+	if strings.HasPrefix(extractClaudeText(req.System), "You are a helpful AI assistant tasked with summarizing conversations") {
+		return true
+	}
+	if len(req.Messages) == 0 {
+		return false
+	}
+	last := req.Messages[len(req.Messages)-1]
+	if last.Role != "user" {
+		return false
+	}
+	text := extractClaudeText(last.Content)
+	return strings.Contains(text, "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.") ||
+		(strings.Contains(text, "Pending Tasks:") && strings.Contains(text, "Current Work:"))
+}
+
+func writeClaudeWarmupResponse(w http.ResponseWriter, body []byte) {
+	var req converter.ClaudeRequest
+	_ = json.Unmarshal(body, &req)
+	model := req.Model
+	if model == "" {
+		model = "claude"
+	}
+	if req.Stream {
+		writeClaudeWarmupStreamResponse(w, model)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(converter.ClaudeResponse{
+		ID:    "msg_maxx_warmup",
+		Type:  "message",
+		Role:  "assistant",
+		Model: model,
+		Content: []converter.ClaudeContentBlock{{
+			Type: "text",
+			Text: "ok",
+		}},
+		StopReason: "end_turn",
+		Usage: converter.ClaudeUsage{
+			InputTokens:  estimateClaudeInputTokens(body),
+			OutputTokens: 1,
+		},
+	})
+}
+
+func writeClaudeWarmupStreamResponse(w http.ResponseWriter, model string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+
+	writeClaudeSSE(w, "message_start", map[string]interface{}{
+		"type": "message_start",
+		"message": map[string]interface{}{
+			"id":            "msg_maxx_warmup",
+			"type":          "message",
+			"role":          "assistant",
+			"model":         model,
+			"content":       []interface{}{},
+			"stop_reason":   nil,
+			"stop_sequence": nil,
+			"usage": map[string]int{
+				"input_tokens":  0,
+				"output_tokens": 0,
+			},
+		},
+	})
+	writeClaudeSSE(w, "content_block_start", map[string]interface{}{
+		"type":  "content_block_start",
+		"index": 0,
+		"content_block": map[string]string{
+			"type": "text",
+			"text": "",
+		},
+	})
+	writeClaudeSSE(w, "content_block_delta", map[string]interface{}{
+		"type":  "content_block_delta",
+		"index": 0,
+		"delta": map[string]string{
+			"type": "text_delta",
+			"text": "ok",
+		},
+	})
+	writeClaudeSSE(w, "content_block_stop", map[string]interface{}{
+		"type":  "content_block_stop",
+		"index": 0,
+	})
+	writeClaudeSSE(w, "message_delta", map[string]interface{}{
+		"type": "message_delta",
+		"delta": map[string]interface{}{
+			"stop_reason":   "end_turn",
+			"stop_sequence": nil,
+		},
+		"usage": map[string]int{
+			"output_tokens": 1,
+		},
+	})
+	writeClaudeSSE(w, "message_stop", map[string]string{
+		"type": "message_stop",
+	})
+}
+
+func writeClaudeSSE(w http.ResponseWriter, event string, payload interface{}) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	_, _ = w.Write([]byte("event: " + event + "\n"))
+	_, _ = w.Write([]byte("data: "))
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte("\n\n"))
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func extractClaudeText(v interface{}) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case []interface{}:
+		var b strings.Builder
+		for _, item := range x {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(extractClaudeText(item))
+		}
+		return b.String()
+	case map[string]interface{}:
+		if text, ok := x["text"].(string); ok {
+			return text
+		}
+		if content, ok := x["content"]; ok {
+			return extractClaudeText(content)
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func estimateClaudeInputTokens(body []byte) int {
+	var req converter.ClaudeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return estimateTextTokens(string(body))
+	}
+
+	total := 4
+	total += estimateJSONTokens(req.System)
+	for _, msg := range req.Messages {
+		total += 3
+		total += estimateJSONTokens(msg.Content)
+	}
+	for _, tool := range req.Tools {
+		total += 16
+		total += estimateTextTokens(tool.Name)
+		total += estimateTextTokens(tool.Description)
+		total += estimateJSONTokens(tool.InputSchema)
+	}
+	if total < 1 {
+		return 1
+	}
+	return total
+}
+
+func estimateJSONTokens(v interface{}) int {
+	switch x := v.(type) {
+	case nil:
+		return 0
+	case string:
+		return estimateTextTokens(x)
+	default:
+		data, err := json.Marshal(x)
+		if err != nil {
+			return 0
+		}
+		return estimateTextTokens(string(data))
+	}
+}
+
+func estimateTextTokens(text string) int {
+	runes := len([]rune(text))
+	if runes == 0 {
+		return 0
+	}
+	tokens := (runes + 3) / 4
+	if tokens < 1 {
+		return 1
+	}
+	return tokens
 }
 
 func isOpenAIChatCompletionsPath(path string) bool {
