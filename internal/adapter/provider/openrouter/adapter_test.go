@@ -1,10 +1,43 @@
 package openrouter
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/flow"
 )
+
+// TestOpenRouterResponsesPath guards the Codex Responses path pinning: OpenRouter
+// serves the Responses API only under /v1, so the upstream path must always carry
+// the /v1 prefix while preserving any sub-path (/responses/{id}) and query string.
+func TestOpenRouterResponsesPath(t *testing.T) {
+	cases := []struct{ name, clientPath, requestURI, want string }{
+		{"bare responses gets v1", "/responses", "/responses", "/v1/responses"},
+		{"already versioned kept", "/v1/responses", "/responses", "/v1/responses"},
+		{"query preserved", "/responses?foo=bar", "/responses", "/v1/responses?foo=bar"},
+		{"sub-path preserved", "/responses/abc", "/responses", "/v1/responses/abc"},
+		{"versioned sub-path+query kept", "/v1/responses/abc?x=1", "/responses", "/v1/responses/abc?x=1"},
+		{"empty client path falls back to requestURI", "", "/responses", "/v1/responses"},
+		{"empty both defaults", "", "", "/v1/responses"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://x/responses", nil)
+			c := flow.NewCtx(httptest.NewRecorder(), req)
+			if tc.clientPath != "" {
+				c.Set(flow.KeyResponsesClientPath, tc.clientPath)
+			}
+			if tc.requestURI != "" {
+				c.Set(flow.KeyRequestURI, tc.requestURI)
+			}
+			if got := openRouterResponsesPath(c); got != tc.want {
+				t.Errorf("openRouterResponsesPath = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestNewAdapterRequiresOpenRouterConfig(t *testing.T) {
 	cases := []struct {

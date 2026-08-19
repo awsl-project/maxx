@@ -116,5 +116,37 @@ func (a *Adapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
 			c.Set(flow.KeyRequestBody, nb)
 		}
 	}
+	// Pin the Codex Responses passthrough under OpenRouter's /v1 API root.
+	// OpenRouter serves the OpenAI Responses API at <base>/v1/responses (base is
+	// https://openrouter.ai/api). The custom core echoes the client's original
+	// Responses path upstream, but a Codex client whose base_url omits /v1 reaches
+	// maxx at /responses — which would forward to https://openrouter.ai/api/responses,
+	// a 200 HTML SPA page (not the API), so Codex silently gets empty output. Unlike
+	// the OpenAI path (/v1/chat/completions carries its own /v1), the Responses path
+	// varies by client, so force the /v1 prefix here regardless of base_url config,
+	// while preserving any sub-path (/responses/{id}) and query string.
+	if flow.GetClientType(c) == domain.ClientTypeCodex {
+		c.Set(flow.KeyResponsesClientPath, openRouterResponsesPath(c))
+	}
 	return a.inner.Execute(c, a.synth)
+}
+
+// openRouterResponsesPath returns the upstream Responses path for a Codex request,
+// guaranteeing the /v1 prefix OpenRouter requires while preserving the original
+// sub-path (/responses/{id}) and query string. It prefers the client's original
+// Responses path (flow captures it before the proxy normalizes /v1/responses down
+// to /responses); if absent it falls back to the current request URI.
+func openRouterResponsesPath(c *flow.Ctx) string {
+	p := flow.GetResponsesClientPath(c)
+	if p == "" {
+		p = flow.GetRequestURI(c)
+	}
+	switch {
+	case strings.HasPrefix(p, "/v1/responses"):
+		return p // already versioned; keep sub-path + query
+	case strings.HasPrefix(p, "/responses"):
+		return "/v1" + p // /responses[/...][?...] -> /v1/responses[/...][?...]
+	default:
+		return "/v1/responses"
+	}
 }

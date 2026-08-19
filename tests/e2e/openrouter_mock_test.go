@@ -45,6 +45,18 @@ func newOpenRouterMock(t *testing.T, captured *capturedRequest, calls *int64) *h
 			writeOpenRouterMockStream(t, w, isMessages)
 			return
 		}
+		// Codex Responses API: shape a native /v1/responses reply so the passthrough
+		// path round-trips cleanly (OpenRouter serves this at /v1/responses only).
+		if strings.Contains(r.URL.Path, "/responses") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "resp_or", "object": "response", "status": "completed",
+				"model":  "openai/gpt-5.5",
+				"output": []map[string]any{{"type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": "hi"}}}},
+				"usage":  map[string]any{"input_tokens": 3, "output_tokens": 1, "total_tokens": 4},
+			})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if isMessages {
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -174,6 +186,36 @@ func TestOpenRouterMockDelegation(t *testing.T) {
 	}
 	if strings.Contains(string(upBody), "cache_control") {
 		t.Errorf("disguise should be off: upstream body must not contain cache_control: %s", upBody)
+	}
+}
+
+// Codex passthrough must reach OpenRouter's Responses API at /v1/responses even
+// when the Codex client hits maxx at the bare /responses path (a base_url without
+// /v1). Otherwise the request forwards to https://openrouter.ai/api/responses — a
+// 200 HTML SPA page, not the API — and Codex silently gets empty output.
+func TestOpenRouterMockCodexResponsesPath(t *testing.T) {
+	captured := &capturedRequest{}
+	var calls int64
+	mock := newOpenRouterMock(t, captured, &calls)
+	defer mock.Close()
+	t.Setenv("MAXX_OPENROUTER_BASE_URL", mock.URL)
+
+	env := NewProxyTestEnv(t)
+	pid := createORProvider(t, env, "or-codex", "sk-test-key", []string{"codex"})
+	createRouteAt(t, env, "codex", pid, 1)
+
+	// Post to the bare /responses (no /v1) — the client misconfiguration that
+	// silently broke Codex on OpenRouter before the path was pinned.
+	resp := env.ProxyPost("/responses", map[string]any{
+		"model":  "gpt-5.5",
+		"input":  []map[string]any{{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": "hi"}}}},
+		"stream": false,
+	}, map[string]string{"Authorization": "Bearer client-placeholder"})
+	assertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	if _, path, _, _ := captured.Get(); path != "/v1/responses" {
+		t.Errorf("codex upstream path = %s, want /v1/responses (OpenRouter serves the Responses API only at /v1/responses)", path)
 	}
 }
 
