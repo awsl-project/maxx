@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -239,6 +241,128 @@ func TestDispatchSmartMappingRetrySwitchesMappedModelAfterLimit(t *testing.T) {
 	}
 	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
 		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
+type configurableSmartMappingRetryAdapter struct {
+	succeedOn string
+	models    []string
+}
+
+func (a *configurableSmartMappingRetryAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *configurableSmartMappingRetryAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	model := flow.GetMappedModel(c)
+	a.models = append(a.models, model)
+	if model == a.succeedOn {
+		return nil
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream returned 500"), true, "upstream returned 500")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	proxyErr.HTTPStatusCode = http.StatusInternalServerError
+	return proxyErr
+}
+
+func newSmartMappingRetryDispatchCtx(proxyReqID uint64, adapter provider.ProviderAdapter) *flow.Ctx {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
+	c := flow.NewCtx(rec, req)
+	proxyReq := &domain.ProxyRequest{
+		ID:         proxyReqID,
+		TenantID:   domain.DefaultTenantID,
+		ClientType: domain.ClientTypeOpenAI,
+		Status:     "IN_PROGRESS",
+		StartTime:  time.Now(),
+	}
+	state := &execState{
+		ctx:          context.Background(),
+		proxyReq:     proxyReq,
+		tenantID:     domain.DefaultTenantID,
+		clientType:   domain.ClientTypeOpenAI,
+		requestModel: "requested-model",
+		routes: []*router.MatchedRoute{
+			{
+				Route: &domain.Route{ID: 10, TenantID: domain.DefaultTenantID, ProviderID: 22, ClientType: domain.ClientTypeOpenAI},
+				Provider: &domain.Provider{
+					ID:       22,
+					TenantID: domain.DefaultTenantID,
+					Type:     "custom",
+					Name:     "custom-smart-mapping-last-success",
+					Config: &domain.ProviderConfig{
+						DisableErrorCooldown:     true,
+						SmartMappingRetryEnabled: true,
+						SmartMappingRetryLimit:   1,
+					},
+				},
+				ProviderAdapter: adapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+			},
+		},
+	}
+	c.Set(flow.KeyExecutorState, state)
+	return c
+}
+
+func TestDispatchSmartMappingRetryStartsWithLastSuccessfulMappedModel(t *testing.T) {
+	proxyRepo := &recordingProxyRequestRepo{}
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+	e.modelMappingRepo = &stubModelMappingRepo{mappings: []*domain.ModelMapping{
+		{Pattern: "requested-*", Target: "mapped-a"},
+		{Pattern: "requested-*", Target: "mapped-b"},
+		{Pattern: "requested-*", Target: "mapped-c"},
+	}}
+
+	firstAdapter := &configurableSmartMappingRetryAdapter{succeedOn: "mapped-b"}
+	firstCtx := newSmartMappingRetryDispatchCtx(201, firstAdapter)
+	e.dispatch(firstCtx)
+	if firstCtx.Err != nil {
+		t.Fatalf("first dispatch returned error: %v", firstCtx.Err)
+	}
+	if want := []string{"mapped-a", "mapped-b"}; !reflect.DeepEqual(firstAdapter.models, want) {
+		t.Fatalf("first dispatch models = %#v, want %#v", firstAdapter.models, want)
+	}
+
+	secondAdapter := &configurableSmartMappingRetryAdapter{succeedOn: "mapped-b"}
+	secondCtx := newSmartMappingRetryDispatchCtx(202, secondAdapter)
+	e.dispatch(secondCtx)
+	if secondCtx.Err != nil {
+		t.Fatalf("second dispatch returned error: %v", secondCtx.Err)
+	}
+	if want := []string{"mapped-b"}; !reflect.DeepEqual(secondAdapter.models, want) {
+		t.Fatalf("second dispatch models = %#v, want %#v", secondAdapter.models, want)
+	}
+}
+
+func TestDispatchSmartMappingRetryIgnoresLastSuccessAfterCandidateListChanges(t *testing.T) {
+	proxyRepo := &recordingProxyRequestRepo{}
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+	e.modelMappingRepo = &stubModelMappingRepo{mappings: []*domain.ModelMapping{
+		{Pattern: "requested-*", Target: "mapped-a"},
+		{Pattern: "requested-*", Target: "mapped-b"},
+	}}
+
+	firstAdapter := &configurableSmartMappingRetryAdapter{succeedOn: "mapped-b"}
+	firstCtx := newSmartMappingRetryDispatchCtx(203, firstAdapter)
+	e.dispatch(firstCtx)
+	if firstCtx.Err != nil {
+		t.Fatalf("first dispatch returned error: %v", firstCtx.Err)
+	}
+
+	e.modelMappingRepo = &stubModelMappingRepo{mappings: []*domain.ModelMapping{
+		{Pattern: "requested-*", Target: "mapped-a"},
+		{Pattern: "requested-*", Target: "mapped-c"},
+	}}
+	secondAdapter := &configurableSmartMappingRetryAdapter{succeedOn: "mapped-c"}
+	secondCtx := newSmartMappingRetryDispatchCtx(204, secondAdapter)
+	e.dispatch(secondCtx)
+	if secondCtx.Err != nil {
+		t.Fatalf("second dispatch returned error: %v", secondCtx.Err)
+	}
+	if want := []string{"mapped-a", "mapped-c"}; !reflect.DeepEqual(secondAdapter.models, want) {
+		t.Fatalf("second dispatch models = %#v, want %#v", secondAdapter.models, want)
 	}
 }
 
