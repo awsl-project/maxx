@@ -56,6 +56,49 @@ func TestClassifyHTTPError402InsufficientBalanceIsKeyQuota(t *testing.T) {
 	}
 }
 
+// OpenRouter returns 402 when a single request's max_tokens exceeds what the
+// remaining credits can cover, even though the key still works for cheaper
+// requests. This must be request-scoped (no cooldown) so one oversized request
+// can't take the whole provider — a shared fallback — offline for everyone.
+func TestClassifyHTTPError402PerRequestAffordabilityIsRequestScoped(t *testing.T) {
+	headers := make(http.Header)
+	body := []byte(`{"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 16000 tokens, but can only afford 7217. To increase, visit https://openrouter.ai/settings/credits and add more credits","code":402,"metadata":{"limit_source":"openrouter_credits"}}}`)
+
+	proxyErr := classifyHTTPError(http.StatusPaymentRequired, body, headers, domain.ClientTypeOpenAI, "openai/gpt-5.5")
+
+	if proxyErr.Scope != domain.ScopeRequest {
+		t.Fatalf("Scope = %v, want ScopeRequest (must not cool the provider)", proxyErr.Scope)
+	}
+	if proxyErr.Reason == domain.CooldownReasonQuotaExhausted {
+		t.Fatal("per-request affordability 402 must not be quota_exhausted (that cools the key)")
+	}
+	if proxyErr.Retryable {
+		t.Fatal("oversized request should not retry the same provider")
+	}
+}
+
+func TestIsPerRequestAffordability402(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"openrouter fewer max_tokens", "requires more credits, or fewer max_tokens", true},
+		{"can only afford", "you requested up to 16000 tokens, but can only afford 7217", true},
+		{"more credits + max_tokens", "needs more credits for these max_tokens", true},
+		{"insufficient balance", "insufficient balance", false},
+		{"no remaining balance", "account has no remaining balance", false},
+		{"generic payment", "payment required", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isPerRequestAffordability402(tc.body); got != tc.want {
+				t.Errorf("isPerRequestAffordability402(%q) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestClassifyHTTPError401AuthFailure(t *testing.T) {
 	headers := make(http.Header)
 	proxyErr := classifyHTTPError(401, []byte(`{"error":{"message":"invalid api key"}}`), headers, domain.ClientTypeOpenAI, "gpt-4")

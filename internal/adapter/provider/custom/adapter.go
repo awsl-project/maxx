@@ -1358,13 +1358,24 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
 		proxyErr.Retryable = false
 
-	// 402 — account/key has no remaining balance. Treat it as key-level
-	// quota exhaustion so routing can fail over to another provider instead of
-	// aborting the whole request as a client/request error.
+	// 402 — payment required. Two very different meanings:
+	//   (a) the key/account balance is exhausted → key-level quota cooldown so
+	//       routing fails over and stops hammering a dry key.
+	//   (b) THIS single request is too expensive for the remaining balance — e.g.
+	//       OpenRouter returns "This request requires more credits, or fewer
+	//       max_tokens. You requested up to N tokens, but can only afford M". The key
+	//       still works fine for cheaper requests, so cooling the whole provider would
+	//       wrongly take out a healthy fallback for everyone else. Treat it as a
+	//       request-scoped failure: fail this oversized request WITHOUT any cooldown.
 	case statusCode == http.StatusPaymentRequired:
-		proxyErr.Scope = domain.ScopeKey
-		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
-		proxyErr.Retryable = false
+		if isPerRequestAffordability402(bodyLower) {
+			proxyErr.Scope = domain.ScopeRequest
+			proxyErr.Retryable = false
+		} else {
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+			proxyErr.Retryable = false
+		}
 
 	// 403 — check if model-specific or account-level
 	case statusCode == 403:
@@ -1478,6 +1489,18 @@ func classify429Error(proxyErr *domain.ProxyError, body []byte, bodyLower string
 		proxyErr.Scope = domain.ScopeModel
 		proxyErr.Model = model
 	}
+}
+
+// isPerRequestAffordability402 reports whether a 402 body means THIS request is too
+// expensive for the remaining balance (rather than the key being fully out of funds).
+// OpenRouter returns this when max_tokens exceeds what the leftover credits can cover:
+// "This request requires more credits, or fewer max_tokens. You requested up to N
+// tokens, but can only afford M." The key still serves cheaper requests, so this must
+// NOT cool the whole provider. Genuine balance-exhausted 402s ("insufficient balance",
+// "no remaining", etc.) do not match and keep the key-level quota cooldown.
+func isPerRequestAffordability402(bodyLower string) bool {
+	return containsAny(bodyLower, "fewer max_tokens", "can only afford") ||
+		(strings.Contains(bodyLower, "more credits") && strings.Contains(bodyLower, "max_tokens"))
 }
 
 // containsAny returns true if s contains any of the substrings.
