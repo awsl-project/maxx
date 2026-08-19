@@ -77,6 +77,27 @@ func TestClassifyHTTPError402PerRequestAffordabilityIsRequestScoped(t *testing.T
 	}
 }
 
+// Even if the affordability 402 arrives with a Retry-After header (parsed before
+// classification), the request-scoped branch must clear the cooldown metadata so a
+// single oversized request can't cool the shared provider.
+func TestClassifyHTTPError402PerRequestAffordabilityClearsRetryAfter(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Retry-After", "30")
+	body := []byte(`{"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 16000 tokens, but can only afford 7217","code":402}}`)
+
+	proxyErr := classifyHTTPError(http.StatusPaymentRequired, body, headers, domain.ClientTypeOpenAI, "openai/gpt-5.5")
+
+	if proxyErr.Scope != domain.ScopeRequest {
+		t.Fatalf("Scope = %v, want ScopeRequest", proxyErr.Scope)
+	}
+	if proxyErr.RetryAfter != 0 {
+		t.Fatalf("RetryAfter = %v, want 0 (request-scoped must not cool the provider)", proxyErr.RetryAfter)
+	}
+	if proxyErr.CooldownUntil != nil {
+		t.Fatalf("CooldownUntil = %v, want nil", *proxyErr.CooldownUntil)
+	}
+}
+
 func TestIsPerRequestAffordability402(t *testing.T) {
 	cases := []struct {
 		name string
@@ -86,6 +107,8 @@ func TestIsPerRequestAffordability402(t *testing.T) {
 		{"openrouter fewer max_tokens", "requires more credits, or fewer max_tokens", true},
 		{"can only afford", "you requested up to 16000 tokens, but can only afford 7217", true},
 		{"more credits + max_tokens", "needs more credits for these max_tokens", true},
+		{"can only afford without token context", "your plan can only afford the basic tier", false},
+		{"more credits without token context", "please add more credits to your account", false},
 		{"insufficient balance", "insufficient balance", false},
 		{"no remaining balance", "account has no remaining balance", false},
 		{"generic payment", "payment required", false},

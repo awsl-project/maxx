@@ -1371,6 +1371,12 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 		if isPerRequestAffordability402(bodyLower) {
 			proxyErr.Scope = domain.ScopeRequest
 			proxyErr.Retryable = false
+			// A request-scoped failure must never cool the provider. Retry-After
+			// parsing runs before this switch, so if the affordability 402 carried
+			// a Retry-After header those fields are already populated — clear them
+			// so no downstream path can turn this into a cooldown.
+			proxyErr.RetryAfter = 0
+			proxyErr.CooldownUntil = nil
 		} else {
 			proxyErr.Scope = domain.ScopeKey
 			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
@@ -1499,8 +1505,17 @@ func classify429Error(proxyErr *domain.ProxyError, body []byte, bodyLower string
 // NOT cool the whole provider. Genuine balance-exhausted 402s ("insufficient balance",
 // "no remaining", etc.) do not match and keep the key-level quota cooldown.
 func isPerRequestAffordability402(bodyLower string) bool {
-	return containsAny(bodyLower, "fewer max_tokens", "can only afford") ||
-		(strings.Contains(bodyLower, "more credits") && strings.Contains(bodyLower, "max_tokens"))
+	// "fewer max_tokens" only ever appears in the per-request affordability message
+	// and is unambiguous on its own.
+	if strings.Contains(bodyLower, "fewer max_tokens") {
+		return true
+	}
+	// Otherwise require an affordability phrase AND explicit per-request token
+	// context. A bare "can only afford" (or "more credits") without a token count
+	// could be an account/key-level 402, which must keep the quota cooldown.
+	affordability := containsAny(bodyLower, "can only afford", "more credits")
+	tokenContext := containsAny(bodyLower, "max_tokens", "requested up to")
+	return affordability && tokenContext
 }
 
 // containsAny returns true if s contains any of the substrings.
