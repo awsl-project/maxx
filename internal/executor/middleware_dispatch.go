@@ -67,7 +67,12 @@ routeLoop:
 		modelCandidates := e.mapModelCandidates(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
 		useSmartMappingRetry := shouldUseSmartMappingRetry(matchedRoute.Provider, len(modelCandidates))
 		smartMappingRetryLimit := getSmartMappingRetryLimit(matchedRoute.Provider)
+		smartMappingKey := ""
 		modelCandidateIndex := 0
+		if useSmartMappingRetry {
+			smartMappingKey = smartMappingCacheKey(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID, modelCandidates)
+			modelCandidateIndex = e.smartMappingStartIndex(smartMappingKey, modelCandidates)
+		}
 		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
 
 		for attempt := 0; ; {
@@ -308,6 +313,9 @@ routeLoop:
 				state.currentAttempt = nil
 
 				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType), mappedModel)
+				if useSmartMappingRetry {
+					e.recordSmartMappingSuccess(smartMappingKey, mappedModel)
+				}
 
 				// Sticky write-back: bind this session to the provider that
 				// just succeeded. Overwrites any previous binding (e.g. when

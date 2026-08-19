@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
@@ -36,6 +37,9 @@ type Executor struct {
 	engine           *flow.Engine
 	middlewares      []flow.HandlerFunc
 	cooldownSem      chan struct{} // semaphore to limit concurrent cooldown update goroutines
+
+	smartMappingMu      sync.RWMutex
+	smartMappingSuccess map[string]string
 }
 
 // NewExecutor creates a new executor
@@ -53,20 +57,21 @@ func NewExecutor(
 	instanceID string,
 ) *Executor {
 	return &Executor{
-		router:           r,
-		proxyRequestRepo: prr,
-		attemptRepo:      ar,
-		apiTokenRepo:     apiTokenRepo,
-		retryConfigRepo:  rcr,
-		sessionRepo:      sessionRepo,
-		modelMappingRepo: modelMappingRepo,
-		settingsRepo:     settingsRepo,
-		broadcaster:      bc,
-		projectWaiter:    projectWaiter,
-		instanceID:       instanceID,
-		converter:        converter.GetGlobalRegistry(),
-		engine:           flow.NewEngine(),
-		cooldownSem:      make(chan struct{}, 10),
+		router:              r,
+		proxyRequestRepo:    prr,
+		attemptRepo:         ar,
+		apiTokenRepo:        apiTokenRepo,
+		retryConfigRepo:     rcr,
+		sessionRepo:         sessionRepo,
+		modelMappingRepo:    modelMappingRepo,
+		settingsRepo:        settingsRepo,
+		broadcaster:         bc,
+		projectWaiter:       projectWaiter,
+		instanceID:          instanceID,
+		converter:           converter.GetGlobalRegistry(),
+		engine:              flow.NewEngine(),
+		cooldownSem:         make(chan struct{}, 10),
+		smartMappingSuccess: make(map[string]string),
 	}
 }
 
@@ -152,6 +157,61 @@ func (e *Executor) mapModelCandidates(tenantID uint64, requestModel string, rout
 		return []string{requestModel}
 	}
 	return candidates
+}
+
+func smartMappingCacheKey(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64, candidates []string) string {
+	routeID := uint64(0)
+	providerID := uint64(0)
+	providerType := ""
+	if route != nil {
+		routeID = route.ID
+	}
+	if provider != nil {
+		providerID = provider.ID
+		providerType = provider.Type
+	}
+	parts := []string{
+		strconv.FormatUint(tenantID, 10),
+		strconv.FormatUint(projectID, 10),
+		strconv.FormatUint(apiTokenID, 10),
+		strconv.FormatUint(routeID, 10),
+		strconv.FormatUint(providerID, 10),
+		providerType,
+		string(clientType),
+		requestModel,
+		strings.Join(candidates, "\x00"),
+	}
+	return strings.Join(parts, "\x1f")
+}
+
+func (e *Executor) smartMappingStartIndex(key string, candidates []string) int {
+	if e == nil || key == "" || len(candidates) == 0 {
+		return 0
+	}
+	e.smartMappingMu.RLock()
+	last := e.smartMappingSuccess[key]
+	e.smartMappingMu.RUnlock()
+	if last == "" {
+		return 0
+	}
+	for i, candidate := range candidates {
+		if candidate == last {
+			return i
+		}
+	}
+	return 0
+}
+
+func (e *Executor) recordSmartMappingSuccess(key string, mappedModel string) {
+	if e == nil || key == "" || mappedModel == "" {
+		return
+	}
+	e.smartMappingMu.Lock()
+	if e.smartMappingSuccess == nil {
+		e.smartMappingSuccess = make(map[string]string)
+	}
+	e.smartMappingSuccess[key] = mappedModel
+	e.smartMappingMu.Unlock()
 }
 
 func (e *Executor) getRetryConfig(tenantID uint64, config *domain.RetryConfig) *domain.RetryConfig {
