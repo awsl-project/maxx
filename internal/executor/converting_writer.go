@@ -296,6 +296,21 @@ func GetPreferredTargetType(supportedTypes []domain.ClientType, originalType dom
 		}
 	}
 
+	// A Gemini client converts most faithfully to OpenAI: the Gemini<->OpenAI
+	// pair is the one that carries generated-image output (Gemini inlineData <->
+	// OpenAI message.images). The Anthropic Messages protocol has no
+	// generated-image representation, so routing a Gemini image request through
+	// Claude silently drops the image the model produced. Prefer OpenAI over
+	// Claude for a Gemini source; providers without OpenAI support (e.g.
+	// claude-only) still fall through to Claude below.
+	if originalType == domain.ClientTypeGemini {
+		for _, t := range supportedTypes {
+			if t == domain.ClientTypeOpenAI {
+				return t
+			}
+		}
+	}
+
 	// Prefer Gemini as target (best fit for Antigravity)
 	for _, t := range supportedTypes {
 		if t == domain.ClientTypeGemini {
