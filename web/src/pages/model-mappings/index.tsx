@@ -37,10 +37,13 @@ import {
   useDeleteModelMapping,
   useClearAllModelMappings,
   useResetModelMappingsToDefaults,
+  usePublicSettings,
 } from '@/hooks/queries';
 import type { ModelMapping, ModelMappingInput } from '@/lib/transport/types';
 import { Zap, Plus, Trash2, ArrowRight, RotateCcw, GripVertical, Search } from 'lucide-react';
 import { useDialog } from '@/contexts/dialog-context';
+
+const MODEL_MAPPING_DEBUGGER_SETTING_KEY = 'ui_model_mapping_debugger_enabled';
 
 function matchWildcard(pattern: string, input: string): boolean {
   const trimmedPattern = pattern.trim();
@@ -198,6 +201,7 @@ export function ModelMappingsPage() {
   const { t } = useTranslation();
   const { confirm } = useDialog();
   const { data: mappings, isLoading } = useModelMappings();
+  const { data: publicSettings } = usePublicSettings();
   const createMapping = useCreateModelMapping();
   const updateMapping = useUpdateModelMapping();
   const reorderMappings = useReorderModelMappings();
@@ -209,6 +213,7 @@ export function ModelMappingsPage() {
   const [newClientType, setNewClientType] = useState('claude');
   const [newProviderType, setNewProviderType] = useState('antigravity');
   const [debugModel, setDebugModel] = useState('');
+  const debuggerEnabled = publicSettings?.[MODEL_MAPPING_DEBUGGER_SETTING_KEY] === 'true';
 
   // Filter only global scope mappings
   const rules = (mappings || []).filter((m) => !m.scope || m.scope === 'global');
@@ -405,106 +410,110 @@ export function ModelMappingsPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
-          <Card className="border-border bg-card">
-            <CardContent className="p-6 space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 font-medium">
-                    <Search className="h-4 w-4 text-primary" />
-                    {t('modelMappings.debuggerTitle')}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{t('modelMappings.debuggerDesc')}</p>
-                </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleRemoveAllDebugMatches}
-                  disabled={!debugQuery || debugMatches.length === 0 || isPending}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  {t('modelMappings.debuggerDeleteAll')}
-                </Button>
-              </div>
-
-              <ModelInput
-                value={debugModel}
-                onChange={setDebugModel}
-                placeholder={t('modelMappings.debuggerPlaceholder')}
-                disabled={isPending}
-                className="h-9 text-sm"
-              />
-
-              {debugQuery && (
-                <div className="rounded-md border border-border bg-muted/30 p-3 space-y-3">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>
-                      {t('modelMappings.debuggerMatched', { count: debugMatches.length })}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      {t('modelMappings.debuggerEffectiveMatched', {
-                        count: effectiveDebugMatches.length,
-                      })}
-                    </span>
-                  </div>
-
-                  {debugMatches.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('modelMappings.debuggerNoMatches')}
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {debugMatches.map((rule) => {
-                        const effective = matchWildcard(rule.pattern, debugQuery);
-                        const hiddenFromGlobalList = rule.scope && rule.scope !== 'global';
-                        return (
-                          <div
-                            key={`debug-rule-${rule.id}`}
-                            className="rounded-md border border-border bg-background p-3 space-y-2"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex flex-wrap items-center gap-2 text-sm">
-                                  <span className="font-mono">#{rule.id}</span>
-                                  <span className="font-mono break-all">{rule.pattern}</span>
-                                  <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                                  <span className="font-mono break-all">{rule.target}</span>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  {describeMappingScope(rule, t)} · priority: {rule.priority}
-                                </p>
-                                <div className="flex flex-wrap gap-2 text-[11px]">
-                                  {effective && (
-                                    <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">
-                                      {t('modelMappings.debuggerEffective')}
-                                    </span>
-                                  )}
-                                  {hiddenFromGlobalList && (
-                                    <span className="rounded bg-destructive/10 px-2 py-0.5 text-destructive">
-                                      {t('modelMappings.debuggerHidden')}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoveDebugRule(rule)}
-                                disabled={isPending}
-                                className="shrink-0"
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
+          {debuggerEnabled && (
+            <Card className="border-border bg-card">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 font-medium">
+                      <Search className="h-4 w-4 text-primary" />
+                      {t('modelMappings.debuggerTitle')}
                     </div>
-                  )}
+                    <p className="text-xs text-muted-foreground">
+                      {t('modelMappings.debuggerDesc')}
+                    </p>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleRemoveAllDebugMatches}
+                    disabled={!debugQuery || debugMatches.length === 0 || isPending}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    {t('modelMappings.debuggerDeleteAll')}
+                  </Button>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+
+                <ModelInput
+                  value={debugModel}
+                  onChange={setDebugModel}
+                  placeholder={t('modelMappings.debuggerPlaceholder')}
+                  disabled={isPending}
+                  className="h-9 text-sm"
+                />
+
+                {debugQuery && (
+                  <div className="rounded-md border border-border bg-muted/30 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>
+                        {t('modelMappings.debuggerMatched', { count: debugMatches.length })}
+                      </span>
+                      <span>·</span>
+                      <span>
+                        {t('modelMappings.debuggerEffectiveMatched', {
+                          count: effectiveDebugMatches.length,
+                        })}
+                      </span>
+                    </div>
+
+                    {debugMatches.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {t('modelMappings.debuggerNoMatches')}
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {debugMatches.map((rule) => {
+                          const effective = matchWildcard(rule.pattern, debugQuery);
+                          const hiddenFromGlobalList = rule.scope && rule.scope !== 'global';
+                          return (
+                            <div
+                              key={`debug-rule-${rule.id}`}
+                              className="rounded-md border border-border bg-background p-3 space-y-2"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                                    <span className="font-mono">#{rule.id}</span>
+                                    <span className="font-mono break-all">{rule.pattern}</span>
+                                    <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                                    <span className="font-mono break-all">{rule.target}</span>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    {describeMappingScope(rule, t)} · priority: {rule.priority}
+                                  </p>
+                                  <div className="flex flex-wrap gap-2 text-[11px]">
+                                    {effective && (
+                                      <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">
+                                        {t('modelMappings.debuggerEffective')}
+                                      </span>
+                                    )}
+                                    {hiddenFromGlobalList && (
+                                      <span className="rounded bg-destructive/10 px-2 py-0.5 text-destructive">
+                                        {t('modelMappings.debuggerHidden')}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemoveDebugRule(rule)}
+                                  disabled={isPending}
+                                  className="shrink-0"
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="border-border bg-card">
             <CardContent className="p-6 space-y-4">

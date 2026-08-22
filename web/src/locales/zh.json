@@ -1530,7 +1530,11 @@
     "openAIChatStreamTimeoutInvalid": "超时时间必须是 1000 到 600000 ms 之间的整数。",
     "openAIChatStreamTimeoutsHint": "默认关闭以保持兼容。开启后建议让 idle timeout 小于 AI SDK 60000 ms 这类客户端保护阈值，这样 Maxx 能先触发重试或故障转移。",
     "enableOpenAIChatStreamTimeouts": "启用 OpenAI Chat 上游流式超时",
-    "enableOpenAIChatStreamTimeoutsDesc": "默认关闭。开启后仅对通过 OpenAI Chat 路由命中的 provider 请求生效。"
+    "enableOpenAIChatStreamTimeoutsDesc": "默认关闭。开启后仅对通过 OpenAI Chat 路由命中的 provider 请求生效。",
+    "modelMappingDebugger": "模型映射调试器",
+    "modelMappingDebuggerDesc": "控制模型映射页是否显示异常映射调试器。默认关闭，避免常规配置页变复杂。",
+    "modelMappingDebuggerLabel": "显示模型映射调试器",
+    "modelMappingDebuggerHint": "开启后可在模型映射页按模型名、规则片段或 ID 搜索所有作用域的映射，并快速删除异常规则。"
   },
   "modelMappings": {
     "title": "模型映射",

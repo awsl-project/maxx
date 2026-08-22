@@ -1533,7 +1533,11 @@
     "openAIChatStreamTimeoutInvalid": "Timeouts must be integers between 1000 and 600000 ms.",
     "openAIChatStreamTimeoutsHint": "Default is off for compatibility. Enable it and keep the idle timeout below client-side stall protection such as the AI SDK 60000 ms watchdog so Maxx can retry or fail over first.",
     "enableOpenAIChatStreamTimeouts": "Enable OpenAI Chat upstream stream timeouts",
-    "enableOpenAIChatStreamTimeoutsDesc": "Default off. When enabled, only provider requests reached through OpenAI Chat routes are affected."
+    "enableOpenAIChatStreamTimeoutsDesc": "Default off. When enabled, only provider requests reached through OpenAI Chat routes are affected.",
+    "modelMappingDebugger": "Model mapping debugger",
+    "modelMappingDebuggerDesc": "Controls whether the abnormal mapping debugger is shown on the Model Mappings page. Disabled by default to keep the normal configuration page simple.",
+    "modelMappingDebuggerLabel": "Show model mapping debugger",
+    "modelMappingDebuggerHint": "When enabled, the Model Mappings page can search mappings across all scopes by model, rule fragment, or ID and quickly delete abnormal rules."
   },
   "modelMappings": {
     "title": "Model Mappings",
