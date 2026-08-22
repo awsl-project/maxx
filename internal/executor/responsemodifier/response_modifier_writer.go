@@ -35,11 +35,13 @@ func newResponseModifier(provider *domain.Provider, clientType domain.ClientType
 	if provider == nil {
 		return nil
 	}
-	modifier := newClaudeResponseModifier(provider, clientType)
-	if modifier == nil {
-		return nil
+	if modifier := newClaudeResponseModifier(provider, clientType); modifier != nil {
+		return modifier
 	}
-	return modifier
+	if modifier := newNewapiImageResponseModifier(provider, clientType); modifier != nil {
+		return modifier
+	}
+	return nil
 }
 
 func (w *ResponseModifierWriter) Header() http.Header {
