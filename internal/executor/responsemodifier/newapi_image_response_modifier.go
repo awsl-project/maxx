@@ -74,11 +74,25 @@ func (m *newapiImageResponseModifier) modifyStreamEvent(event []byte) []byte {
 // there is no Markdown data image, when the body isn't a JSON object, or when a data
 // URL is split across stream chunks (best effort: only complete matches are lifted).
 func rewriteMarkdownImages(body []byte) []byte {
-	if !bytes.Contains(body, []byte("](data:image/")) {
+	// Fast path: skip the JSON parse only when the body cannot possibly contain a
+	// data-URL image. Guard on the minimal substring every match shares ("data:image")
+	// rather than the full "](data:image/" — the regex tolerates whitespace after the
+	// paren (`![image](  data:...`) and JSON may escape the slash (`data:image\/png`),
+	// so a stricter guard would drop matches the extraction below would otherwise make.
+	if !bytes.Contains(body, []byte("data:image")) {
 		return body
 	}
+	// UseNumber so untouched extension fields (e.g. large integer ids/usage counters)
+	// round-trip byte-for-byte instead of being coerced to float64 and re-encoded with
+	// precision loss. Reject trailing non-JSON data so a non-object payload is passed
+	// through untouched rather than partially parsed.
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
 	var object map[string]any
-	if err := json.Unmarshal(body, &object); err != nil {
+	if err := decoder.Decode(&object); err != nil {
+		return body
+	}
+	if decoder.More() {
 		return body
 	}
 	choices, ok := object["choices"].([]any)

@@ -73,6 +73,63 @@ func TestNewapiImageModifier_MultipleImagesAndExistingImages(t *testing.T) {
 	}
 }
 
+func TestNewapiImageModifier_WhitespaceAndEscapedSlashDataURL(t *testing.T) {
+	m := &newapiImageResponseModifier{}
+	cases := []struct {
+		name    string
+		content string
+	}{
+		// whitespace after the opening paren — the regex allows it, so the fast-path
+		// guard must not skip it.
+		{"whitespace before data url", `![image](   ` + dataURL + `)`},
+		// JSON may escape the forward slash in data:image/...
+		{"escaped slash", `![image](` + `data:image\/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==` + `)`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"choices":[{"message":{"role":"assistant","content":"` + tc.content + `"}}]}`)
+			out := m.modifyBody(body)
+			if url := gjson.GetBytes(out, "choices.0.message.images.0.image_url.url").String(); url == "" {
+				t.Fatalf("image not lifted for %s; body=%s", tc.name, out)
+			}
+			if c := gjson.GetBytes(out, "choices.0.message.content").String(); c != "" {
+				t.Fatalf("content = %q, want empty after lifting the sole image", c)
+			}
+		})
+	}
+}
+
+func TestNewapiImageModifier_PreservesLargeIntegerFields(t *testing.T) {
+	m := &newapiImageResponseModifier{}
+	// 19-digit id far beyond float64's exact-integer range (2^53); default
+	// encoding/json would round-trip it as 1.2345678901234568e+18.
+	const bigID = "1234567890123456789"
+	body := []byte(`{"id":` + bigID + `,"usage":{"total_tokens":9007199254740993},` +
+		`"choices":[{"message":{"role":"assistant","content":"x ![image](` + dataURL + `)"}}]}`)
+
+	out := m.modifyBody(body)
+
+	// the image was lifted (so the object WAS re-encoded, exercising the number path)
+	if gjson.GetBytes(out, "choices.0.message.images.0.image_url.url").String() != dataURL {
+		t.Fatalf("image not lifted; body=%s", out)
+	}
+	if got := gjson.GetBytes(out, "id").String(); got != bigID {
+		t.Fatalf("large id corrupted: got %q, want %q", got, bigID)
+	}
+	if got := gjson.GetBytes(out, "usage.total_tokens").String(); got != "9007199254740993" {
+		t.Fatalf("large token count corrupted: got %q", got)
+	}
+}
+
+func TestNewapiImageModifier_TrailingDataIsPassthrough(t *testing.T) {
+	m := &newapiImageResponseModifier{}
+	// valid object followed by trailing junk containing the trigger substring
+	body := []byte(`{"choices":[{"message":{"content":"![image](` + dataURL + `)"}}]} trailing data:image junk`)
+	if out := m.modifyBody(body); string(out) != string(body) {
+		t.Fatalf("body with trailing data must pass through unchanged, got %s", out)
+	}
+}
+
 func TestNewapiImageModifier_NoImageIsPassthrough(t *testing.T) {
 	m := &newapiImageResponseModifier{}
 	body := []byte(`{"choices":[{"message":{"role":"assistant","content":"just text, no image"}}]}`)
