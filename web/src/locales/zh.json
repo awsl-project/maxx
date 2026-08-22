@@ -1553,7 +1553,18 @@
     "scope": "作用域",
     "scopeGlobal": "全局",
     "scopeProvider": "供应商",
-    "scopeRoute": "路由"
+    "scopeRoute": "路由",
+    "debuggerTitle": "模型映射调试器",
+    "debuggerDesc": "输入模型名或规则片段，查出所有作用域里的隐藏映射，并快速删除异常规则。",
+    "debuggerPlaceholder": "输入模型名 / pattern / target / ID，例如 glm-5",
+    "debuggerMatched": "找到 {{count}} 条相关规则",
+    "debuggerEffectiveMatched": "其中 {{count}} 条会按 pattern 命中该模型",
+    "debuggerNoMatches": "没有找到相关模型映射。",
+    "debuggerEffective": "会命中",
+    "debuggerHidden": "全局列表不可见",
+    "debuggerDeleteAll": "删除命中规则",
+    "debuggerConfirmDelete": "删除模型映射 #{{id}}：{{pattern}} → {{target}}？此操作不可撤销。",
+    "debuggerConfirmDeleteAll": "删除当前调试器命中的 {{count}} 条模型映射？此操作不可撤销。"
   },
   "responseModelMappings": {
     "title": "返回值模型映射",

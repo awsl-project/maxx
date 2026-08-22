@@ -1556,7 +1556,18 @@
     "scope": "Scope",
     "scopeGlobal": "Global",
     "scopeProvider": "Provider",
-    "scopeRoute": "Route"
+    "scopeRoute": "Route",
+    "debuggerTitle": "Model mapping debugger",
+    "debuggerDesc": "Enter a model name or rule fragment to find hidden mappings across all scopes and quickly remove abnormal rules.",
+    "debuggerPlaceholder": "Model / pattern / target / ID, e.g. glm-5",
+    "debuggerMatched": "{{count}} related mapping(s) found",
+    "debuggerEffectiveMatched": "{{count}} rule(s) match this model by pattern",
+    "debuggerNoMatches": "No related model mappings found.",
+    "debuggerEffective": "matches",
+    "debuggerHidden": "hidden from global list",
+    "debuggerDeleteAll": "Delete matched rules",
+    "debuggerConfirmDelete": "Delete model mapping #{{id}}: {{pattern}} → {{target}}? This cannot be undone.",
+    "debuggerConfirmDeleteAll": "Delete the {{count}} model mapping(s) currently matched by the debugger? This cannot be undone."
   },
   "responseModelMappings": {
     "title": "Response Model Mapping",
