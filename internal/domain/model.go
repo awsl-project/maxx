@@ -13,6 +13,10 @@ var (
 	ClientTypeCodex  ClientType = "codex"
 	ClientTypeGemini ClientType = "gemini"
 	ClientTypeOpenAI ClientType = "openai"
+	// ClientTypeVideo is the async video-generation surface (new-api style:
+	// POST /v1/video/generations to submit, GET /v1/video/generations/{task_id}
+	// to poll). The client drives the polling; maxx stays a stateless proxy.
+	ClientTypeVideo ClientType = "video"
 )
 
 type ProviderConfigCustom struct {

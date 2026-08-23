@@ -81,7 +81,7 @@ func (m *TokenAuthMiddleware) ExtractToken(req *http.Request, clientType domain.
 				return parts[1]
 			}
 		}
-	case domain.ClientTypeOpenAI, domain.ClientTypeCodex:
+	case domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeVideo:
 		if auth := req.Header.Get("Authorization"); auth != "" {
 			if parts := strings.Fields(auth); len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
 				return parts[1]

@@ -82,6 +82,39 @@ func TestDetectClientTypeRecognizesBareImagesPath(t *testing.T) {
 	}
 }
 
+func TestDetectClientTypeRecognizesVideoGenerationsPath(t *testing.T) {
+	adapter := NewAdapter()
+
+	// Submit: POST with a JSON body carrying the model.
+	submitBody := []byte(`{"model":"doubao-seedance-2-0-260128","prompt":"a cat runs"}`)
+	for _, path := range []string{"/v1/video/generations", "/video/generations"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(string(submitBody)))
+		if got := adapter.DetectClientType(req, submitBody); got != domain.ClientTypeVideo {
+			t.Fatalf("DetectClientType(POST %s) = %s, want %s", path, got, domain.ClientTypeVideo)
+		}
+		if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeVideo {
+			t.Fatalf("Match(POST %s) = (%s, %v), want (%s, true)", path, got, ok, domain.ClientTypeVideo)
+		}
+		if got := adapter.ExtractModel(req, submitBody, domain.ClientTypeVideo); got != "doubao-seedance-2-0-260128" {
+			t.Fatalf("ExtractModel(%s) = %q, want the seedance model", path, got)
+		}
+	}
+
+	// Poll: GET /{task_id} with no body — classified by path, model is empty.
+	for _, path := range []string{"/v1/video/generations/task_abc123", "/video/generations/task_abc123"} {
+		req := httptest.NewRequest("GET", path, nil)
+		if got := adapter.DetectClientType(req, nil); got != domain.ClientTypeVideo {
+			t.Fatalf("DetectClientType(GET %s) = %s, want %s", path, got, domain.ClientTypeVideo)
+		}
+		if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeVideo {
+			t.Fatalf("Match(GET %s) = (%s, %v), want (%s, true)", path, got, ok, domain.ClientTypeVideo)
+		}
+		if got := adapter.ExtractModel(req, nil, domain.ClientTypeVideo); got != "" {
+			t.Fatalf("ExtractModel(poll %s) = %q, want empty", path, got)
+		}
+	}
+}
+
 func TestImagesEdits_MultipartModelExtraction(t *testing.T) {
 	adapter := NewAdapter()
 
