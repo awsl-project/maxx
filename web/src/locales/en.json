@@ -1891,7 +1891,11 @@
       "max": "Max"
     },
     "quotaEnabled": "Enable Quota Check",
-    "quotaEnabledDesc": "When enabled, requests through this provider require the matching API token to have quota; tokens without quota are rejected."
+    "quotaEnabledDesc": "When enabled, requests through this provider require the matching API token to have quota; tokens without quota are rejected.",
+    "consecutiveErrorFreeze": "Temporarily freeze after consecutive errors",
+    "consecutiveErrorFreezeDesc": "When enabled, this provider is temporarily frozen after consecutive upstream-attributed errors reach the threshold, then routing falls through to later providers.",
+    "consecutiveErrorFreezeThreshold": "Consecutive error threshold",
+    "consecutiveErrorFreezeHint": "Only upstream errors such as 5xx, 429, connection failures, timeouts, and stream interruptions are counted. 400/401/403, model-not-found, and invalid request errors do not freeze the provider. Freeze duration reuses the default cooldown setting."
   },
   "cooldown": {
     "title": "Cooldown Protection",

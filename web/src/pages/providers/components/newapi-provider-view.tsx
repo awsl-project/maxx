@@ -13,6 +13,10 @@ import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
+import {
+  ConsecutiveErrorFreezeSettings,
+  normalizeConsecutiveErrorFreezeThreshold,
+} from './consecutive-error-freeze-settings';
 
 const NEWAPI_CLIENT_TYPES = ['openai', 'claude', 'gemini'] as const;
 
@@ -48,6 +52,12 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
+  const [consecutiveErrorFreezeEnabled, setConsecutiveErrorFreezeEnabled] = useState(
+    !!provider.config?.consecutiveErrorFreezeEnabled,
+  );
+  const [consecutiveErrorFreezeThreshold, setConsecutiveErrorFreezeThreshold] = useState(
+    normalizeConsecutiveErrorFreezeThreshold(provider.config?.consecutiveErrorFreezeThreshold),
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -73,6 +83,8 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
         maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
+          consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
+          consecutiveErrorFreezeThreshold,
           custom: {
             // Blank preserves the stored values for export-excluded providers.
             baseURL: baseURL.trim(),
@@ -143,10 +155,7 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                 />
               </div>
 
-              <ProviderMaxConcurrencyField
-                value={maxConcurrency}
-                onChange={setMaxConcurrency}
-              />
+              <ProviderMaxConcurrencyField value={maxConcurrency} onChange={setMaxConcurrency} />
 
               {!secretsAreWriteOnly && (
                 <div>
@@ -244,6 +253,13 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
               </div>
               <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
             </div>
+            <ConsecutiveErrorFreezeSettings
+              disableErrorCooldown={disableErrorCooldown}
+              enabled={consecutiveErrorFreezeEnabled}
+              threshold={consecutiveErrorFreezeThreshold}
+              onEnabledChange={setConsecutiveErrorFreezeEnabled}
+              onThresholdChange={setConsecutiveErrorFreezeThreshold}
+            />
           </div>
 
           {saveStatus === 'error' && (

@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/converter"
+	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/router"
@@ -23,6 +25,10 @@ type disabledCooldownStreamRetryAdapter struct {
 type disabledCooldownHTTPErrorAdapter struct {
 	calls        int
 	succeedAfter int
+}
+
+type disabledCooldownSuccessAdapter struct {
+	calls int
 }
 
 func (a *disabledCooldownStreamRetryAdapter) SupportedClientTypes() []domain.ClientType {
@@ -50,6 +56,15 @@ func (a *disabledCooldownStreamRetryAdapter) Execute(c *flow.Ctx, _ *domain.Prov
 
 func (a *disabledCooldownHTTPErrorAdapter) SupportedClientTypes() []domain.ClientType {
 	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *disabledCooldownSuccessAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *disabledCooldownSuccessAdapter) Execute(_ *flow.Ctx, _ *domain.Provider) error {
+	a.calls++
+	return nil
 }
 
 func (a *disabledCooldownHTTPErrorAdapter) Execute(_ *flow.Ctx, _ *domain.Provider) error {
@@ -168,6 +183,75 @@ func TestDispatchDisableErrorCooldownRetriesHTTPErrorBeyondRetryBudget(t *testin
 	}
 	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
 		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
+func TestDispatchDisableErrorCooldownFreezesAfterConsecutiveErrorsAndFailsOver(t *testing.T) {
+	cooldown.Default().ClearCooldown(31, "", "")
+	defer cooldown.Default().ClearCooldown(31, "", "")
+	cooldown.Default().ResetFailures(31, "", "")
+	defer cooldown.Default().ResetFailures(31, "", "")
+
+	proxyRepo := &recordingProxyRequestRepo{}
+	attemptRepo := &recordingAttemptRepo{}
+	firstAdapter := &disabledCooldownHTTPErrorAdapter{}
+	secondAdapter := &disabledCooldownSuccessAdapter{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
+	c := flow.NewCtx(rec, req)
+	proxyReq := &domain.ProxyRequest{ID: 103, TenantID: domain.DefaultTenantID, ClientType: domain.ClientTypeOpenAI, Status: "IN_PROGRESS", StartTime: time.Now()}
+	state := &execState{
+		ctx:          context.Background(),
+		proxyReq:     proxyReq,
+		tenantID:     domain.DefaultTenantID,
+		clientType:   domain.ClientTypeOpenAI,
+		requestModel: "gpt-4o",
+		routes: []*router.MatchedRoute{
+			{
+				Route:           &domain.Route{ID: 10, TenantID: domain.DefaultTenantID, ProviderID: 31, ClientType: domain.ClientTypeOpenAI},
+				Provider:        &domain.Provider{ID: 31, TenantID: domain.DefaultTenantID, Type: "custom", Name: "bad-provider", Config: &domain.ProviderConfig{DisableErrorCooldown: true, ConsecutiveErrorFreezeEnabled: true, ConsecutiveErrorFreezeThreshold: 2}},
+				ProviderAdapter: firstAdapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+			},
+			{
+				Route:           &domain.Route{ID: 11, TenantID: domain.DefaultTenantID, ProviderID: 32, ClientType: domain.ClientTypeOpenAI},
+				Provider:        &domain.Provider{ID: 32, TenantID: domain.DefaultTenantID, Type: "custom", Name: "fallback-provider", Config: &domain.ProviderConfig{}},
+				ProviderAdapter: secondAdapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+			},
+		},
+	}
+	c.Set(flow.KeyExecutorState, state)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, attemptRepo)
+	e.settingsRepo = &stubExecutorSettingsRepo{values: map[string]string{domain.SettingKeyRateLimitCooldownDefaultSeconds: "15"}}
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if firstAdapter.calls != 2 {
+		t.Fatalf("first adapter calls = %d, want 2", firstAdapter.calls)
+	}
+	if secondAdapter.calls != 1 {
+		t.Fatalf("second adapter calls = %d, want 1", secondAdapter.calls)
+	}
+	if !cooldown.Default().IsInCooldown(31, string(domain.ClientTypeOpenAI), "gpt-4o") {
+		t.Fatal("first provider was not frozen after consecutive upstream errors")
+	}
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
+func TestConsecutiveErrorFreezeIgnoresRequestScopedClientErrors(t *testing.T) {
+	provider := &domain.Provider{Config: &domain.ProviderConfig{DisableErrorCooldown: true, ConsecutiveErrorFreezeEnabled: true}}
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New("bad request"), false, "bad request")
+	proxyErr.Scope = domain.ScopeRequest
+	proxyErr.HTTPStatusCode = http.StatusBadRequest
+
+	if shouldUseConsecutiveErrorFreeze(provider, proxyErr) {
+		t.Fatal("request-scoped 400 should not trigger consecutive provider freeze")
 	}
 }
 
@@ -472,7 +556,7 @@ func TestDispatchDisableErrorCooldownKeepsSmartMappingRetryOnSameProvider(t *tes
 }
 
 type canceledContextRetryAdapter struct {
-	calls int
+	calls atomic.Int32
 }
 
 func (a *canceledContextRetryAdapter) SupportedClientTypes() []domain.ClientType {
@@ -480,7 +564,7 @@ func (a *canceledContextRetryAdapter) SupportedClientTypes() []domain.ClientType
 }
 
 func (a *canceledContextRetryAdapter) Execute(*flow.Ctx, *domain.Provider) error {
-	a.calls++
+	a.calls.Add(1)
 	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream retryable error"), true, "upstream retryable error")
 	proxyErr.Scope = domain.ScopeProvider
 	proxyErr.Reason = domain.CooldownReasonNetworkError
@@ -519,7 +603,7 @@ func TestDispatchDoesNotRetryAfterRequestContextCanceled(t *testing.T) {
 	e := newDisabledCooldownStreamTestExecutor(&recordingProxyRequestRepo{}, &recordingAttemptRepo{})
 
 	go func() {
-		for adapter.calls == 0 {
+		for adapter.calls.Load() == 0 {
 			time.Sleep(time.Millisecond)
 		}
 		cancel()
@@ -527,8 +611,8 @@ func TestDispatchDoesNotRetryAfterRequestContextCanceled(t *testing.T) {
 
 	e.dispatch(c)
 
-	if adapter.calls != 1 {
-		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	if calls := adapter.calls.Load(); calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1", calls)
 	}
 	if !errors.Is(c.Err, context.Canceled) {
 		t.Fatalf("dispatch error = %v, want context.Canceled", c.Err)

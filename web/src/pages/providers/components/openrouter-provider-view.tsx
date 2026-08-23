@@ -14,6 +14,10 @@ import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
+import {
+  ConsecutiveErrorFreezeSettings,
+  normalizeConsecutiveErrorFreezeThreshold,
+} from './consecutive-error-freeze-settings';
 
 interface OpenRouterProviderViewProps {
   provider: Provider;
@@ -49,6 +53,12 @@ export function OpenRouterProviderView({
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
+  const [consecutiveErrorFreezeEnabled, setConsecutiveErrorFreezeEnabled] = useState(
+    !!provider.config?.consecutiveErrorFreezeEnabled,
+  );
+  const [consecutiveErrorFreezeThreshold, setConsecutiveErrorFreezeThreshold] = useState(
+    normalizeConsecutiveErrorFreezeThreshold(provider.config?.consecutiveErrorFreezeThreshold),
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -74,6 +84,8 @@ export function OpenRouterProviderView({
         maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
+          consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
+          consecutiveErrorFreezeThreshold,
           openrouter: {
             // Blank preserves the stored key (backend keeps existing secret).
             apiKey: apiKey.trim(),
@@ -143,10 +155,7 @@ export function OpenRouterProviderView({
                 />
               </div>
 
-              <ProviderMaxConcurrencyField
-                value={maxConcurrency}
-                onChange={setMaxConcurrency}
-              />
+              <ProviderMaxConcurrencyField value={maxConcurrency} onChange={setMaxConcurrency} />
 
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">
@@ -231,6 +240,13 @@ export function OpenRouterProviderView({
               </div>
               <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
             </div>
+            <ConsecutiveErrorFreezeSettings
+              disableErrorCooldown={disableErrorCooldown}
+              enabled={consecutiveErrorFreezeEnabled}
+              threshold={consecutiveErrorFreezeThreshold}
+              onEnabledChange={setConsecutiveErrorFreezeEnabled}
+              onThresholdChange={setConsecutiveErrorFreezeThreshold}
+            />
           </div>
 
           {saveStatus === 'error' && (
