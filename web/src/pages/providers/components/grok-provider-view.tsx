@@ -13,6 +13,10 @@ import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
+import {
+  ConsecutiveErrorFreezeSettings,
+  normalizeConsecutiveErrorFreezeThreshold,
+} from './consecutive-error-freeze-settings';
 
 interface GrokProviderViewProps {
   provider: Provider;
@@ -32,6 +36,12 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
   const [baseURL, setBaseURL] = useState(grok?.baseURL || '');
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
+  );
+  const [consecutiveErrorFreezeEnabled, setConsecutiveErrorFreezeEnabled] = useState(
+    !!provider.config?.consecutiveErrorFreezeEnabled,
+  );
+  const [consecutiveErrorFreezeThreshold, setConsecutiveErrorFreezeThreshold] = useState(
+    normalizeConsecutiveErrorFreezeThreshold(provider.config?.consecutiveErrorFreezeThreshold),
   );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
@@ -53,6 +63,8 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
         maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
+          consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
+          consecutiveErrorFreezeThreshold,
           grok: {
             type: 'xai',
             authKind: 'oauth',
@@ -130,10 +142,7 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
                 </label>
                 <Input value={name} onChange={(event) => setName(event.target.value)} />
               </div>
-              <ProviderMaxConcurrencyField
-                value={maxConcurrency}
-                onChange={setMaxConcurrency}
-              />
+              <ProviderMaxConcurrencyField value={maxConcurrency} onChange={setMaxConcurrency} />
               <div>
                 <label className="mb-2 block text-sm font-medium text-foreground">
                   {t('addProvider.grok.email')}
@@ -188,6 +197,13 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
               </div>
               <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
             </div>
+            <ConsecutiveErrorFreezeSettings
+              disableErrorCooldown={disableErrorCooldown}
+              enabled={consecutiveErrorFreezeEnabled}
+              threshold={consecutiveErrorFreezeThreshold}
+              onEnabledChange={setConsecutiveErrorFreezeEnabled}
+              onThresholdChange={setConsecutiveErrorFreezeThreshold}
+            />
           </div>
 
           <div className="space-y-6">
