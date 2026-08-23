@@ -42,6 +42,12 @@ func RegisterProxyRoutes(mux *http.ServeMux, handlers ProxyRouteHandlers) {
 		// OpenRouter unified image API (POST /v1/images → data[].b64_json)
 		mux.Handle("/v1/images", handlers.ProxyHandler)
 		mux.Handle("/images", handlers.ProxyHandler)
+		// Async video generation (new-api style): POST submit + GET /{task_id} poll.
+		// The trailing-slash subtree pattern matches the /{task_id} poll path.
+		mux.Handle("/v1/video/generations", handlers.ProxyHandler)
+		mux.Handle("/v1/video/generations/", handlers.ProxyHandler)
+		mux.Handle("/video/generations", handlers.ProxyHandler)
+		mux.Handle("/video/generations/", handlers.ProxyHandler)
 		// Codex API
 		mux.Handle("/responses", responsesHandler)
 		mux.Handle("/responses/", responsesHandler)

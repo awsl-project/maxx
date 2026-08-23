@@ -51,6 +51,10 @@ func (a *Adapter) Match(req *http.Request) (domain.ClientType, bool) {
 		// OpenAI Images API (generations/edits). Body carries no messages/input,
 		// so body-detection can't classify it — key off the path.
 		return domain.ClientTypeOpenAI, true
+	case IsVideoGenerationsPath(path):
+		// Async video generation (submit POST / poll GET). Poll has no body, so
+		// key off the path.
+		return domain.ClientTypeVideo, true
 	case strings.HasPrefix(path, "/v1beta/models/"):
 		return domain.ClientTypeGemini, true
 	case strings.HasPrefix(path, "/v1internal/models/"):
@@ -187,6 +191,10 @@ func (a *Adapter) DetectClientType(req *http.Request, body []byte) domain.Client
 		// OpenAI Images API (generations/edits). Body carries no messages/input,
 		// so body-detection can't classify it — key off the path.
 		return domain.ClientTypeOpenAI
+	case IsVideoGenerationsPath(path):
+		// Async video generation (submit POST / poll GET). Poll has no body, so
+		// key off the path.
+		return domain.ClientTypeVideo
 	case strings.HasPrefix(path, "/v1beta/models/"):
 		return domain.ClientTypeGemini
 	case strings.HasPrefix(path, "/v1internal/models/"):
@@ -246,6 +254,27 @@ func isOpenAIImagesPath(path string) bool {
 	// body-based detection returns "" and the request 400s.
 	return path == "/v1/images" || path == "/images" ||
 		strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/images/")
+}
+
+// IsVideoGenerationsPath matches the async video-generation surface: the exact
+// submit path (POST /v1/video/generations) and the poll subpath
+// (GET /v1/video/generations/{task_id}). The poll carries no body/model, so it
+// must be classified by path. Exported so the ingress gate can allow GET polls.
+func IsVideoGenerationsPath(path string) bool {
+	return path == "/v1/video/generations" || strings.HasPrefix(path, "/v1/video/generations/") ||
+		path == "/video/generations" || strings.HasPrefix(path, "/video/generations/")
+}
+
+// IsVideoPollPath reports whether path is a video-generation POLL — the
+// collection path plus a non-empty task id (e.g. /v1/video/generations/task_abc).
+// Only the poll is a GET; the bare collection path is submit-only (POST).
+func IsVideoPollPath(path string) bool {
+	for _, base := range []string{"/v1/video/generations/", "/video/generations/"} {
+		if strings.HasPrefix(path, base) && strings.TrimPrefix(path, base) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func isClaudeUserAgent(userAgent string) bool {

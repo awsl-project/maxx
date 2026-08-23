@@ -125,8 +125,14 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		upstreamURL = addClaudeQueryParams(upstreamURL)
 	}
 
-	// Create upstream request
-	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
+	// Create upstream request. Preserve the inbound method so the async
+	// video-generation poll (GET /v1/video/generations/{task_id}) is forwarded as
+	// GET; everything else is POST.
+	method := http.MethodPost
+	if request != nil && request.Method != "" {
+		method = request.Method
+	}
+	upstreamReq, err := http.NewRequestWithContext(ctx, method, upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to create upstream request")
 		proxyErr.Scope = domain.ScopeEndpoint
@@ -223,6 +229,22 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Gemini: Use Gemini-style headers with passthrough support
 		applyGeminiHeaders(upstreamReq, request, a.provider.Config.Custom.APIKey)
 		targetUserAgent = geminiUserAgent
+	case domain.ClientTypeVideo:
+		// Async video generation: forward the client's headers, then force the
+		// provider's bearer key so both submit (POST) and poll (GET) authenticate
+		// even if the client omitted Authorization. Strip every client auth header
+		// first — setAuthHeader only sets Authorization for video, so a client's
+		// x-api-key / x-goog-api-key / Proxy-Authorization (any of which may carry
+		// the maxx token) would otherwise leak to the upstream provider.
+		originalHeaders := flow.GetRequestHeaders(c)
+		upstreamReq.Header = make(http.Header)
+		copyHeadersFiltered(upstreamReq.Header, originalHeaders)
+		for _, h := range []string{"Authorization", "Proxy-Authorization", "x-api-key", "x-goog-api-key"} {
+			upstreamReq.Header.Del(h)
+		}
+		if a.provider.Config.Custom.APIKey != "" {
+			setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey, true)
+		}
 	default:
 		// Other types: Preserve original header forwarding logic
 		originalHeaders := flow.GetRequestHeaders(c)
@@ -1023,6 +1045,8 @@ func normalizeOpenAIUpstreamRequestPath(requestPath string) string {
 	// provider path arrives without one (e.g. /provider/{slug}/images).
 	case requestPath == "/images" || strings.HasPrefix(requestPath, "/images/") || strings.HasPrefix(requestPath, "/images?"):
 		return "/v1" + requestPath
+	case requestPath == "/video/generations" || strings.HasPrefix(requestPath, "/video/generations/"):
+		return "/v1" + requestPath
 	case requestPath == "/models" || strings.HasPrefix(requestPath, "/models?"):
 		return "/v1" + requestPath
 	default:
@@ -1083,8 +1107,8 @@ func setAuthHeader(req *http.Request, clientType domain.ClientType, apiKey strin
 	// even if the original request didn't have it (e.g., Claude x-api-key -> OpenAI Authorization)
 	if forceCreate {
 		switch clientType {
-		case domain.ClientTypeOpenAI, domain.ClientTypeCodex:
-			// OpenAI/Codex-style: Authorization: Bearer <key>
+		case domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeVideo:
+			// OpenAI/Codex/Video-style: Authorization: Bearer <key>
 			req.Header.Set("Authorization", "Bearer "+apiKey)
 		case domain.ClientTypeClaude:
 			// Claude-style: x-api-key

@@ -989,7 +989,7 @@ func projectHasCustomRoutes(project *domain.Project, clientType domain.ClientTyp
 
 func isValidRouteClientType(clientType domain.ClientType) bool {
 	switch clientType {
-	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeGemini:
+	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeGemini, domain.ClientTypeVideo:
 		return true
 	default:
 		return false

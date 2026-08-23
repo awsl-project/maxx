@@ -189,7 +189,12 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		defer tracker.Done()
 	}
 
-	if r.Method != http.MethodPost {
+	// The proxy surface is POST-only, except the async video-generation poll
+	// (GET /v1/video/generations/{task_id}) which the client drives. The bare
+	// submit endpoint stays POST-only.
+	methodAllowed := r.Method == http.MethodPost ||
+		(r.Method == http.MethodGet && client.IsVideoPollPath(r.URL.Path))
+	if !methodAllowed {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		c.Abort()
 		return

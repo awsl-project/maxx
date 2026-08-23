@@ -60,6 +60,24 @@ func TestBuildUpstreamURLNormalizesOpenAIBaseRoots(t *testing.T) {
 			requestPath: "/v1/images",
 			want:        "https://openrouter.ai/api/v1/images",
 		},
+		{
+			name:        "root-style video submit path gains v1",
+			baseURL:     "https://code0.ai",
+			requestPath: "/video/generations",
+			want:        "https://code0.ai/v1/video/generations",
+		},
+		{
+			name:        "root-style video poll path gains v1",
+			baseURL:     "https://code0.ai",
+			requestPath: "/video/generations/task_abc",
+			want:        "https://code0.ai/v1/video/generations/task_abc",
+		},
+		{
+			name:        "canonical v1 video poll path unchanged",
+			baseURL:     "https://code0.ai",
+			requestPath: "/v1/video/generations/task_abc",
+			want:        "https://code0.ai/v1/video/generations/task_abc",
+		},
 	}
 
 	for _, tt := range tests {
