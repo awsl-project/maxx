@@ -232,10 +232,16 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	case domain.ClientTypeVideo:
 		// Async video generation: forward the client's headers, then force the
 		// provider's bearer key so both submit (POST) and poll (GET) authenticate
-		// even if the client omitted Authorization.
+		// even if the client omitted Authorization. Strip every client auth header
+		// first — setAuthHeader only sets Authorization for video, so a client's
+		// x-api-key / x-goog-api-key / Proxy-Authorization (any of which may carry
+		// the maxx token) would otherwise leak to the upstream provider.
 		originalHeaders := flow.GetRequestHeaders(c)
 		upstreamReq.Header = make(http.Header)
 		copyHeadersFiltered(upstreamReq.Header, originalHeaders)
+		for _, h := range []string{"Authorization", "Proxy-Authorization", "x-api-key", "x-goog-api-key"} {
+			upstreamReq.Header.Del(h)
+		}
 		if a.provider.Config.Custom.APIKey != "" {
 			setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey, true)
 		}
@@ -1038,6 +1044,8 @@ func normalizeOpenAIUpstreamRequestPath(requestPath string) string {
 	// OpenRouter unified image endpoint. Both need the /v1 prefix when the
 	// provider path arrives without one (e.g. /provider/{slug}/images).
 	case requestPath == "/images" || strings.HasPrefix(requestPath, "/images/") || strings.HasPrefix(requestPath, "/images?"):
+		return "/v1" + requestPath
+	case requestPath == "/video/generations" || strings.HasPrefix(requestPath, "/video/generations/"):
 		return "/v1" + requestPath
 	case requestPath == "/models" || strings.HasPrefix(requestPath, "/models?"):
 		return "/v1" + requestPath

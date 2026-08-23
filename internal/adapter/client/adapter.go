@@ -265,6 +265,18 @@ func IsVideoGenerationsPath(path string) bool {
 		path == "/video/generations" || strings.HasPrefix(path, "/video/generations/")
 }
 
+// IsVideoPollPath reports whether path is a video-generation POLL — the
+// collection path plus a non-empty task id (e.g. /v1/video/generations/task_abc).
+// Only the poll is a GET; the bare collection path is submit-only (POST).
+func IsVideoPollPath(path string) bool {
+	for _, base := range []string{"/v1/video/generations/", "/video/generations/"} {
+		if strings.HasPrefix(path, base) && strings.TrimPrefix(path, base) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func isClaudeUserAgent(userAgent string) bool {
 	return strings.HasPrefix(userAgent, "claude-cli")
 }

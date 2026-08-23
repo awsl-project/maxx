@@ -1,6 +1,7 @@
 package custom
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -40,11 +41,14 @@ func TestCustomAdapterExecuteVideoSubmitAndPoll(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotMethod, gotPath, gotAuth string
+			var gotMethod, gotPath, gotAuth, gotAPIKey, gotGoog, gotProxyAuth string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotMethod = r.Method
 				gotPath = r.URL.Path
 				gotAuth = r.Header.Get("Authorization")
+				gotAPIKey = r.Header.Get("x-api-key")
+				gotGoog = r.Header.Get("x-goog-api-key")
+				gotProxyAuth = r.Header.Get("Proxy-Authorization")
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(w, `{"task_id":"task_abc123","status":"queued"}`)
 			}))
@@ -65,9 +69,13 @@ func TestCustomAdapterExecuteVideoSubmitAndPoll(t *testing.T) {
 				t.Fatalf("NewAdapter error: %v", err)
 			}
 
-			req, _ := http.NewRequest(tc.method, "http://localhost"+tc.requestURI, nil)
-			// The client sends its maxx token; the adapter must rewrite it to the key.
+			req, _ := http.NewRequestWithContext(context.Background(), tc.method, "http://localhost"+tc.requestURI, nil)
+			// The client may present its maxx token in any accepted auth header; none
+			// of them must reach the upstream — only the provider key does.
 			req.Header.Set("Authorization", "Bearer sk-maxx-client-token")
+			req.Header.Set("x-api-key", "sk-maxx-client-token")
+			req.Header.Set("x-goog-api-key", "sk-maxx-client-token")
+			req.Header.Set("Proxy-Authorization", "Bearer sk-maxx-client-token")
 
 			rec := httptest.NewRecorder()
 			ctx := flow.NewCtx(rec, req)
@@ -89,6 +97,10 @@ func TestCustomAdapterExecuteVideoSubmitAndPoll(t *testing.T) {
 			}
 			if gotAuth != "Bearer sk-seedance" {
 				t.Fatalf("upstream Authorization = %q, want %q", gotAuth, "Bearer sk-seedance")
+			}
+			// The client's token must not leak through any alternate auth header.
+			if gotAPIKey != "" || gotGoog != "" || gotProxyAuth != "" {
+				t.Fatalf("client auth leaked upstream: x-api-key=%q x-goog-api-key=%q Proxy-Authorization=%q", gotAPIKey, gotGoog, gotProxyAuth)
 			}
 		})
 	}

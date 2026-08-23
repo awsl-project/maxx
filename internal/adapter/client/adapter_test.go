@@ -115,6 +115,27 @@ func TestDetectClientTypeRecognizesVideoGenerationsPath(t *testing.T) {
 	}
 }
 
+// Only the poll (collection path + a non-empty task id) may be a GET; the bare
+// submit endpoints stay POST-only, so the method gate must not treat them as polls.
+func TestIsVideoPollPath(t *testing.T) {
+	polls := []string{"/v1/video/generations/task_abc123", "/video/generations/task_abc123"}
+	for _, p := range polls {
+		if !IsVideoPollPath(p) {
+			t.Fatalf("IsVideoPollPath(%s) = false, want true", p)
+		}
+	}
+	notPolls := []string{
+		"/v1/video/generations", "/video/generations",
+		"/v1/video/generations/", "/video/generations/", // trailing slash, no task id
+		"/v1/chat/completions",
+	}
+	for _, p := range notPolls {
+		if IsVideoPollPath(p) {
+			t.Fatalf("IsVideoPollPath(%s) = true, want false", p)
+		}
+	}
+}
+
 func TestImagesEdits_MultipartModelExtraction(t *testing.T) {
 	adapter := NewAdapter()
 
