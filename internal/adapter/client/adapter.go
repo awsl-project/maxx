@@ -270,7 +270,9 @@ func IsVideoGenerationsPath(path string) bool {
 // Only the poll is a GET; the bare collection path is submit-only (POST).
 func IsVideoPollPath(path string) bool {
 	for _, base := range []string{"/v1/video/generations/", "/video/generations/"} {
-		if strings.HasPrefix(path, base) && strings.TrimPrefix(path, base) != "" {
+		// Trim leading slashes off the remainder so degenerate forms like
+		// "/v1/video/generations//" (no task id) are not mistaken for a poll.
+		if strings.HasPrefix(path, base) && strings.TrimLeft(strings.TrimPrefix(path, base), "/") != "" {
 			return true
 		}
 	}

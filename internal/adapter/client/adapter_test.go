@@ -127,6 +127,7 @@ func TestIsVideoPollPath(t *testing.T) {
 	notPolls := []string{
 		"/v1/video/generations", "/video/generations",
 		"/v1/video/generations/", "/video/generations/", // trailing slash, no task id
+		"/v1/video/generations//", "/video/generations//", // only slashes, still no task id
 		"/v1/chat/completions",
 	}
 	for _, p := range notPolls {

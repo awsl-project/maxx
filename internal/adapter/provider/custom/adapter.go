@@ -1045,7 +1045,8 @@ func normalizeOpenAIUpstreamRequestPath(requestPath string) string {
 	// provider path arrives without one (e.g. /provider/{slug}/images).
 	case requestPath == "/images" || strings.HasPrefix(requestPath, "/images/") || strings.HasPrefix(requestPath, "/images?"):
 		return "/v1" + requestPath
-	case requestPath == "/video/generations" || strings.HasPrefix(requestPath, "/video/generations/"):
+	case requestPath == "/video/generations" || strings.HasPrefix(requestPath, "/video/generations/") ||
+		strings.HasPrefix(requestPath, "/video/generations?"):
 		return "/v1" + requestPath
 	case requestPath == "/models" || strings.HasPrefix(requestPath, "/models?"):
 		return "/v1" + requestPath
