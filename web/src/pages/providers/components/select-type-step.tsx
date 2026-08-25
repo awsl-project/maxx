@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { quickTemplates, PROVIDER_TYPE_CONFIGS, type ProviderFormData } from '../types';
 import openrouterLogo from '@/assets/icons/openrouter.svg';
+import zhipuLogo from '@/assets/icons/zhipu.svg';
 import { Button } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useTranslation } from 'react-i18next';
@@ -266,6 +267,37 @@ export function SelectTypeStep() {
                 </Button>
               )}
 
+              {!PROVIDER_TYPE_CONFIGS.zai.hidden && (
+                <Button
+                  onClick={() => handleSelectType('zai')}
+                  variant="ghost"
+                  className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    formData.type === 'zai'
+                      ? 'border-provider-zai bg-provider-zai/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                    <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-zai/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                      <img src={zhipuLogo} alt="z.ai" className="size-5 md:size-6 object-contain" />
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
+                        {t('addProvider.zai.name')}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                        {t('addProvider.zai.description')}
+                      </p>
+                    </div>
+
+                    {formData.type === 'zai' && (
+                      <CheckCircle2 className="size-5 text-provider-zai shrink-0 self-center animate-in zoom-in-50 duration-200" />
+                    )}
+                  </div>
+                </Button>
+              )}
+
               {!PROVIDER_TYPE_CONFIGS.grok.hidden && (
                 <Button
                   onClick={() => handleSelectType('grok')}
@@ -282,7 +314,9 @@ export function SelectTypeStep() {
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-1">
-                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">Grok</h3>
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
+                        Grok
+                      </h3>
                       <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
                         Import xAI OAuth JSON from CLIProxyAPI
                       </p>
@@ -294,7 +328,6 @@ export function SelectTypeStep() {
                   </div>
                 </Button>
               )}
-
 
               <Button
                 onClick={() => handleSelectType('custom')}

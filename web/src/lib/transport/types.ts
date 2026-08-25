@@ -123,6 +123,17 @@ export interface ProviderConfigOpenRouter {
   apiKey: string;
 }
 
+// z.ai（智谱 / Zhipu GLM）一级供应商配置。后端按客户端类型合成 baseURL：claude 走
+// Anthropic Messages 端点（/api/anthropic），openai 走 OpenAI Chat Completions 端点
+// （按 plan 走 /api/coding/paas/v4 或 /api/paas/v4）。服务 GLM 系列（glm-4.6 等）。
+// 模型映射走通用的 ModelMapping 实体，不放在 config 里。
+export interface ProviderConfigZai {
+  apiKey: string;
+  // 套餐：'coding'（编程套餐，默认）或 'api'（标准 API）。仅影响 openai 端点，claude
+  // 两套餐共用 /api/anthropic。留空按 coding 处理。
+  plan?: 'coding' | 'api';
+}
+
 export interface ProviderConfigGrok {
   type?: 'xai';
   authKind?: 'oauth';
@@ -248,6 +259,7 @@ export interface ProviderConfig {
   codex?: ProviderConfigCodex;
   claude?: ProviderConfigClaude;
   openrouter?: ProviderConfigOpenRouter;
+  zai?: ProviderConfigZai;
   grok?: ProviderConfigGrok;
 }
 

@@ -2062,6 +2062,22 @@
       "modelMappingTo": "OpenRouter model id",
       "modelMappingEmpty": "No mappings — models are passed through as-is"
     },
+    "zai": {
+      "name": "z.ai (智谱 GLM)",
+      "description": "Zhipu GLM · Anthropic + OpenAI compatible",
+      "apiKey": "z.ai API Key",
+      "apiKeyHint": "Get your key from https://z.ai/manage-apikey/apikey-list",
+      "planTitle": "Plan",
+      "plan_coding": "Coding Plan",
+      "plan_codingDesc": "GLM Coding Plan subscription — OpenAI endpoint uses /api/coding/paas/v4",
+      "plan_api": "Standard API",
+      "plan_apiDesc": "Pay-as-you-go / resource packs — OpenAI endpoint uses /api/paas/v4",
+      "planHint": "Both plans share the same Anthropic endpoint; the plan only changes the OpenAI endpoint.",
+      "clientsTitle": "Client Types",
+      "clientClaudeDesc": "Claude Code / Anthropic Messages (/v1/messages) — serves the GLM models",
+      "clientOpenaiDesc": "OpenAI Chat Completions (/chat/completions) — serves the GLM models",
+      "clientRequired": "Enable at least one client type."
+    },
     "templates": {
       "88code": {
         "name": "88 Code",

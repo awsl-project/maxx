@@ -40,6 +40,38 @@ func TestBuildUpstreamURLNormalizesOpenAIBaseRoots(t *testing.T) {
 			want:        "https://relay.example.com/compatible/v1/chat/completions",
 		},
 		{
+			// z.ai coding plan: base already carries the /v4 version, so the
+			// canonical /v1 prefix must be dropped (z.ai 404s on /paas/v4/v1/...).
+			name:        "zai coding versioned root drops doubled v1",
+			baseURL:     "https://api.z.ai/api/coding/paas/v4",
+			requestPath: "/v1/chat/completions",
+			want:        "https://api.z.ai/api/coding/paas/v4/chat/completions",
+		},
+		{
+			// z.ai standard API: same collapse, and a root-style path still gains
+			// exactly one version segment (not two).
+			name:        "zai standard versioned root plus root-style chat path",
+			baseURL:     "https://api.z.ai/api/paas/v4",
+			requestPath: "/chat/completions",
+			want:        "https://api.z.ai/api/paas/v4/chat/completions",
+		},
+		{
+			// Model discovery via the proxy: /v1/models collapses against the
+			// versioned root too.
+			name:        "zai versioned root drops doubled v1 for models",
+			baseURL:     "https://api.z.ai/api/paas/v4",
+			requestPath: "/v1/models",
+			want:        "https://api.z.ai/api/paas/v4/models",
+		},
+		{
+			// z.ai Anthropic root ends in "anthropic" (not a version segment), so
+			// the Claude /v1/messages path is preserved untouched.
+			name:        "zai anthropic root keeps v1 messages",
+			baseURL:     "https://api.z.ai/api/anthropic",
+			requestPath: "/v1/messages",
+			want:        "https://api.z.ai/api/anthropic/v1/messages",
+		},
+		{
 			name:        "root-style images path gains v1",
 			baseURL:     "https://api.openai.com",
 			requestPath: "/images/generations",

@@ -45,6 +45,7 @@ import { KiroProviderView } from './kiro-provider-view';
 import { CodexProviderView } from './codex-provider-view';
 import { ClaudeProviderView } from './claude-provider-view';
 import { OpenRouterProviderView } from './openrouter-provider-view';
+import { ZaiProviderView } from './zai-provider-view';
 import { NewApiProviderView } from './newapi-provider-view';
 import { OllamaProviderView } from './ollama-provider-view';
 import { GrokProviderView } from './grok-provider-view';
@@ -568,7 +569,11 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     const disguise = customCfg?.disguise;
     const legacyCloak = customCfg?.cloak;
     // Default disguiseType: 'claude-code' (preserves legacy auto-cloak behavior).
-    const disguiseType = (disguise?.type ?? 'claude-code') as 'none' | 'claude-code' | 'bedrock' | 'x-api-key';
+    const disguiseType = (disguise?.type ?? 'claude-code') as
+      | 'none'
+      | 'claude-code'
+      | 'bedrock'
+      | 'x-api-key';
     const cc = disguise?.claudeCode ?? legacyCloak;
     return {
       name: provider.name,
@@ -956,6 +961,26 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return (
       <>
         <OpenRouterProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // z.ai (智谱 GLM) provider
+  if (provider.type === 'zai') {
+    return (
+      <>
+        <ZaiProviderView
           provider={provider}
           onDelete={() => setShowDeleteConfirm(true)}
           onClose={onClose}

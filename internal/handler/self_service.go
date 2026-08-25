@@ -1776,6 +1776,11 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		openrouter.APIKey = ""
 		config.OpenRouter = &openrouter
 	}
+	if config.Zai != nil {
+		zai := *config.Zai
+		zai.APIKey = ""
+		config.Zai = &zai
+	}
 	if config.Grok != nil {
 		grok := *config.Grok
 		grok.AccessToken = ""

@@ -538,6 +538,15 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 				incoming.Config.OpenRouter.APIKey = existing.Config.OpenRouter.APIKey
 			}
 		}
+	case "zai":
+		if existing.Config.Zai != nil {
+			if incoming.Config.Zai == nil {
+				zai := *existing.Config.Zai
+				incoming.Config.Zai = &zai
+			} else if incoming.Config.Zai.APIKey == "" {
+				incoming.Config.Zai.APIKey = existing.Config.Zai.APIKey
+			}
+		}
 	case "grok":
 		if existing.Config.Grok != nil {
 			if incoming.Config.Grok == nil {

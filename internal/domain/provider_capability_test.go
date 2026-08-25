@@ -58,6 +58,24 @@ func TestCanonicalSupportedClientTypes(t *testing.T) {
 			want:         []ClientType{ClientTypeOpenAI, ClientTypeCodex},
 		},
 		{
+			name:         "zai defaults to claude and openai when unset",
+			providerType: "zai",
+			configured:   nil,
+			want:         []ClientType{ClientTypeClaude, ClientTypeOpenAI},
+		},
+		{
+			name:         "zai honors configured openai-only",
+			providerType: "zai",
+			configured:   []ClientType{ClientTypeOpenAI},
+			want:         []ClientType{ClientTypeOpenAI},
+		},
+		{
+			name:         "zai honors configured claude-only",
+			providerType: "zai",
+			configured:   []ClientType{ClientTypeClaude},
+			want:         []ClientType{ClientTypeClaude},
+		},
+		{
 			name:         "antigravity fixed",
 			providerType: "antigravity",
 			configured:   []ClientType{ClientTypeOpenAI},

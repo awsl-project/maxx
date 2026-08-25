@@ -22,6 +22,7 @@ export type ProviderType =
   | 'codex'
   | 'claude'
   | 'openrouter'
+  | 'zai'
   | 'grok'
   | 'newapi'
   | 'ollama';
