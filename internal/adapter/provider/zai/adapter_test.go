@@ -27,7 +27,7 @@ func TestNewAdapterRequiresZaiConfig(t *testing.T) {
 func TestNewAdapterSynthesizesCustomConfig(t *testing.T) {
 	p := &domain.Provider{
 		Name:                 "my-zai",
-		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex},
 		Config: &domain.ProviderConfig{
 			DisableErrorCooldown: true,
 			Zai: &domain.ProviderConfigZai{
@@ -67,6 +67,10 @@ func TestNewAdapterSynthesizesCustomConfig(t *testing.T) {
 	if got := custom.ClientBaseURL[domain.ClientTypeOpenAI]; got != openAICodingBaseURL {
 		t.Errorf("ClientBaseURL[openai] = %q, want %q (default coding plan)", got, openAICodingBaseURL)
 	}
+	// Codex routes to the plan-independent Responses root.
+	if got := custom.ClientBaseURL[domain.ClientTypeCodex]; got != openAIResponsesBaseURL {
+		t.Errorf("ClientBaseURL[codex] = %q, want %q", got, openAIResponsesBaseURL)
+	}
 	// Disguise must be forced off: z.ai's /api/anthropic is a real Anthropic
 	// gateway, and the default claude-code disguise injects Claude Code
 	// fingerprints/prompt-caching the client never asked for.
@@ -82,11 +86,18 @@ func TestNewAdapterSynthesizesCustomConfig(t *testing.T) {
 		t.Error("real provider Config.Custom should stay nil")
 	}
 
-	// z.ai natively speaks both Anthropic Messages and OpenAI Chat Completions;
-	// the configured [claude, openai] set is preserved.
+	// z.ai natively speaks Anthropic Messages, OpenAI Chat Completions and OpenAI
+	// Responses; the configured [claude, openai, codex] set is preserved.
 	got := a.SupportedClientTypes()
-	if len(got) != 2 || got[0] != domain.ClientTypeClaude || got[1] != domain.ClientTypeOpenAI {
-		t.Errorf("SupportedClientTypes = %v, want [claude openai]", got)
+	want := []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex}
+	if len(got) != len(want) {
+		t.Fatalf("SupportedClientTypes = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("SupportedClientTypes = %v, want %v", got, want)
+			break
+		}
 	}
 }
 

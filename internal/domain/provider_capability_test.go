@@ -58,10 +58,10 @@ func TestCanonicalSupportedClientTypes(t *testing.T) {
 			want:         []ClientType{ClientTypeOpenAI, ClientTypeCodex},
 		},
 		{
-			name:         "zai defaults to claude and openai when unset",
+			name:         "zai defaults to claude, openai and codex when unset",
 			providerType: "zai",
 			configured:   nil,
-			want:         []ClientType{ClientTypeClaude, ClientTypeOpenAI},
+			want:         []ClientType{ClientTypeClaude, ClientTypeOpenAI, ClientTypeCodex},
 		},
 		{
 			name:         "zai honors configured openai-only",

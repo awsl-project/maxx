@@ -32,6 +32,7 @@ export function ZaiConfigStep() {
   const [plan, setPlan] = useState<'coding' | 'api'>('coding');
   const [claudeEnabled, setClaudeEnabled] = useState(true);
   const [openaiEnabled, setOpenaiEnabled] = useState(true);
+  const [codexEnabled, setCodexEnabled] = useState(true);
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
   const [maxConcurrency, setMaxConcurrency] = useState(0);
@@ -39,9 +40,10 @@ export function ZaiConfigStep() {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  const supportedClientTypes: ('claude' | 'openai')[] = [
+  const supportedClientTypes: ('claude' | 'openai' | 'codex')[] = [
     ...(claudeEnabled ? (['claude'] as const) : []),
     ...(openaiEnabled ? (['openai'] as const) : []),
+    ...(codexEnabled ? (['codex'] as const) : []),
   ];
 
   const isValid = () =>
@@ -225,6 +227,15 @@ export function ZaiConfigStep() {
                 </p>
               </div>
               <Switch checked={openaiEnabled} onCheckedChange={setOpenaiEnabled} />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground capitalize">codex</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('addProvider.zai.clientCodexDesc')}
+                </p>
+              </div>
+              <Switch checked={codexEnabled} onCheckedChange={setCodexEnabled} />
             </div>
             {supportedClientTypes.length === 0 && (
               <p className="text-xs text-error">{t('addProvider.zai.clientRequired')}</p>

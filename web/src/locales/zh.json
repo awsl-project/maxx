@@ -2072,6 +2072,7 @@
       "clientsTitle": "客户端类型",
       "clientClaudeDesc": "Claude Code / Anthropic Messages（/v1/messages）— 承载 GLM 模型",
       "clientOpenaiDesc": "OpenAI Chat Completions（/chat/completions）— 承载 GLM 模型",
+      "clientCodexDesc": "Codex CLI / OpenAI Responses（/responses）— 承载 GLM 模型",
       "clientRequired": "至少启用一种客户端类型。"
     },
     "templates": {

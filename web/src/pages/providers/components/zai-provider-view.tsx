@@ -45,6 +45,7 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
     initialClients.length === 0 || initialClients.includes('claude'),
   );
   const [openaiEnabled, setOpenaiEnabled] = useState(initialClients.includes('openai'));
+  const [codexEnabled, setCodexEnabled] = useState(initialClients.includes('codex'));
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
@@ -54,9 +55,10 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  const supportedClientTypes: ('claude' | 'openai')[] = [
+  const supportedClientTypes: ('claude' | 'openai' | 'codex')[] = [
     ...(claudeEnabled ? (['claude'] as const) : []),
     ...(openaiEnabled ? (['openai'] as const) : []),
+    ...(codexEnabled ? (['codex'] as const) : []),
   ];
 
   const isValid = () => name.trim() !== '' && supportedClientTypes.length > 0;
@@ -236,6 +238,15 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
                 </p>
               </div>
               <Switch checked={openaiEnabled} onCheckedChange={setOpenaiEnabled} />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground capitalize">codex</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('addProvider.zai.clientCodexDesc')}
+                </p>
+              </div>
+              <Switch checked={codexEnabled} onCheckedChange={setCodexEnabled} />
             </div>
             {supportedClientTypes.length === 0 && (
               <p className="text-xs text-error">{t('addProvider.zai.clientRequired')}</p>

@@ -1,11 +1,13 @@
 // Package zai implements a first-class provider adapter for z.ai (智谱 / Zhipu
 // GLM, https://z.ai) — the vendor of the GLM model family (glm-4.6, glm-4.5,
-// glm-4.5-air, ...). z.ai exposes TWO compatible protocols over the same key:
+// glm-4.5-air, ...). z.ai exposes THREE compatible protocols over the same key:
 //
 //   - Anthropic Messages    https://api.z.ai/api/anthropic          (Claude clients,
 //     /v1/messages) — exactly the endpoint the z.ai "GLM coding plan" points Claude
 //     Code at (ANTHROPIC_BASE_URL=.../api/anthropic, ANTHROPIC_AUTH_TOKEN=<key>).
 //   - OpenAI Chat Completions .../paas/v4                            (OpenAI clients)
+//   - OpenAI Responses      https://api.z.ai/api/v1/responses        (Codex clients) —
+//     plan-independent; the endpoint Codex CLI drives.
 //
 // z.ai further splits into two "ports"/plans that differ ONLY in the OpenAI root:
 //
@@ -48,6 +50,14 @@ const (
 	// openAIAPIBaseURL is the OpenAI Chat Completions root for the standard API
 	// (标准 API / 资源包).
 	openAIAPIBaseURL = "https://api.z.ai/api/paas/v4"
+
+	// openAIResponsesBaseURL is z.ai's OpenAI Responses API root (Codex clients).
+	// It is plan-independent: z.ai serves Responses at /api/v1/responses for both
+	// the coding plan and the standard API (the /coding/paas/v4 and /paas/v4 roots
+	// 404 on /responses). Codex clients append /responses (the custom core echoes
+	// the client's original Responses path; buildUpstreamURL collapses the extra
+	// /v1 against this versioned root).
+	openAIResponsesBaseURL = "https://api.z.ai/api/v1"
 
 	// planCoding is the default plan (GLM Coding Plan); planAPI is the standard API.
 	planCoding = "coding"
@@ -99,6 +109,16 @@ func OpenAIBaseURL(plan string) string {
 	return resolveOpenAIBaseURL(plan)
 }
 
+// resolveResponsesBaseURL returns z.ai's OpenAI Responses root (Codex clients).
+// Redirectable via MAXX_ZAI_RESPONSES_BASE_URL (e.g. the China mainland root
+// https://open.bigmodel.cn/api/v1 or a mock upstream). Plan-independent.
+func resolveResponsesBaseURL() string {
+	if v := strings.TrimSpace(os.Getenv("MAXX_ZAI_RESPONSES_BASE_URL")); v != "" {
+		return v
+	}
+	return openAIResponsesBaseURL
+}
+
 func init() {
 	provider.RegisterAdapterFactory("zai", NewAdapter)
 }
@@ -136,6 +156,7 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 	// this provider (SupportedClientTypes).
 	anthropicBase := resolveBaseURL()
 	openAIBase := resolveOpenAIBaseURL(z.Plan)
+	responsesBase := resolveResponsesBaseURL()
 	synth := *p
 	synth.Config = &domain.ProviderConfig{
 		DisableErrorCooldown: p.Config.DisableErrorCooldown,
@@ -145,6 +166,12 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 			ClientBaseURL: map[domain.ClientType]string{
 				domain.ClientTypeClaude: anthropicBase,
 				domain.ClientTypeOpenAI: openAIBase,
+				// Codex speaks the OpenAI Responses API; z.ai serves it at
+				// /api/v1/responses regardless of plan. Responses passthrough is on by
+				// default (ResponsesPassthrough nil → true), so the custom core echoes
+				// the client's original path and buildUpstreamURL collapses the extra
+				// /v1 against this versioned root.
+				domain.ClientTypeCodex: responsesBase,
 			},
 			// z.ai's endpoints are first-party, natively compatible gateways — the
 			// Anthropic one must NOT be disguised as the Claude Code CLI. The custom

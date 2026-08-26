@@ -28,6 +28,7 @@ func TestLiveZaiEndToEnd(t *testing.T) {
 	const (
 		claudeBody = `{"model":"glm-4.6","max_tokens":32,"messages":[{"role":"user","content":"reply with just: pong"}]}`
 		openAIBody = `{"model":"glm-4.6","max_tokens":32,"stream":false,"messages":[{"role":"user","content":"reply with just: pong"}]}`
+		codexBody  = `{"model":"glm-4.6","stream":false,"input":"reply with just: pong"}`
 	)
 
 	cases := []struct {
@@ -39,8 +40,10 @@ func TestLiveZaiEndToEnd(t *testing.T) {
 	}{
 		{"coding plan / claude", planCoding, domain.ClientTypeClaude, "/v1/messages", claudeBody},
 		{"coding plan / openai", planCoding, domain.ClientTypeOpenAI, "/v1/chat/completions", openAIBody},
+		{"coding plan / codex", planCoding, domain.ClientTypeCodex, "/responses", codexBody},
 		{"standard api / claude", planAPI, domain.ClientTypeClaude, "/v1/messages", claudeBody},
 		{"standard api / openai", planAPI, domain.ClientTypeOpenAI, "/v1/chat/completions", openAIBody},
+		{"standard api / codex", planAPI, domain.ClientTypeCodex, "/responses", codexBody},
 	}
 
 	for _, tc := range cases {

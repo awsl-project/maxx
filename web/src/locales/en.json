@@ -2076,6 +2076,7 @@
       "clientsTitle": "Client Types",
       "clientClaudeDesc": "Claude Code / Anthropic Messages (/v1/messages) — serves the GLM models",
       "clientOpenaiDesc": "OpenAI Chat Completions (/chat/completions) — serves the GLM models",
+      "clientCodexDesc": "Codex CLI / OpenAI Responses (/responses) — serves the GLM models",
       "clientRequired": "Enable at least one client type."
     },
     "templates": {
