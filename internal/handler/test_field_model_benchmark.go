@@ -746,7 +746,10 @@ func testFieldProviderCacheKey(provider *domain.Provider) string {
 		}
 	case "zai":
 		if provider.Config.Zai != nil {
-			parts = append(parts, provider.Config.Zai.APIKey)
+			// Include the plan-resolved OpenAI root so switching coding⇄api (same key)
+			// invalidates the model-list cache — the discovery/benchmark endpoints
+			// differ by plan (/coding/paas/v4 vs /paas/v4).
+			parts = append(parts, provider.Config.Zai.APIKey, zai.OpenAIBaseURL(provider.Config.Zai.Plan))
 		}
 	case "grok":
 		if provider.Config.Grok != nil {

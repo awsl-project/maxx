@@ -138,6 +138,25 @@ func TestNewAdapterPlanSelectsOpenAIEndpoint(t *testing.T) {
 	}
 }
 
+// TestEnvBaseURLOverridesTrimTrailingSlash guards against a doubled separator:
+// admin model-discovery/benchmark concatenate OpenAIBaseURL(plan)+"/models" /
+// "/chat/completions", so a trailing slash on the override must be stripped.
+func TestEnvBaseURLOverridesTrimTrailingSlash(t *testing.T) {
+	t.Setenv("MAXX_ZAI_OPENAI_BASE_URL", "https://example.com/api/paas/v4/")
+	t.Setenv("MAXX_ZAI_RESPONSES_BASE_URL", "https://example.com/api/v1//")
+	t.Setenv("MAXX_ZAI_BASE_URL", "https://example.com/api/anthropic/")
+
+	if got := OpenAIBaseURL(planCoding); got != "https://example.com/api/paas/v4" {
+		t.Errorf("OpenAIBaseURL = %q, want trailing slash trimmed", got)
+	}
+	if got := resolveResponsesBaseURL(); got != "https://example.com/api/v1" {
+		t.Errorf("resolveResponsesBaseURL = %q, want trailing slashes trimmed", got)
+	}
+	if got := resolveBaseURL(); got != "https://example.com/api/anthropic" {
+		t.Errorf("resolveBaseURL = %q, want trailing slash trimmed", got)
+	}
+}
+
 func TestAdapterFactoryRegistered(t *testing.T) {
 	if _, ok := provider.GetAdapterFactory("zai"); !ok {
 		t.Fatal("zai adapter factory not registered")

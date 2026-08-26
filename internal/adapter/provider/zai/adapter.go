@@ -64,12 +64,22 @@ const (
 	planAPI    = "api"
 )
 
+// envBaseURL returns a trimmed base-URL override from the named env var, or ""
+// when unset. Trailing slashes are stripped so downstream path concatenation
+// never doubles the separator — buildUpstreamURL trims too, but the admin
+// model-list/benchmark helpers concatenate OpenAIBaseURL(plan) with "/models" /
+// "/chat/completions" directly, where a stray "https://.../paas/v4/" would
+// otherwise yield ".../v4//models" (some upstreams 404 on that).
+func envBaseURL(key string) string {
+	return strings.TrimRight(strings.TrimSpace(os.Getenv(key)), "/")
+}
+
 // resolveBaseURL returns z.ai's Anthropic API root (Claude clients). Fixed in
 // production but redirectable via MAXX_ZAI_BASE_URL — used by tests to point at a
 // mock upstream, and usable to target the China mainland root
 // (https://open.bigmodel.cn/api/anthropic) or a self-hosted GLM gateway.
 func resolveBaseURL() string {
-	if v := strings.TrimSpace(os.Getenv("MAXX_ZAI_BASE_URL")); v != "" {
+	if v := envBaseURL("MAXX_ZAI_BASE_URL"); v != "" {
 		return v
 	}
 	return defaultBaseURL
@@ -91,7 +101,7 @@ func normalizePlan(plan string) string {
 // China mainland root https://open.bigmodel.cn/api/[coding/]paas/v4 or a mock
 // upstream); the override wins for both plans.
 func resolveOpenAIBaseURL(plan string) string {
-	if v := strings.TrimSpace(os.Getenv("MAXX_ZAI_OPENAI_BASE_URL")); v != "" {
+	if v := envBaseURL("MAXX_ZAI_OPENAI_BASE_URL"); v != "" {
 		return v
 	}
 	if normalizePlan(plan) == planAPI {
@@ -113,7 +123,7 @@ func OpenAIBaseURL(plan string) string {
 // Redirectable via MAXX_ZAI_RESPONSES_BASE_URL (e.g. the China mainland root
 // https://open.bigmodel.cn/api/v1 or a mock upstream). Plan-independent.
 func resolveResponsesBaseURL() string {
-	if v := strings.TrimSpace(os.Getenv("MAXX_ZAI_RESPONSES_BASE_URL")); v != "" {
+	if v := envBaseURL("MAXX_ZAI_RESPONSES_BASE_URL"); v != "" {
 		return v
 	}
 	return openAIResponsesBaseURL
