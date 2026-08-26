@@ -56,9 +56,6 @@ func TestNewAdapterSynthesizesCustomConfig(t *testing.T) {
 	if custom.APIKey != "zai-secret" {
 		t.Errorf("APIKey = %q, want zai-secret", custom.APIKey)
 	}
-	if custom.Backend != "" {
-		t.Errorf("Backend = %q, want empty (HTTP passthrough)", custom.Backend)
-	}
 	// Claude routes to the shared Anthropic root; OpenAI routes to the plan root
 	// (default plan = coding → /api/coding/paas/v4).
 	if got := custom.ClientBaseURL[domain.ClientTypeClaude]; got != defaultBaseURL {

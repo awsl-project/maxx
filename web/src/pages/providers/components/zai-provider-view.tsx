@@ -228,7 +228,11 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
                   {t('addProvider.zai.clientClaudeDesc')}
                 </p>
               </div>
-              <Switch checked={claudeEnabled} onCheckedChange={setClaudeEnabled} />
+              <Switch
+                checked={claudeEnabled}
+                onCheckedChange={setClaudeEnabled}
+                aria-label="claude"
+              />
             </div>
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">
@@ -237,7 +241,11 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
                   {t('addProvider.zai.clientOpenaiDesc')}
                 </p>
               </div>
-              <Switch checked={openaiEnabled} onCheckedChange={setOpenaiEnabled} />
+              <Switch
+                checked={openaiEnabled}
+                onCheckedChange={setOpenaiEnabled}
+                aria-label="openai"
+              />
             </div>
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">
@@ -246,7 +254,7 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
                   {t('addProvider.zai.clientCodexDesc')}
                 </p>
               </div>
-              <Switch checked={codexEnabled} onCheckedChange={setCodexEnabled} />
+              <Switch checked={codexEnabled} onCheckedChange={setCodexEnabled} aria-label="codex" />
             </div>
             {supportedClientTypes.length === 0 && (
               <p className="text-xs text-error">{t('addProvider.zai.clientRequired')}</p>
