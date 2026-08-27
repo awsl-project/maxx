@@ -1362,6 +1362,9 @@ type ModelMapping struct {
 
 	// 优先级，数字越小优先级越高
 	Priority int `json:"priority"`
+
+	// 是否启用，关闭后视为不存在
+	IsEnabled bool `json:"isEnabled"`
 }
 
 // ModelMappingRule 简化的映射规则（用于 API 和内部逻辑）

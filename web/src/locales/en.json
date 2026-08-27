@@ -1553,6 +1553,7 @@
     "providerType": "Type",
     "providerID": "P#",
     "projectID": "Proj#",
+    "status": "Status",
     "allClients": "All",
     "allProviderTypes": "All",
     "confirmReset": "Are you sure you want to reset to preset? This will delete all custom mappings and restore defaults.",
@@ -1569,6 +1570,7 @@
     "debuggerNoMatches": "No related model mappings found.",
     "debuggerEffective": "matches",
     "debuggerHidden": "hidden from global list",
+    "toggleRule": "Toggle mapping rule {{pattern}} to {{target}}",
     "debuggerDeleteAll": "Delete matched rules",
     "debuggerConfirmDelete": "Delete model mapping #{{id}}: {{pattern}} → {{target}}? This cannot be undone.",
     "debuggerConfirmDeleteAll": "Delete the {{count}} model mapping(s) currently matched by the debugger? This cannot be undone."

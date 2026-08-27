@@ -75,7 +75,11 @@ func (r *ModelMappingRepository) List(tenantID uint64) ([]*domain.ModelMapping, 
 }
 
 func (r *ModelMappingRepository) ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error) {
-	models, err := r.listActive(tenantID)
+	var models []ModelMapping
+	err := tenantScope(r.db.gorm, tenantID).
+		Where("deleted_at = 0 AND is_enabled = 1").
+		Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").
+		Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +93,7 @@ func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.Mode
 	var models []ModelMapping
 	err := tenantScope(r.db.gorm, tenantID).Where(
 		`deleted_at = 0
+		AND is_enabled = 1
 		AND (client_type = '' OR client_type = ?)
 		AND (provider_type = '' OR provider_type = ?)
 		AND (provider_id = 0 OR provider_id = ?)
@@ -197,22 +202,22 @@ func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
 
 func (r *ModelMappingRepository) SeedDefaults(tenantID uint64) error {
 	defaultRules := []ModelMapping{
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o-mini*", Target: "gemini-2.5-flash", Priority: 0},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o*", Target: "gemini-3-flash", Priority: 1},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4*", Target: "gemini-3-pro-high", Priority: 2},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-3.5*", Target: "gemini-2.5-flash", Priority: 3},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o1-*", Target: "gemini-3-pro-high", Priority: 4},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o3-*", Target: "gemini-3-pro-high", Priority: 5},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-5-sonnet-*", Target: "claude-sonnet-4-5", Priority: 6},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-opus-*", Target: "claude-opus-4-6-thinking", Priority: 7},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-6*", Target: "claude-opus-4-6-thinking", Priority: 8},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-5*", Target: "claude-opus-4-5-thinking", Priority: 9},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-*", Target: "claude-opus-4-6-thinking", Priority: 10},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 11},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 12},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*opus*", Target: "claude-opus-4-6-thinking", Priority: 13},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*sonnet*", Target: "claude-sonnet-4-5", Priority: 14},
-		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*haiku*", Target: "gemini-2.5-flash-lite", Priority: 15},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o-mini*", Target: "gemini-2.5-flash", Priority: 0, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o*", Target: "gemini-3-flash", Priority: 1, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4*", Target: "gemini-3-pro-high", Priority: 2, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-3.5*", Target: "gemini-2.5-flash", Priority: 3, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o1-*", Target: "gemini-3-pro-high", Priority: 4, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o3-*", Target: "gemini-3-pro-high", Priority: 5, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-5-sonnet-*", Target: "claude-sonnet-4-5", Priority: 6, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-opus-*", Target: "claude-opus-4-6-thinking", Priority: 7, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-6*", Target: "claude-opus-4-6-thinking", Priority: 8, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-5*", Target: "claude-opus-4-5-thinking", Priority: 9, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-*", Target: "claude-opus-4-6-thinking", Priority: 10, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 11, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 12, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*opus*", Target: "claude-opus-4-6-thinking", Priority: 13, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*sonnet*", Target: "claude-sonnet-4-5", Priority: 14, IsEnabled: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*haiku*", Target: "gemini-2.5-flash-lite", Priority: 15, IsEnabled: 1},
 	}
 
 	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
@@ -255,6 +260,7 @@ func (r *ModelMappingRepository) toModel(mapping *domain.ModelMapping) *ModelMap
 		Pattern:      mapping.Pattern,
 		Target:       mapping.Target,
 		Priority:     mapping.Priority,
+		IsEnabled:    boolToInt(mapping.IsEnabled),
 	}
 }
 
@@ -279,6 +285,7 @@ func (r *ModelMappingRepository) toDomain(m *ModelMapping) *domain.ModelMapping 
 		Pattern:      m.Pattern,
 		Target:       m.Target,
 		Priority:     m.Priority,
+		IsEnabled:    m.IsEnabled != 0,
 	}
 }
 

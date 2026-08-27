@@ -1550,6 +1550,7 @@
     "providerType": "类型",
     "providerID": "P#",
     "projectID": "Proj#",
+    "status": "状态",
     "allClients": "全部",
     "allProviderTypes": "全部",
     "confirmReset": "确定要重置为预设吗？这将删除所有自定义映射并恢复默认配置。",
@@ -1566,6 +1567,7 @@
     "debuggerNoMatches": "没有找到相关模型映射。",
     "debuggerEffective": "会命中",
     "debuggerHidden": "全局列表不可见",
+    "toggleRule": "切换映射规则 {{pattern}} 到 {{target}} 的启用状态",
     "debuggerDeleteAll": "删除命中规则",
     "debuggerConfirmDelete": "删除模型映射 #{{id}}：{{pattern}} → {{target}}？此操作不可撤销。",
     "debuggerConfirmDeleteAll": "删除当前调试器命中的 {{count}} 条模型映射？此操作不可撤销。"

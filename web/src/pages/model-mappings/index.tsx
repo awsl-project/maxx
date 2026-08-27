@@ -26,6 +26,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
 } from '@/components/ui';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
@@ -110,6 +111,10 @@ function describeMappingScope(rule: ModelMapping, t: (key: string) => string) {
   return parts.join(' · ');
 }
 
+function isMappingEnabled(rule: ModelMapping) {
+  return rule.isEnabled !== false;
+}
+
 interface SortableRuleItemProps {
   id: string;
   index: number;
@@ -152,6 +157,15 @@ function SortableRuleItem({
         <GripVertical className="h-4 w-4 text-muted-foreground" />
       </button>
       <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
+      <Switch
+        checked={isMappingEnabled(rule)}
+        onCheckedChange={(checked) => onUpdate({ isEnabled: checked })}
+        disabled={disabled}
+        aria-label={t('modelMappings.toggleRule', {
+          pattern: rule.pattern || '*',
+          target: rule.target || '-',
+        })}
+      />
 
       {/* Pattern -> Target */}
       <ModelInput
@@ -159,7 +173,7 @@ function SortableRuleItem({
         onChange={(pattern) => onUpdate({ pattern })}
         placeholder={t('modelMappings.matchPattern')}
         disabled={disabled}
-        className="flex-1 min-w-0 h-7 text-xs"
+        className={`flex-1 min-w-0 h-7 text-xs ${!isMappingEnabled(rule) ? 'opacity-50' : ''}`}
       />
       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
       <ModelInput
@@ -167,7 +181,7 @@ function SortableRuleItem({
         onChange={(target) => onUpdate({ target })}
         placeholder={t('modelMappings.targetModel')}
         disabled={disabled}
-        className="flex-1 min-w-0 h-7 text-xs"
+        className={`flex-1 min-w-0 h-7 text-xs ${!isMappingEnabled(rule) ? 'opacity-50' : ''}`}
       />
 
       {/* Client Type (read-only) */}
@@ -188,6 +202,12 @@ function SortableRuleItem({
       {/* Project ID (read-only) */}
       <span className="w-[50px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
         {rule.projectID || '-'}
+      </span>
+
+      <span
+        className={`w-[72px] h-7 text-[11px] shrink-0 flex items-center ${isMappingEnabled(rule) ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
+      >
+        {isMappingEnabled(rule) ? t('common.enabled') : t('common.disabled')}
       </span>
 
       <Button variant="ghost" size="sm" onClick={onRemove} disabled={disabled} className="shrink-0">
@@ -242,12 +262,15 @@ export function ModelMappingsPage() {
       .sort((a, b) => {
         const scopeDiff = scopePriority(a.scope) - scopePriority(b.scope);
         if (scopeDiff !== 0) return scopeDiff;
+        if (Number(isMappingEnabled(b)) !== Number(isMappingEnabled(a))) {
+          return Number(isMappingEnabled(b)) - Number(isMappingEnabled(a));
+        }
         if (a.priority !== b.priority) return a.priority - b.priority;
         return a.id - b.id;
       });
   }, [debugQuery, mappings]);
   const effectiveDebugMatches = debugMatches.filter((rule) =>
-    matchWildcard(rule.pattern, debugQuery),
+    isMappingEnabled(rule) && matchWildcard(rule.pattern, debugQuery),
   );
 
   const sensors = useSensors(
@@ -334,18 +357,18 @@ export function ModelMappingsPage() {
   const handleUpdateRule = async (rule: ModelMapping, data: Partial<ModelMappingInput>) => {
     await updateMapping.mutateAsync({
       id: rule.id,
-      data: {
-        pattern: data.pattern ?? rule.pattern,
-        target: data.target ?? rule.target,
-        scope: 'global',
-        clientType: data.clientType ?? rule.clientType,
-        providerType: data.providerType ?? rule.providerType,
-        providerID: data.providerID ?? rule.providerID,
-        projectID: data.projectID ?? rule.projectID,
-        priority: rule.priority,
-        isEnabled: rule.isEnabled,
-      },
-    });
+        data: {
+          pattern: data.pattern ?? rule.pattern,
+          target: data.target ?? rule.target,
+          scope: 'global',
+          clientType: data.clientType ?? rule.clientType,
+          providerType: data.providerType ?? rule.providerType,
+          providerID: data.providerID ?? rule.providerID,
+          projectID: data.projectID ?? rule.projectID,
+          priority: rule.priority,
+          isEnabled: data.isEnabled ?? rule.isEnabled,
+        },
+      });
   };
 
   const handleReset = async () => {
@@ -487,6 +510,11 @@ export function ModelMappingsPage() {
                                         {t('modelMappings.debuggerEffective')}
                                       </span>
                                     )}
+                                    {!isMappingEnabled(rule) && (
+                                      <span className="rounded bg-muted px-2 py-0.5 text-muted-foreground">
+                                        {t('common.disabled')}
+                                      </span>
+                                    )}
                                     {hiddenFromGlobalList && (
                                       <span className="rounded bg-destructive/10 px-2 py-0.5 text-destructive">
                                         {t('modelMappings.debuggerHidden')}
@@ -523,6 +551,7 @@ export function ModelMappingsPage() {
               <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium border-b pb-2">
                 <div className="w-6 shrink-0"></div>
                 <div className="w-6 shrink-0">#</div>
+                <div className="w-11 shrink-0">{t('common.enabled')}</div>
                 <div className="flex-1 min-w-0">{t('modelMappings.matchPattern')}</div>
                 <div className="w-3"></div>
                 <div className="flex-1 min-w-0">{t('modelMappings.targetModel')}</div>
@@ -530,6 +559,7 @@ export function ModelMappingsPage() {
                 <div className="w-[110px] shrink-0">{t('modelMappings.providerType')}</div>
                 <div className="w-[70px] shrink-0">{t('modelMappings.providerID')}</div>
                 <div className="w-[70px] shrink-0">{t('modelMappings.projectID')}</div>
+                <div className="w-[72px] shrink-0">{t('modelMappings.status')}</div>
                 <div className="w-8 shrink-0"></div>
               </div>
 

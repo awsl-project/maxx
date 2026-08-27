@@ -239,6 +239,7 @@ type ModelMapping struct {
 	Pattern      string `gorm:"size:255"`
 	Target       string `gorm:"size:255"`
 	Priority     int
+	IsEnabled    int `gorm:"default:1"`
 }
 
 func (ModelMapping) TableName() string { return "model_mappings" }
