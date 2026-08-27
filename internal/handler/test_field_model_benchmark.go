@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider/zai"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 )
@@ -531,6 +532,13 @@ func testFieldOpenAICompatibleEndpoint(provider *domain.Provider, baseURL string
 			return "", "", false, "openrouter api key unavailable"
 		}
 		return "https://openrouter.ai/api/v1/chat/completions", provider.Config.OpenRouter.APIKey, true, ""
+	case "zai":
+		if provider.Config.Zai == nil || strings.TrimSpace(provider.Config.Zai.APIKey) == "" {
+			return "", "", false, "zai api key unavailable"
+		}
+		// z.ai's OpenAI-compatible chat endpoint serves the GLM models directly; the
+		// root depends on the plan (coding vs standard API), resolved centrally.
+		return zai.OpenAIBaseURL(provider.Config.Zai.Plan) + "/chat/completions", provider.Config.Zai.APIKey, true, ""
 	case "grok":
 		if provider.Config.Grok == nil {
 			return "", "", false, "grok provider config unavailable"
@@ -735,6 +743,13 @@ func testFieldProviderCacheKey(provider *domain.Provider) string {
 	case "openrouter":
 		if provider.Config.OpenRouter != nil {
 			parts = append(parts, provider.Config.OpenRouter.APIKey)
+		}
+	case "zai":
+		if provider.Config.Zai != nil {
+			// Include the plan-resolved OpenAI root so switching coding⇄api (same key)
+			// invalidates the model-list cache — the discovery/benchmark endpoints
+			// differ by plan (/coding/paas/v4 vs /paas/v4).
+			parts = append(parts, provider.Config.Zai.APIKey, zai.OpenAIBaseURL(provider.Config.Zai.Plan))
 		}
 	case "grok":
 		if provider.Config.Grok != nil {

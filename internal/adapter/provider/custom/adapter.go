@@ -1026,14 +1026,35 @@ func buildUpstreamURL(baseURL string, requestPath string) string {
 	requestPath = normalizeOpenAIUpstreamRequestPath(requestPath)
 
 	// OpenAI-compatible configs are commonly entered either as the API origin
-	// (https://api.openai.com) or as the versioned API root
-	// (https://api.openai.com/v1). The request URI is already versioned for the
-	// canonical proxy routes, so avoid forwarding /v1/v1/... upstream.
-	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(requestPath, "/v1/") {
+	// (https://api.openai.com) or as a versioned API root. The canonical proxy
+	// routes always carry a /v1 prefix, so when the base already ends in a
+	// version segment — /v1 (OpenAI, OpenRouter) OR /vN like z.ai & Zhipu's
+	// .../[coding/]paas/v4 — drop the request's leading /v1 to avoid forwarding a
+	// doubled version (.../paas/v4/v1/chat/completions), which z.ai returns 404 for.
+	if baseURLHasVersionSuffix(baseURL) && strings.HasPrefix(requestPath, "/v1/") {
 		requestPath = strings.TrimPrefix(requestPath, "/v1")
 	}
 
 	return baseURL + requestPath
+}
+
+// baseURLHasVersionSuffix reports whether the base URL's final path segment is a
+// bare version marker matching /v\d+ (e.g. "v1", "v4"). Such gateways already
+// carry their API version in the root, so the canonical /v1/... request path
+// must not append a second version segment. "v1beta" and non-numeric segments
+// (e.g. "/compatible") are intentionally excluded so only true doubled-version
+// roots are collapsed.
+func baseURLHasVersionSuffix(baseURL string) bool {
+	seg := baseURL[strings.LastIndex(baseURL, "/")+1:]
+	if len(seg) < 2 || seg[0] != 'v' {
+		return false
+	}
+	for i := 1; i < len(seg); i++ {
+		if seg[i] < '0' || seg[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeOpenAIUpstreamRequestPath(requestPath string) string {

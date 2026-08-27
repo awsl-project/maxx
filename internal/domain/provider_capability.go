@@ -20,6 +20,19 @@ func CanonicalSupportedClientTypes(providerType string, configured []ClientType)
 	case "ollama":
 		return []ClientType{ClientTypeClaude}
 
+	case "zai":
+		// z.ai (智谱 GLM) natively speaks THREE protocols: Anthropic Messages
+		// (/api/anthropic, Claude clients), OpenAI Chat Completions
+		// (/api/[coding/]paas/v4, OpenAI clients) AND OpenAI Responses
+		// (/api/v1/responses, Codex clients). A Codex route must pass through
+		// natively (Responses→Responses) rather than fall into a lossy Chat
+		// Completions conversion, so default to all three when unset; users can
+		// narrow via the configured set. GLM ids are reached via ModelMapping just
+		// like every other relay. Falls through to return the configured set.
+		if len(configured) == 0 {
+			return []ClientType{ClientTypeClaude, ClientTypeOpenAI, ClientTypeCodex}
+		}
+
 	case "grok":
 		return []ClientType{ClientTypeOpenAI}
 

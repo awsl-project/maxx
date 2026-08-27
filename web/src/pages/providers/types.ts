@@ -14,6 +14,7 @@ import {
   Bot,
   Network,
   Boxes,
+  Gem,
 } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
@@ -34,6 +35,7 @@ export type ProviderTypeKey =
   | 'codex'
   | 'claude'
   | 'openrouter'
+  | 'zai'
   | 'grok'
   | 'newapi'
   | 'ollama';
@@ -104,6 +106,14 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('openrouter'),
     isAccountBased: false,
     getDisplayInfo: () => 'openrouter.ai',
+  },
+  zai: {
+    key: 'zai',
+    label: 'z.ai',
+    icon: Gem,
+    color: getProviderColorVar('zai'),
+    isAccountBased: false,
+    getDisplayInfo: () => 'z.ai · GLM',
   },
   grok: {
     key: 'grok',
@@ -344,6 +354,7 @@ export type ProviderFormData = {
     | 'codex'
     | 'claude'
     | 'openrouter'
+    | 'zai'
     | 'grok'
     | 'newapi'
     | 'ollama';

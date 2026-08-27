@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
+	"github.com/awsl-project/maxx/internal/adapter/provider/zai"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -343,6 +344,14 @@ func (h *AdminHandler) fetchProviderRuntimeModels(r *http.Request, provider *dom
 			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "openrouter api key unavailable"}
 		}
 		return fetchOpenAICompatibleModels(r, "https://openrouter.ai/api/v1/models", provider.Config.OpenRouter.APIKey, "openrouter")
+	case "zai":
+		if provider.Config.Zai == nil || strings.TrimSpace(provider.Config.Zai.APIKey) == "" {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "zai api key unavailable"}
+		}
+		// z.ai's OpenAI-compatible surface exposes the GLM catalog at
+		// .../paas/v4/models (the Anthropic endpoint has no model listing). The root
+		// depends on the plan (coding vs standard API), so resolve it centrally.
+		return fetchOpenAICompatibleModels(r, zai.OpenAIBaseURL(provider.Config.Zai.Plan)+"/models", provider.Config.Zai.APIKey, "zai")
 	case "custom", "newapi":
 		// new-api is OpenAI-compatible, so /v1/models discovery works the same way.
 		if provider.Config.Custom == nil || strings.TrimSpace(customRuntimeModelsBaseURL(provider.Config.Custom)) == "" {

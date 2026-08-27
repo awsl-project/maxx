@@ -2058,6 +2058,23 @@
       "modelMappingTo": "OpenRouter 模型 id",
       "modelMappingEmpty": "暂无映射 — 模型原样透传"
     },
+    "zai": {
+      "name": "z.ai（智谱 GLM）",
+      "description": "智谱 GLM · 兼容 Anthropic + OpenAI 端点",
+      "apiKey": "z.ai API Key",
+      "apiKeyHint": "在 https://z.ai/manage-apikey/apikey-list 获取你的密钥",
+      "planTitle": "套餐",
+      "plan_coding": "编程套餐（Coding Plan）",
+      "plan_codingDesc": "GLM 编程套餐订阅制 — OpenAI 端点走 /api/coding/paas/v4",
+      "plan_api": "标准 API",
+      "plan_apiDesc": "按量付费 / 资源包 — OpenAI 端点走 /api/paas/v4",
+      "planHint": "两个套餐共用同一个 Anthropic 端点，套餐仅影响 OpenAI 端点。",
+      "clientsTitle": "客户端类型",
+      "clientClaudeDesc": "Claude Code / Anthropic Messages（/v1/messages）— 承载 GLM 模型",
+      "clientOpenaiDesc": "OpenAI Chat Completions（/chat/completions）— 承载 GLM 模型",
+      "clientCodexDesc": "Codex CLI / OpenAI Responses（/responses）— 承载 GLM 模型",
+      "clientRequired": "至少启用一种客户端类型。"
+    },
     "templates": {
       "88code": {
         "name": "88 Code",

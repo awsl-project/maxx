@@ -16,6 +16,7 @@ describe('provider type helpers', () => {
       'claude',
       'bedrock',
       'openrouter',
+      'zai',
       'grok',
       'newapi',
       'ollama',

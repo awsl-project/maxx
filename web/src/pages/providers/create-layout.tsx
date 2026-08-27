@@ -9,6 +9,7 @@ import { ClaudeTokenImport } from './components/claude-token-import';
 import { CustomConfigStep } from './components/custom-config-step';
 import { BedrockConfigStep } from './components/bedrock-config-step';
 import { OpenRouterConfigStep } from './components/openrouter-config-step';
+import { ZaiConfigStep } from './components/zai-config-step';
 import { NewApiConfigStep } from './components/newapi-config-step';
 import { OllamaConfigStep } from './components/ollama-config-step';
 
@@ -20,6 +21,7 @@ export function ProviderCreateLayout() {
         <Route path="custom" element={<CustomConfigStep />} />
         <Route path="bedrock" element={<BedrockConfigStep />} />
         <Route path="openrouter" element={<OpenRouterConfigStep />} />
+        <Route path="zai" element={<ZaiConfigStep />} />
         <Route path="newapi" element={<NewApiConfigStep />} />
         <Route path="ollama" element={<OllamaConfigStep />} />
         <Route path="antigravity" element={<AntigravityTokenImport />} />

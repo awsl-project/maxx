@@ -357,6 +357,32 @@ type ProviderConfigOpenRouter struct {
 	APIKey string `json:"apiKey"`
 }
 
+// ProviderConfigZai 是 z.ai（智谱 / Zhipu GLM）一级供应商的配置。
+// z.ai 为 GLM 系列（glm-4.6、glm-4.5、glm-4.5-air 等）同时提供 Anthropic Messages
+// 兼容端点（claude 客户端走 /api/anthropic + /v1/messages）和 OpenAI Chat
+// Completions 兼容端点（openai 客户端走 .../paas/v4）。鉴权统一用
+// Authorization: Bearer <apiKey>。运行时由 zai 适配器合成成一个 ProviderConfigCustom
+// （按客户端类型填 ClientBaseURL），委托给 custom 适配器执行，无需重复实现代理逻辑。
+//
+// z.ai 有两个「端口」/套餐，二者 Anthropic 端点地址相同、仅 OpenAI 端点不同，由 Plan
+// 决定：
+//   - "coding"（编程套餐，默认）：OpenAI → https://api.z.ai/api/coding/paas/v4
+//   - "api"（标准 API / 资源包）：OpenAI → https://api.z.ai/api/paas/v4
+//
+// 只保留 APIKey + Plan：模型映射走通用的 ModelMapping 实体（executor.mapModel 按
+// provider 类型+ID 泛化匹配，与 custom/openrouter 一致），不放在这里——custom 适配器
+// 运行时并不读取内联的 ModelMapping，放进来只会是不生效的死配置。参见
+// ProviderConfigOpenRouter。
+type ProviderConfigZai struct {
+	// API Key（z.ai 控制台生成）
+	APIKey string `json:"apiKey"`
+
+	// Plan 选择 z.ai 套餐，决定 OpenAI 客户端的上游端点："coding"（编程套餐，默认）
+	// 走 /api/coding/paas/v4；"api"（标准 API）走 /api/paas/v4。对 claude 客户端无影响
+	// （两套餐共用 /api/anthropic）。留空按 "coding" 处理。
+	Plan string `json:"plan,omitempty"`
+}
+
 // ProviderConfigGrok stores xAI/Grok OAuth credentials exported by CLIProxyAPI.
 // Sensitive token fields are stored server-side and must be redacted before any UI display/export.
 type ProviderConfigGrok struct {
@@ -397,6 +423,7 @@ type ProviderConfig struct {
 	Codex       *ProviderConfigCodex       `json:"codex,omitempty"`
 	Claude      *ProviderConfigClaude      `json:"claude,omitempty"`
 	OpenRouter  *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
+	Zai         *ProviderConfigZai         `json:"zai,omitempty"`
 	Grok        *ProviderConfigGrok        `json:"grok,omitempty"`
 
 	// Reasoning is the provider-scoped outbound reasoning-effort policy, applied
