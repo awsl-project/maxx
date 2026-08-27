@@ -469,7 +469,11 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 		msg += " " + proxyErr.Err.Error()
 	}
 	msg = strings.ToLower(msg)
-	return strings.Contains(msg, "stream read error") || strings.Contains(msg, "upstream stream") || strings.Contains(msg, "unexpected eof")
+	return strings.Contains(msg, "stream read error") ||
+		strings.Contains(msg, "upstream stream") ||
+		strings.Contains(msg, "unexpected eof") ||
+		strings.Contains(msg, "upstream response stream was interrupted") ||
+		(strings.Contains(msg, "response stream") && strings.Contains(msg, "interrupt"))
 }
 
 func shouldRetryCommittedResponseError(proxyErr *domain.ProxyError) bool {
