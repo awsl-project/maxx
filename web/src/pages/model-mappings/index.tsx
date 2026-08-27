@@ -161,6 +161,10 @@ function SortableRuleItem({
         checked={isMappingEnabled(rule)}
         onCheckedChange={(checked) => onUpdate({ isEnabled: checked })}
         disabled={disabled}
+        aria-label={t('modelMappings.toggleRule', {
+          pattern: rule.pattern || '*',
+          target: rule.target || '-',
+        })}
       />
 
       {/* Pattern -> Target */}

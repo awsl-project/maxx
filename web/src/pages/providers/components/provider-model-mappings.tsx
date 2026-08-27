@@ -134,6 +134,10 @@ function SortableProviderMappingRow({
         checked={enabled}
         onCheckedChange={(checked) => onUpdate(mapping, { isEnabled: checked })}
         disabled={disabled}
+        aria-label={t('modelMappings.toggleRule', {
+          pattern: mapping.pattern || '*',
+          target: mapping.target || '-',
+        })}
       />
       <ModelInput
         value={mapping.pattern}
