@@ -2039,6 +2039,7 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 			Pattern    *string `json:"pattern"`
 			Target     *string `json:"target"`
 			Priority   *int    `json:"priority"`
+			IsEnabled  *bool   `json:"isEnabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -2063,6 +2064,9 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 		}
 		if body.Priority != nil {
 			existing.Priority = *body.Priority
+		}
+		if body.IsEnabled != nil {
+			existing.IsEnabled = *body.IsEnabled
 		}
 		if err := h.svc.UpdateModelMapping(tenantID, existing); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

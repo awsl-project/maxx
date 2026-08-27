@@ -38,6 +38,7 @@ import { getTransport } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { ModelInput } from '@/components/ui/model-input';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 
 /**
  * Provider-scoped model mappings editor backed by the ModelMapping entity API
@@ -112,6 +113,7 @@ function SortableProviderMappingRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+  const enabled = mapping.isEnabled !== false;
 
   return (
     <div
@@ -128,12 +130,17 @@ function SortableProviderMappingRow({
         <GripVertical className="h-4 w-4 text-muted-foreground" />
       </button>
       <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
+      <Switch
+        checked={enabled}
+        onCheckedChange={(checked) => onUpdate(mapping, { isEnabled: checked })}
+        disabled={disabled}
+      />
       <ModelInput
         value={mapping.pattern}
         onChange={(pattern) => onUpdate(mapping, { pattern })}
         placeholder={t('modelMappings.matchPattern')}
         disabled={disabled}
-        className="flex-1 min-w-0 h-8 text-sm"
+        className={`flex-1 min-w-0 h-8 text-sm ${!enabled ? 'opacity-50' : ''}`}
       />
       <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
       <ModelInput
@@ -143,8 +150,11 @@ function SortableProviderMappingRow({
         disabled={disabled}
         extraModels={extraModels}
         openSearchValue=""
-        className="flex-1 min-w-0 h-8 text-sm"
+        className={`flex-1 min-w-0 h-8 text-sm ${!enabled ? 'opacity-50' : ''}`}
       />
+      <span className={`w-[72px] text-[11px] shrink-0 ${enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+        {enabled ? t('common.enabled') : t('common.disabled')}
+      </span>
       <Button variant="ghost" size="sm" onClick={() => onDelete(mapping.id)} disabled={disabled}>
         <Trash2 className="h-4 w-4 text-destructive" />
       </Button>
@@ -379,17 +389,17 @@ export function ProviderModelMappings({
   const handleUpdateMapping = async (mapping: ModelMapping, data: Partial<ModelMappingInput>) => {
     await updateMapping.mutateAsync({
       id: mapping.id,
-      data: {
-        pattern: data.pattern ?? mapping.pattern,
-        target: data.target ?? mapping.target,
-        scope: 'provider',
-        clientType: data.clientType ?? mapping.clientType,
-        providerID: provider.id,
-        providerType: provider.type,
-        priority: mapping.priority,
-        isEnabled: mapping.isEnabled,
-      },
-    });
+        data: {
+          pattern: data.pattern ?? mapping.pattern,
+          target: data.target ?? mapping.target,
+          scope: 'provider',
+          clientType: data.clientType ?? mapping.clientType,
+          providerID: provider.id,
+          providerType: provider.type,
+          priority: mapping.priority,
+          isEnabled: data.isEnabled ?? mapping.isEnabled,
+        },
+      });
   };
 
   const handleDeleteMapping = async (id: number) => {
