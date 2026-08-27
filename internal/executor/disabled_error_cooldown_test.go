@@ -25,6 +25,10 @@ type disabledCooldownHTTPErrorAdapter struct {
 	succeedAfter int
 }
 
+type interruptedResponseStreamRetryAdapter struct {
+	calls *int
+}
+
 func (a *disabledCooldownStreamRetryAdapter) SupportedClientTypes() []domain.ClientType {
 	return []domain.ClientType{domain.ClientTypeOpenAI}
 }
@@ -52,6 +56,10 @@ func (a *disabledCooldownHTTPErrorAdapter) SupportedClientTypes() []domain.Clien
 	return []domain.ClientType{domain.ClientTypeOpenAI}
 }
 
+func (a interruptedResponseStreamRetryAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
 func (a *disabledCooldownHTTPErrorAdapter) Execute(_ *flow.Ctx, _ *domain.Provider) error {
 	a.calls++
 	if a.succeedAfter > 0 && a.calls > a.succeedAfter {
@@ -62,6 +70,25 @@ func (a *disabledCooldownHTTPErrorAdapter) Execute(_ *flow.Ctx, _ *domain.Provid
 	proxyErr.Reason = domain.CooldownReasonServerError
 	proxyErr.HTTPStatusCode = http.StatusInternalServerError
 	return proxyErr
+}
+
+func (a interruptedResponseStreamRetryAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	*a.calls = *a.calls + 1
+	if *a.calls == 1 {
+		c.Writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = c.Writer.Write([]byte("data: partial\n\n"))
+		proxyErr := domain.NewProxyErrorWithMessage(
+			errors.New("stream transport reset"),
+			false,
+			"Upstream response stream was interrupted",
+		)
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
+	}
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	_, _ = c.Writer.Write([]byte("data: fallback\n\ndata: [DONE]\n\n"))
+	return nil
 }
 
 func TestDispatchRetriesCommittedStreamReadErrorWhenErrorCooldownDisabled(t *testing.T) {
@@ -104,6 +131,59 @@ func TestDispatchRetriesCommittedStreamReadErrorWhenErrorCooldownEnabled(t *test
 	}
 	if adapter.calls != 2 {
 		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	if got := c.Writer.(*httptest.ResponseRecorder).Body.String(); got != "data: partial\n\ndata: fallback\n\ndata: [DONE]\n\n" {
+		t.Fatalf("client body = %q", got)
+	}
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
+func TestDispatchRetriesInterruptedResponseStreamError(t *testing.T) {
+	proxyRepo := &recordingProxyRequestRepo{}
+	attemptRepo := &recordingAttemptRepo{}
+	calls := 0
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
+	c := flow.NewCtx(rec, req)
+	proxyReq := &domain.ProxyRequest{
+		ID:         101,
+		TenantID:   domain.DefaultTenantID,
+		ClientType: domain.ClientTypeOpenAI,
+		Status:     "IN_PROGRESS",
+		StartTime:  time.Now(),
+	}
+	state := &execState{
+		ctx:          context.Background(),
+		proxyReq:     proxyReq,
+		tenantID:     domain.DefaultTenantID,
+		clientType:   domain.ClientTypeOpenAI,
+		requestModel: "gpt-4o",
+		isStream:     true,
+		routes: []*router.MatchedRoute{{
+			Route: &domain.Route{ID: 11, TenantID: domain.DefaultTenantID, ProviderID: 21, ClientType: domain.ClientTypeOpenAI},
+			Provider: &domain.Provider{
+				ID:       21,
+				TenantID: domain.DefaultTenantID,
+				Type:     "custom",
+				Name:     "custom-interrupted-stream",
+				Config:   &domain.ProviderConfig{DisableErrorCooldown: false},
+			},
+			ProviderAdapter: interruptedResponseStreamRetryAdapter{calls: &calls},
+			RetryConfig:     &domain.RetryConfig{MaxRetries: 1, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+		}},
+	}
+	c.Set(flow.KeyExecutorState, state)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, attemptRepo)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", calls)
 	}
 	if got := c.Writer.(*httptest.ResponseRecorder).Body.String(); got != "data: partial\n\ndata: fallback\n\ndata: [DONE]\n\n" {
 		t.Fatalf("client body = %q", got)
