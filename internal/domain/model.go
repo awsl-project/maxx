@@ -992,10 +992,10 @@ const (
 	SettingKeyProxyPort                            = "proxy_port"                                // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours                = "request_retention_hours"                   // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeySessionRetentionHours                = "session_retention_hours"                   // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"          // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
-	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"    // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
-	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success"  // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
-	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"   // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
+	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"          // 请求详情保留秒数（统一），-1=永久保存，0=不保存，>0=保留秒数；当 split=false 时使用。未设置时不再默认永久保存，见下方 split 默认值
+	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"    // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "true"（默认按成功/失败分桶保留）
+	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success"  // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 86400（1 天）
+	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"   // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 259200（3 天）
 	SettingKeyTimezone                             = "timezone"                                  // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                    // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"       // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
@@ -1023,6 +1023,27 @@ const (
 	SettingKeyEnablePprof                          = "enable_pprof"                              // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
 	SettingKeyPprofPort                            = "pprof_port"                                // pprof 服务端口，默认 6060
 	SettingKeyPprofPassword                        = "pprof_password"                            // pprof 访问密码，为空表示不需要密码
+)
+
+// 请求详情保留默认值。
+//
+// 背景：request_detail_retention_seconds 历史默认 -1（永久保存），配合
+// 失败详情放大 bug，图片请求携带 base64（约 18KB/条）产生约 97 万条失败详情，
+// 撑爆 20GiB RDS，Postgres 拒绝连接导致 maxx CrashLoopBackOff、域名 14 小时不可用。
+// 即使没有放大 bug，无上限的默认值也是潜在的磁盘耗尽风险。
+//
+// 现改为默认按成功/失败分桶保留有限时长（与生产事故中验证有效的缓解值一致）：
+//   - 成功详情：默认 1 天（86400s）
+//   - 失败详情：默认 3 天（259200s）——失败详情通常更需要保留用于排障
+//
+// 运营者仍可显式把任一保留值设为 -1 恢复“永久保存”，只是默认不再无上限。
+const (
+	// DefaultRequestDetailRetentionSplitEnabled 默认开启成功/失败分桶保留。
+	DefaultRequestDetailRetentionSplitEnabled = true
+	// DefaultRequestDetailRetentionSecondsSuccess 成功请求详情默认保留 1 天。
+	DefaultRequestDetailRetentionSecondsSuccess = 86400
+	// DefaultRequestDetailRetentionSecondsFailed 失败请求详情默认保留 3 天。
+	DefaultRequestDetailRetentionSecondsFailed = 259200
 )
 
 // ModelPrice 模型价格（每个模型可有多条记录，每条代表一个版本）
