@@ -160,6 +160,7 @@ export type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
+  UpstreamModelPricesResult,
 } from './types';
 
 export type { Transport, TransportType, TransportConfig } from './interface';

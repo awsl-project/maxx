@@ -1698,3 +1698,16 @@ export interface ModelPriceInput {
   outputPremiumNum?: number;
   outputPremiumDenom?: number;
 }
+
+export interface UpstreamModelPricesResult {
+  source: string;
+  sourceUrl: string;
+  total: number;
+  prices: ModelPrice[];
+}
+
+export interface ModelPriceChange {
+  action: 'create' | 'update';
+  before?: ModelPrice;
+  after: ModelPrice;
+}

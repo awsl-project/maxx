@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
+	"github.com/awsl-project/maxx/internal/modelpriceupstream"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
@@ -2204,4 +2206,10 @@ func (s *AdminService) GetModelPriceHistory(modelID string) ([]*domain.ModelPric
 // ResetModelPricesToDefaults resets all model prices to defaults (soft deletes existing)
 func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error) {
 	return s.modelPriceRepo.ResetToDefaults()
+}
+
+// ListModelPricesFromExternalSource fetches an external model price table
+// and returns prices normalized to the internal model price shape.
+func (s *AdminService) ListModelPricesFromExternalSource(ctx context.Context, sourceCode string) (*modelpriceupstream.Result, error) {
+	return modelpriceupstream.List(ctx, sourceCode)
 }
