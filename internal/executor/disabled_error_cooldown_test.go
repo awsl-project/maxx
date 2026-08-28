@@ -595,17 +595,59 @@ func TestDisabledErrorCooldownDoesNotRetryBedrockAdaptiveThinkingSchemaError(t *
 	}
 }
 
-func TestDisabledErrorCooldownStillRetriesOrdinaryHTTP400(t *testing.T) {
-	proxyErr := domain.NewProxyErrorWithMessage(
-		errors.New(`{"error":{"message":"temporary upstream 400"}}`),
-		false,
-		"upstream returned status 400",
-	)
-	proxyErr.Scope = domain.ScopeRequest
-	proxyErr.HTTPStatusCode = http.StatusBadRequest
+func TestDisabledErrorCooldownDoesNotRetryClientErrorStatusCodes(t *testing.T) {
+	// Client-request (4xx) errors must NOT be force-retried under
+	// disableErrorCooldown. Retrying a bad request on the same or another
+	// provider cannot succeed and only amplifies upstream load. Regression for
+	// the production outage where a single non-retryable 4xx retried 151,780
+	// times over 4 hours.
+	nonRetryable := []int{
+		http.StatusBadRequest,            // 400 — e.g. "invalid image"
+		http.StatusUnauthorized,          // 401
+		http.StatusForbidden,             // 403
+		http.StatusNotFound,              // 404 — e.g. "No endpoints found that support tool use"
+		http.StatusMethodNotAllowed,      // 405
+		http.StatusConflict,              // 409
+		http.StatusRequestEntityTooLarge, // 413
+		http.StatusUnsupportedMediaType,  // 415
+		http.StatusUnprocessableEntity,   // 422
+	}
+	for _, code := range nonRetryable {
+		proxyErr := domain.NewProxyErrorWithMessage(
+			errors.New(`{"error":{"message":"client request error"}}`),
+			false,
+			"upstream returned status",
+		)
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.HTTPStatusCode = code
+		if isDisabledErrorCooldownRetryableError(proxyErr) {
+			t.Fatalf("HTTP %d should NOT be retryable under disableErrorCooldown", code)
+		}
+	}
+}
 
-	if !isDisabledErrorCooldownRetryableError(proxyErr) {
-		t.Fatal("ordinary HTTP 400 should still follow disableErrorCooldown retry policy")
+func TestDisabledErrorCooldownStillRetriesUpstreamFailures(t *testing.T) {
+	// 5xx server errors, 429 rate limit and 408 upstream timeout remain
+	// retryable/failover-worthy under disableErrorCooldown.
+	retryable := []int{
+		http.StatusRequestTimeout,      // 408
+		http.StatusTooManyRequests,     // 429
+		http.StatusInternalServerError, // 500
+		http.StatusBadGateway,          // 502
+		http.StatusServiceUnavailable,  // 503
+		http.StatusGatewayTimeout,      // 504
+	}
+	for _, code := range retryable {
+		proxyErr := domain.NewProxyErrorWithMessage(
+			errors.New(`{"error":{"message":"upstream failure"}}`),
+			false,
+			"upstream returned status",
+		)
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.HTTPStatusCode = code
+		if !isDisabledErrorCooldownRetryableError(proxyErr) {
+			t.Fatalf("HTTP %d should remain retryable under disableErrorCooldown", code)
+		}
 	}
 }
 

@@ -442,10 +442,41 @@ func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
 	if isBedrockAdaptiveThinkingSchemaError(proxyErr) {
 		return false
 	}
-	if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+	// Non-retryable client errors (4xx) must NOT be force-retried, even under
+	// disableErrorCooldown. Retrying or failing over on a bad client request
+	// (400 invalid image, 404 "No endpoints found that support tool use",
+	// 413/415/422 payload rejects, 401/403 auth) cannot succeed — the request
+	// itself is the problem, so retrying only amplifies load. A single such
+	// request once retried 151,780 times over 4 hours before this guard existed.
+	//
+	// Genuinely retryable upstream-side failures keep the escape hatch:
+	//   - 5xx server errors (provider is transiently broken)
+	//   - 429 rate limit / 408 request timeout (worth retry / failover)
+	//   - network + committed-stream-read errors (no HTTP status)
+	if code := proxyErr.HTTPStatusCode; code >= 400 && code < 500 {
+		if isRetryable4xxStatusCode(code) {
+			return true
+		}
+		return isCommittedStreamReadRetryableError(proxyErr)
+	}
+	if proxyErr.HTTPStatusCode >= 500 && proxyErr.HTTPStatusCode < 600 {
 		return true
 	}
 	return isCommittedStreamReadRetryableError(proxyErr)
+}
+
+// isRetryable4xxStatusCode reports whether a 4xx status is worth retrying or
+// failing over. Only rate limiting (429) and upstream request timeouts (408)
+// qualify; every other 4xx is a client-request error where the same request on
+// any provider yields the same rejection.
+func isRetryable4xxStatusCode(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests, // 429 — rate limit, back off / fail over
+		http.StatusRequestTimeout: // 408 — upstream timed out before responding
+		return true
+	default:
+		return false
+	}
 }
 
 func applyCommittedStreamReadRetryPolicy(proxyErr *domain.ProxyError) {
