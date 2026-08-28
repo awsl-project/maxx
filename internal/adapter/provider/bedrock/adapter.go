@@ -761,14 +761,11 @@ func flattenHeaders(h http.Header) map[string]string {
 	return result
 }
 
+// sanitizeHeadersForEvent redacts sensitive auth headers before they reach the
+// request event / persisted attempt. Delegates to the shared domain redactor so the
+// sensitive-header set (incl. x-amz-security-token) stays consistent across adapters.
 func sanitizeHeadersForEvent(h http.Header) map[string]string {
-	result := flattenHeaders(h)
-	for _, key := range []string{"Authorization", "X-Amz-Security-Token"} {
-		if _, ok := result[key]; ok {
-			result[key] = "[REDACTED]"
-		}
-	}
-	return result
+	return domain.RedactSensitiveHeaders(flattenHeaders(h))
 }
 
 func newHTTPClient() *http.Client {

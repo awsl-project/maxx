@@ -496,7 +496,7 @@ func (s *codexWebSocketSession) executeTurn(
 	if eventChan != nil {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  "WEBSOCKET",
-			Headers: flattenHeaders(s.handshakeHeader),
+			Headers: domain.RedactSensitiveHeaders(flattenHeaders(s.handshakeHeader)),
 			Body:    string(frame),
 		})
 	}

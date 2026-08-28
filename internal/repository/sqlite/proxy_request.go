@@ -206,7 +206,7 @@ func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	model := r.toModelMeta(p)
 	omit := []string{"request_info"}
 	if p.ResponseInfo != nil {
-		model.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+		model.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo))
 	} else {
 		omit = append(omit, "response_info")
 	}
@@ -1016,8 +1016,8 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 	m := r.toModelMeta(p)
-	m.RequestInfo = LongText(toJSON(p.RequestInfo))
-	m.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+	m.RequestInfo = LongText(requestInfoJSON(p.RequestInfo))
+	m.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo))
 	return m
 }
 

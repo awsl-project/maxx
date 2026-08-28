@@ -231,7 +231,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					eventChan.SendRequestInfo(&domain.RequestInfo{
 						Method:  upstreamReq.Method,
 						URL:     upstreamURL,
-						Headers: flattenHeaders(upstreamReq.Header),
+						Headers: domain.RedactSensitiveHeaders(flattenHeaders(upstreamReq.Header)),
 						Body:    string(upstreamBody),
 					})
 				}

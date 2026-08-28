@@ -329,7 +329,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 			proxyReq.RequestInfo = &domain.RequestInfo{
 				Method:  c.Request.Method,
 				URL:     requestURI,
-				Headers: requestHeaders,
+				Headers: domain.RedactSensitiveHeaders(requestHeaders),
 				Body:    domain.RequestBodySnapshot(requestBody, rawHeaders.Get("Content-Type"), devMode),
 			}
 		}

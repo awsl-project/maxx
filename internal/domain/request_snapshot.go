@@ -69,6 +69,88 @@ func RequestBodySnapshot(body []byte, contentType string, devMode bool) string {
 // snapshotPreviewBytes 是非二进制超限 body 在占位前保留的前缀字节数,留作部分审计。
 const snapshotPreviewBytes = 256
 
+// redactedHeaderPlaceholder 是敏感请求头被抹去后写入快照的占位值。
+// 特意用不可逆的固定字符串(而非哈希/掩码),确保原始凭据无法从持久化记录里还原。
+const redactedHeaderPlaceholder = "[REDACTED]"
+
+// sensitiveHeaderNames 是必须在写入 RequestInfo/ResponseInfo(会落库并可能回显到
+// 详情 UI/API)前抹去取值的请求头集合。key 均为小写,匹配时对 header 名做
+// case-insensitive 比较。涵盖:
+//   - 调用方(client→maxx)的 maxx API 令牌:Authorization / X-Api-Key / Api-Key / X-Api-Token
+//   - 会透传或注入的上游提供商凭据:Proxy-Authorization、X-Goog-Api-Key(Gemini)、
+//     anthropic-api-key / x-api-key(Anthropic)、openai-api-key、x-amz-security-token(Bedrock)
+//   - 会话凭据:Cookie / Set-Cookie
+//
+// 只抹取值,保留 header 名,便于调试时仍能看到当时携带了哪些头。
+var sensitiveHeaderNames = map[string]struct{}{
+	"authorization":        {},
+	"proxy-authorization":  {},
+	"x-api-key":            {},
+	"api-key":              {},
+	"x-api-token":          {},
+	"x-goog-api-key":       {},
+	"anthropic-api-key":    {},
+	"openai-api-key":       {},
+	"x-amz-security-token": {},
+	"cookie":               {},
+	"set-cookie":           {},
+}
+
+// IsSensitiveHeader 判断某个请求/响应头是否携带凭据,需要在落库/回显前抹掉取值。
+// 除固定名单外,还兜底把 anthropic-*-key 这类携带密钥的头视为敏感。
+func IsSensitiveHeader(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if _, ok := sensitiveHeaderNames[lower]; ok {
+		return true
+	}
+	// 兜底:anthropic-*-key 形式的密钥头(如 anthropic-api-key 已在名单,
+	// 这里额外挡住其它 *-key 变体),以及任何以 x-...-api-key 结尾的头。
+	if strings.HasPrefix(lower, "anthropic-") && strings.HasSuffix(lower, "-key") {
+		return true
+	}
+	return false
+}
+
+// RedactSensitiveHeaders 返回一份把敏感头取值替换成 [REDACTED] 的拷贝,不修改入参。
+//
+// 这是所有把请求头写入 RequestInfo(继而落 DB 的 proxy_upstream_attempts.request_info /
+// proxy_requests.request_info,并可能回显到详情 UI/API)的路径的统一收口:调用方的
+// Authorization 令牌以及透传的上游提供商密钥都在此抹掉。占位值不可逆,DB 只读权限或
+// 详情界面都无法从中还原原始凭据。
+//
+// 放在 domain 包与 RequestBodySnapshot 并列,避免 executor / handler / 各 provider
+// adapter 多处各写一份敏感头名单导致漂移。
+func RedactSensitiveHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	out := make(map[string]string, len(headers))
+	for k, v := range headers {
+		if IsSensitiveHeader(k) {
+			out[k] = redactedHeaderPlaceholder
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// RedactRequestInfoHeaders 就地抹掉一个 RequestInfo 里的敏感头取值。nil-safe。
+func RedactRequestInfoHeaders(info *RequestInfo) {
+	if info == nil {
+		return
+	}
+	info.Headers = RedactSensitiveHeaders(info.Headers)
+}
+
+// RedactResponseInfoHeaders 就地抹掉一个 ResponseInfo 里的敏感头取值(如 Set-Cookie)。nil-safe。
+func RedactResponseInfoHeaders(info *ResponseInfo) {
+	if info == nil {
+		return
+	}
+	info.Headers = RedactSensitiveHeaders(info.Headers)
+}
+
 // isBinaryUploadContentType 判断 content-type 是否为不值得存进快照的二进制上传。
 func isBinaryUploadContentType(contentType string) bool {
 	ct := strings.ToLower(strings.TrimSpace(contentType))
