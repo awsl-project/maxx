@@ -643,15 +643,10 @@ func flattenHeaders(h http.Header) map[string]string {
 }
 
 // sanitizeHeadersForEvent returns a header map safe for event channel logging,
-// redacting sensitive auth headers to prevent credential leakage.
+// redacting sensitive auth headers to prevent credential leakage. Delegates to the
+// shared domain redactor so the sensitive-header set stays consistent across adapters.
 func sanitizeHeadersForEvent(h http.Header) map[string]string {
-	result := flattenHeaders(h)
-	for _, key := range []string{"Authorization", "X-Api-Key"} {
-		if _, ok := result[key]; ok {
-			result[key] = "[REDACTED]"
-		}
-	}
-	return result
+	return domain.RedactSensitiveHeaders(flattenHeaders(h))
 }
 
 func copyResponseHeaders(dst, src http.Header) {

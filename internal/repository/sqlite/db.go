@@ -212,3 +212,27 @@ func fromJSON[T any](s string) T {
 	}
 	return v
 }
+
+// requestInfoJSON 把 RequestInfo 序列化落库前抹掉敏感请求头(Authorization 令牌、
+// 透传的上游提供商密钥、Cookie 等)。这是所有构造 RequestInfo 的接入路径
+// (executor / handler / 各 provider adapter)在 proxy_upstream_attempts.request_info
+// 与 proxy_requests.request_info 落库前的统一收口:即便某条上游路径忘了在构造时脱敏,
+// 也不会把明文凭据写进 DB。不修改入参的内存对象。
+func requestInfoJSON(info *domain.RequestInfo) string {
+	if info == nil {
+		return ""
+	}
+	redacted := *info
+	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
+	return toJSON(&redacted)
+}
+
+// responseInfoJSON 同 requestInfoJSON,针对响应头(如上游回传的 Set-Cookie)。
+func responseInfoJSON(info *domain.ResponseInfo) string {
+	if info == nil {
+		return ""
+	}
+	redacted := *info
+	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
+	return toJSON(&redacted)
+}

@@ -39,7 +39,7 @@ func (r *ProxyUpstreamAttemptRepository) Update(a *domain.ProxyUpstreamAttempt) 
 	model := r.toModelMeta(a)
 	omit := []string{"request_info"}
 	if a.ResponseInfo != nil {
-		model.ResponseInfo = LongText(toJSON(a.ResponseInfo))
+		model.ResponseInfo = LongText(responseInfoJSON(a.ResponseInfo))
 	} else {
 		omit = append(omit, "response_info")
 	}
@@ -370,8 +370,8 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 
 func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
 	m := r.toModelMeta(a)
-	m.RequestInfo = LongText(toJSON(a.RequestInfo))
-	m.ResponseInfo = LongText(toJSON(a.ResponseInfo))
+	m.RequestInfo = LongText(requestInfoJSON(a.RequestInfo))
+	m.ResponseInfo = LongText(responseInfoJSON(a.ResponseInfo))
 	return m
 }
 

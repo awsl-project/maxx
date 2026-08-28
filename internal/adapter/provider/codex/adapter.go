@@ -213,7 +213,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
+			Headers: domain.RedactSensitiveHeaders(flattenHeaders(upstreamReq.Header)),
 			Body:    string(requestBody),
 		})
 	}

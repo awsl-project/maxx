@@ -191,7 +191,7 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 	if !clearDetail {
 		proxyReq.RequestInfo = &domain.RequestInfo{
 			Method:  c.Request.Method,
-			Headers: flattenRequestHeaders(requestHeaders),
+			Headers: domain.RedactSensitiveHeaders(flattenRequestHeaders(requestHeaders)),
 			URL:     requestURI,
 			Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), devMode),
 		}
