@@ -25,7 +25,8 @@ export type ProviderType =
   | 'zai'
   | 'grok'
   | 'newapi'
-  | 'ollama';
+  | 'ollama'
+  | 'fal';
 
 /**
  * Client 类型定义

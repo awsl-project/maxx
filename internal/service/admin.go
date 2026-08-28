@@ -549,6 +549,15 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 				incoming.Config.Zai.APIKey = existing.Config.Zai.APIKey
 			}
 		}
+	case "fal":
+		if existing.Config.Fal != nil {
+			if incoming.Config.Fal == nil {
+				fal := *existing.Config.Fal
+				incoming.Config.Fal = &fal
+			} else if incoming.Config.Fal.APIKey == "" {
+				incoming.Config.Fal.APIKey = existing.Config.Fal.APIKey
+			}
+		}
 	case "grok":
 		if existing.Config.Grok != nil {
 			if incoming.Config.Grok == nil {
