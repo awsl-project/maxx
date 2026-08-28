@@ -440,14 +440,32 @@ func (d *BackgroundTaskDeps) requestDetailRetentionConfig() (successSec, failedS
 		return n
 	}
 
+	// 统一键未设置时默认 -1（永久）：仅在运营者显式关闭 split（split=false）时生效。
+	unifiedRaw, _ := d.Settings.Get(domain.SettingKeyRequestDetailRetentionSeconds)
 	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
 
+	// split 默认开启（见 domain.DefaultRequestDetailRetentionSplitEnabled）：
+	// 未设置时按成功/失败分桶保留有限时长，避免历史 -1 永久默认撑爆磁盘。
+	// 运营者显式设为 "false" 可回退到统一键（含显式 -1 永久）。
 	splitVal, _ := d.Settings.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
-	if splitVal != "true" {
+	split = domain.DefaultRequestDetailRetentionSplitEnabled
+	if splitVal != "" {
+		split = splitVal == "true"
+	}
+	if !split {
 		return unified, unified, false
 	}
-	return parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified),
-		parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified),
+	// split 生效时，成功/失败键未设置的回退：
+	//   - 若运营者显式设过统一键，尊重它作为回退（保留旧语义）
+	//   - 否则用各自的有限默认值（1 天 / 3 天），而非历史 -1 永久
+	successFallback := domain.DefaultRequestDetailRetentionSecondsSuccess
+	failedFallback := domain.DefaultRequestDetailRetentionSecondsFailed
+	if unifiedRaw != "" {
+		successFallback = unified
+		failedFallback = unified
+	}
+	return parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, successFallback),
+		parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, failedFallback),
 		true
 }
 

@@ -720,17 +720,33 @@ func (e *Executor) requestDetailRetentionConfig() (requestDetailRetentionConfig,
 		return n
 	}
 
+	// 语义必须与 core.BackgroundTaskDeps.requestDetailRetentionConfig 保持一致，
+	// 否则 ingress 即时清理与后台 cleanup 会对同一配置得出不同结论。
+	unifiedRaw, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSeconds)
 	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
+
+	// split 默认开启：未设置时按成功/失败分桶保留有限时长（默认 1 天 / 3 天），
+	// 避免历史 -1 永久默认撑爆磁盘；显式 split=false 可回退到统一键（含显式 -1 永久）。
 	splitVal, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
+	split := domain.DefaultRequestDetailRetentionSplitEnabled
+	if splitVal != "" {
+		split = splitVal == "true"
+	}
 	cfg := requestDetailRetentionConfig{
 		unified:    unified,
-		split:      splitVal == "true",
+		split:      split,
 		successSec: unified,
 		failedSec:  unified,
 	}
 	if cfg.split {
-		cfg.successSec = parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified)
-		cfg.failedSec = parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified)
+		successFallback := domain.DefaultRequestDetailRetentionSecondsSuccess
+		failedFallback := domain.DefaultRequestDetailRetentionSecondsFailed
+		if unifiedRaw != "" {
+			successFallback = unified
+			failedFallback = unified
+		}
+		cfg.successSec = parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, successFallback)
+		cfg.failedSec = parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, failedFallback)
 	}
 	return cfg, true
 }
