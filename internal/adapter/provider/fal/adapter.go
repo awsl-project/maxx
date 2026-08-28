@@ -9,9 +9,11 @@
 //
 // Two surfaces, two fal shapes:
 //
-//   - Image (ClientTypeOpenAI, POST /v1/images/generations): fal image models are
-//     SYNCHRONOUS. maxx POSTs to https://fal.run/{model} (blocks ~1-2s) and
-//     translates the OpenAI images request/response on the fly.
+//   - Image (ClientTypeOpenAI, POST /v1/images/generations AND /v1/images/edits):
+//     fal image models are SYNCHRONOUS. maxx POSTs to https://fal.run/{model}
+//     (blocks ~1-2s) and translates the OpenAI images request/response on the fly.
+//     Edits (image-to-image) arrive as multipart/form-data (or JSON); the uploaded
+//     image is supplied to fal as an "image_url" data: URI. See image.go.
 //   - Video (ClientTypeVideo, POST /v1/video/generations submit + GET
 //     /v1/video/generations/{task_id} poll): fal video models are ASYNC via the
 //     queue at https://queue.fal.run/{model}. maxx encodes the fal result URL into
