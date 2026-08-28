@@ -383,6 +383,21 @@ type ProviderConfigZai struct {
 	Plan string `json:"plan,omitempty"`
 }
 
+// ProviderConfigFal 是 fal（fal.ai）一级供应商的配置。fal 不是 OpenAI 兼容的：它是
+// 队列式、按路径路由模型的推理平台，鉴权用 Authorization: Key <id:secret>（不是 Bearer）。
+// maxx 通过一个翻译层把 fal 暴露成既有的 OpenAI 图片接口（/v1/images/generations，同步）和
+// 异步视频接口（/v1/video/generations，new-api 风格）。运行时由 fal 适配器把客户端请求翻译成
+// fal 输入，直接向 fal 发起 HTTP 调用并把响应翻译回 OpenAI/new-api 形状，无需 custom 适配器
+// 的透传逻辑。
+//
+// 只保留 APIKey：模型映射走通用的 ModelMapping 实体（executor.mapModel），映射后的模型 id
+// （如 fal-ai/flux/dev、fal-ai/veo3.1）成为 fal 的 URL 路径段。
+type ProviderConfigFal struct {
+	// API Key —— 完整的 "id:secret" 字符串（fal 控制台生成）。适配器把它原样注入
+	// Authorization: Key <apiKey>。
+	APIKey string `json:"apiKey"`
+}
+
 // ProviderConfigGrok stores xAI/Grok OAuth credentials exported by CLIProxyAPI.
 // Sensitive token fields are stored server-side and must be redacted before any UI display/export.
 type ProviderConfigGrok struct {
@@ -424,6 +439,7 @@ type ProviderConfig struct {
 	Claude      *ProviderConfigClaude      `json:"claude,omitempty"`
 	OpenRouter  *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
 	Zai         *ProviderConfigZai         `json:"zai,omitempty"`
+	Fal         *ProviderConfigFal         `json:"fal,omitempty"`
 	Grok        *ProviderConfigGrok        `json:"grok,omitempty"`
 
 	// Reasoning is the provider-scoped outbound reasoning-effort policy, applied

@@ -46,6 +46,7 @@ import { CodexProviderView } from './codex-provider-view';
 import { ClaudeProviderView } from './claude-provider-view';
 import { OpenRouterProviderView } from './openrouter-provider-view';
 import { ZaiProviderView } from './zai-provider-view';
+import { FalProviderView } from './fal-provider-view';
 import { NewApiProviderView } from './newapi-provider-view';
 import { OllamaProviderView } from './ollama-provider-view';
 import { GrokProviderView } from './grok-provider-view';
@@ -981,6 +982,26 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return (
       <>
         <ZaiProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // fal (fal.ai) provider
+  if (provider.type === 'fal') {
+    return (
+      <>
+        <FalProviderView
           provider={provider}
           onDelete={() => setShowDeleteConfirm(true)}
           onClose={onClose}

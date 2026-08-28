@@ -134,6 +134,15 @@ export interface ProviderConfigZai {
   plan?: 'coding' | 'api';
 }
 
+// fal（fal.ai）一级供应商配置。fal 不是 OpenAI 兼容的：队列式、按 URL 路径路由模型，鉴权用
+// Authorization: Key <id:secret>。后端通过翻译层把 fal 暴露成 OpenAI 图片接口（同步）和 new-api
+// 异步视频接口。映射后的模型 id（如 fal-ai/flux/dev）成为 fal 的 URL 路径段，走通用的
+// ModelMapping 实体，不放在 config 里。
+export interface ProviderConfigFal {
+  // 完整的 "id:secret" 字符串。
+  apiKey: string;
+}
+
 export interface ProviderConfigGrok {
   type?: 'xai';
   authKind?: 'oauth';
@@ -260,6 +269,7 @@ export interface ProviderConfig {
   claude?: ProviderConfigClaude;
   openrouter?: ProviderConfigOpenRouter;
   zai?: ProviderConfigZai;
+  fal?: ProviderConfigFal;
   grok?: ProviderConfigGrok;
 }
 

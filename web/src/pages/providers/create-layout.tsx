@@ -12,6 +12,7 @@ import { OpenRouterConfigStep } from './components/openrouter-config-step';
 import { ZaiConfigStep } from './components/zai-config-step';
 import { NewApiConfigStep } from './components/newapi-config-step';
 import { OllamaConfigStep } from './components/ollama-config-step';
+import { FalConfigStep } from './components/fal-config-step';
 
 export function ProviderCreateLayout() {
   return (
@@ -24,6 +25,7 @@ export function ProviderCreateLayout() {
         <Route path="zai" element={<ZaiConfigStep />} />
         <Route path="newapi" element={<NewApiConfigStep />} />
         <Route path="ollama" element={<OllamaConfigStep />} />
+        <Route path="fal" element={<FalConfigStep />} />
         <Route path="antigravity" element={<AntigravityTokenImport />} />
         <Route path="kiro" element={<KiroTokenImport />} />
         <Route path="codex" element={<CodexTokenImport />} />
