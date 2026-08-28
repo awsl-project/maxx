@@ -1,10 +1,13 @@
 package fal
 
 import (
+	"bytes"
 	"encoding/base64"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 
@@ -189,6 +192,264 @@ func TestImageB64JsonFetchesBytes(t *testing.T) {
 	}
 }
 
+// ---- Image edit (image-to-image) ----
+
+// newMultipartCtx builds a flow.Ctx whose request is a multipart/form-data
+// images/edits upload. It sets the real multipart Content-Type on both the
+// underlying *http.Request (so the adapter can parse the boundary) and the stashed
+// KeyRequestHeaders, mirroring the proxy.
+func newMultipartCtx(uri string, fields map[string]string, files map[string]multipartFile) (*flow.Ctx, *httptest.ResponseRecorder) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for name, f := range files {
+		hdr := make(textproto.MIMEHeader)
+		hdr.Set("Content-Disposition",
+			`form-data; name="`+name+`"; filename="`+f.filename+`"`)
+		if f.contentType != "" {
+			hdr.Set("Content-Type", f.contentType)
+		}
+		part, _ := mw.CreatePart(hdr)
+		_, _ = part.Write(f.data)
+	}
+	for k, v := range fields {
+		_ = mw.WriteField(k, v)
+	}
+	_ = mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost"+uri, bytes.NewReader(buf.Bytes()))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer sk-maxx-client-token")
+	req.Header.Set("x-api-key", "sk-maxx-client-token")
+	rec := httptest.NewRecorder()
+	c := flow.NewCtx(rec, req)
+	c.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+	c.Set(flow.KeyRequestURI, uri)
+	c.Set(flow.KeyRequestBody, buf.Bytes())
+	c.Set(flow.KeyRequestHeaders, req.Header)
+	return c, rec
+}
+
+type multipartFile struct {
+	filename    string
+	contentType string
+	data        []byte
+}
+
+func TestImageEditMultipartToDataURI(t *testing.T) {
+	var gotPath, gotAuth, gotAPIKey string
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("x-api-key")
+		gotBody, _ = readAll(r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"images":[{"url":"https://fal.media/edited.jpg"}],"prompt":"make it red"}`))
+	}))
+	defer server.Close()
+	t.Setenv("MAXX_FAL_BASE_URL", server.URL)
+
+	imgBytes := []byte{0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0x11}
+	a := newFalAdapter(t)
+	c, rec := newMultipartCtx("/v1/images/edits",
+		map[string]string{
+			"model":           "ignored",
+			"prompt":          "make it red",
+			"size":            "512x768",
+			"strength":        "0.85",
+			"response_format": "url",
+		},
+		map[string]multipartFile{
+			"image": {filename: "in.png", contentType: "image/png", data: imgBytes},
+		},
+	)
+	c.Set(flow.KeyMappedModel, "fal-ai/flux/dev/image-to-image")
+
+	if err := a.Execute(c, &domain.Provider{}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if gotPath != "/fal-ai/flux/dev/image-to-image" {
+		t.Fatalf("upstream path = %q", gotPath)
+	}
+	if gotAuth != "Key "+testKey {
+		t.Fatalf("Authorization = %q, want fal key", gotAuth)
+	}
+	if gotAPIKey != "" {
+		t.Fatalf("client x-api-key leaked upstream: %q", gotAPIKey)
+	}
+	// image → image_url data: URI carrying the exact base64 of the upload.
+	wantURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imgBytes)
+	if u := gjson.GetBytes(gotBody, "image_url").String(); u != wantURI {
+		t.Fatalf("image_url = %q, want data URI %q", u, wantURI)
+	}
+	// prompt / strength / size translated; OpenAI-only fields absent.
+	if p := gjson.GetBytes(gotBody, "prompt").String(); p != "make it red" {
+		t.Fatalf("prompt = %q", p)
+	}
+	if s := gjson.GetBytes(gotBody, "strength").Float(); s != 0.85 {
+		t.Fatalf("strength = %v, want 0.85 (numeric); body=%s", s, gotBody)
+	}
+	if w := gjson.GetBytes(gotBody, "image_size.width").Int(); w != 512 {
+		t.Fatalf("image_size.width = %d, want 512", w)
+	}
+	if h := gjson.GetBytes(gotBody, "image_size.height").Int(); h != 768 {
+		t.Fatalf("image_size.height = %d, want 768", h)
+	}
+	if gjson.GetBytes(gotBody, "response_format").Exists() ||
+		gjson.GetBytes(gotBody, "size").Exists() ||
+		gjson.GetBytes(gotBody, "model").Exists() {
+		t.Fatalf("OpenAI-only fields not stripped: %s", gotBody)
+	}
+	// Response translated to OpenAI images shape.
+	out := rec.Body.Bytes()
+	if u := gjson.GetBytes(out, "data.0.url").String(); u != "https://fal.media/edited.jpg" {
+		t.Fatalf("data.0.url = %q; body=%s", u, out)
+	}
+}
+
+func TestImageEditMultipartMaskToMaskURL(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = readAll(r)
+		_, _ = w.Write([]byte(`{"images":[{"url":"https://fal.media/x.jpg"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("MAXX_FAL_BASE_URL", server.URL)
+
+	a := newFalAdapter(t)
+	maskBytes := []byte{0x01, 0x02, 0x03, 0x04}
+	c, _ := newMultipartCtx("/v1/images/edits",
+		map[string]string{"prompt": "inpaint"},
+		map[string]multipartFile{
+			"image": {filename: "in.png", contentType: "image/png", data: []byte{0x89, 0x50}},
+			"mask":  {filename: "m.png", contentType: "image/png", data: maskBytes},
+		},
+	)
+	c.Set(flow.KeyMappedModel, "fal-ai/flux/dev/image-to-image")
+	if err := a.Execute(c, &domain.Provider{}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	wantMask := "data:image/png;base64," + base64.StdEncoding.EncodeToString(maskBytes)
+	if m := gjson.GetBytes(gotBody, "mask_url").String(); m != wantMask {
+		t.Fatalf("mask_url = %q, want %q", m, wantMask)
+	}
+}
+
+func TestImageEditJSONImageURLPassthrough(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = readAll(r)
+		_, _ = w.Write([]byte(`{"images":[{"url":"https://fal.media/y.jpg"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("MAXX_FAL_BASE_URL", server.URL)
+
+	a := newFalAdapter(t)
+	body := []byte(`{"model":"ignored","prompt":"make it blue","image_url":"https://example.com/cat.jpg","strength":0.9,"size":"256x256"}`)
+	c, rec := newCtx(http.MethodPost, "/v1/images/edits", body, domain.ClientTypeOpenAI)
+	c.Set(flow.KeyMappedModel, "fal-ai/flux/dev/image-to-image")
+	if err := a.Execute(c, &domain.Provider{}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if u := gjson.GetBytes(gotBody, "image_url").String(); u != "https://example.com/cat.jpg" {
+		t.Fatalf("image_url passthrough = %q; body=%s", u, gotBody)
+	}
+	if p := gjson.GetBytes(gotBody, "prompt").String(); p != "make it blue" {
+		t.Fatalf("prompt = %q", p)
+	}
+	if w := gjson.GetBytes(gotBody, "image_size.width").Int(); w != 256 {
+		t.Fatalf("size not translated: %s", gotBody)
+	}
+	if gjson.GetBytes(gotBody, "model").Exists() {
+		t.Fatalf("model not stripped: %s", gotBody)
+	}
+	out := rec.Body.Bytes()
+	if u := gjson.GetBytes(out, "data.0.url").String(); u != "https://fal.media/y.jpg" {
+		t.Fatalf("data.0.url = %q", u)
+	}
+}
+
+func TestImageEditJSONBase64ToDataURI(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = readAll(r)
+		_, _ = w.Write([]byte(`{"images":[{"url":"https://fal.media/z.jpg"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("MAXX_FAL_BASE_URL", server.URL)
+
+	raw := []byte{0xde, 0xad, 0xbe, 0xef}
+	b64 := base64.StdEncoding.EncodeToString(raw)
+	a := newFalAdapter(t)
+	body := []byte(`{"prompt":"edit","image_b64":"` + b64 + `"}`)
+	c, _ := newCtx(http.MethodPost, "/v1/images/edits", body, domain.ClientTypeOpenAI)
+	c.Set(flow.KeyMappedModel, "fal-ai/flux/dev/image-to-image")
+	if err := a.Execute(c, &domain.Provider{}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	wantURI := "data:image/png;base64," + b64
+	if u := gjson.GetBytes(gotBody, "image_url").String(); u != wantURI {
+		t.Fatalf("image_url = %q, want %q", u, wantURI)
+	}
+	if gjson.GetBytes(gotBody, "image_b64").Exists() {
+		t.Fatalf("image_b64 not stripped: %s", gotBody)
+	}
+}
+
+func TestImageEditB64JSONResponseFormat(t *testing.T) {
+	imgBytes := []byte{0x89, 0x50, 0x4e, 0x47, 0x0a, 0x0b}
+	mux := http.NewServeMux()
+	var falBaseURL string
+	mux.HandleFunc("/media/edited.png", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(imgBytes)
+	})
+	mux.HandleFunc("/fal-ai/flux/dev/image-to-image", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"images":[{"url":"` + falBaseURL + `/media/edited.png"}]}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	falBaseURL = server.URL
+	t.Setenv("MAXX_FAL_BASE_URL", server.URL)
+
+	a := newFalAdapter(t)
+	c, rec := newMultipartCtx("/v1/images/edits",
+		map[string]string{"prompt": "p", "response_format": "b64_json"},
+		map[string]multipartFile{
+			"image": {filename: "in.png", contentType: "image/png", data: []byte{0x01}},
+		},
+	)
+	c.Set(flow.KeyMappedModel, "fal-ai/flux/dev/image-to-image")
+	if err := a.Execute(c, &domain.Provider{}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	out := rec.Body.Bytes()
+	if gjson.GetBytes(out, "data.0.url").Exists() {
+		t.Fatalf("b64_json response should not carry url: %s", out)
+	}
+	got := gjson.GetBytes(out, "data.0.b64_json").String()
+	want := base64.StdEncoding.EncodeToString(imgBytes)
+	if got != want {
+		t.Fatalf("b64_json = %q, want %q", got, want)
+	}
+}
+
+func TestIsImageEditPath(t *testing.T) {
+	cases := map[string]bool{
+		"/v1/images/edits":       true,
+		"/images/edits":          true,
+		"/v1/images/edits/":      true,
+		"/v1/images/edits?x=1":   true,
+		"/v1/images/generations": false,
+		"/v1/images/edits/extra": false,
+	}
+	for in, want := range cases {
+		if got := isImageEditPath(in); got != want {
+			t.Fatalf("isImageEditPath(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 // ---- Video submit ----
 
 func TestVideoSubmitEncodesTaskAndStripsAuth(t *testing.T) {
@@ -334,9 +595,9 @@ func TestVideoPollInvalidTaskID(t *testing.T) {
 
 func TestParseWxH(t *testing.T) {
 	cases := []struct {
-		in      string
-		w, h    int
-		ok      bool
+		in   string
+		w, h int
+		ok   bool
 	}{
 		{"1024x1024", 1024, 1024, true},
 		{"512x768", 512, 768, true},
