@@ -9,24 +9,30 @@ import (
 	"testing"
 )
 
-// TestDisableErrorCooldownRetriesBeyondRetryPolicy verifies the provider switch
-// contract: when disableErrorCooldown is enabled, matching upstream HTTP errors
-// neither create cooldown state nor obey the retry-attempt limit. The same
-// provider keeps retrying until it succeeds or the request context is cancelled.
+// TestDisableErrorCooldownRetriesBeyondRetryPolicy verifies the updated
+// contract: when disableErrorCooldown is enabled, retry-attempt limits are
+// still ignored, but only genuinely retryable classes keep retrying on the
+// same provider. Most 4xx errors must fail over immediately; 429 and 5xx may
+// continue retrying until success or context cancellation.
 func TestDisableErrorCooldownRetriesBeyondRetryPolicy(t *testing.T) {
 	cases := []struct {
-		status int
-		name   string
+		status               int
+		name                 string
+		expectStatus         int
+		expectFailingHits    int64
+		expectFallbackHits   int64
+		expectProviderBody   string
+		expectCooldownAbsent bool
 	}{
-		{status: http.StatusBadRequest, name: "400_request_error"},
-		{status: http.StatusUnauthorized, name: "401_auth_error"},
-		{status: http.StatusForbidden, name: "403_auth_error"},
-		{status: http.StatusNotFound, name: "404_not_found"},
-		{status: http.StatusPaymentRequired, name: "402_quota_error"},
-		{status: http.StatusTeapot, name: "418_other_client_error"},
-		{status: http.StatusUnprocessableEntity, name: "422_request_error"},
-		{status: http.StatusTooManyRequests, name: "429_rate_limit"},
-		{status: http.StatusInternalServerError, name: "500_server_error"},
+		{status: http.StatusBadRequest, name: "400_request_error", expectStatus: http.StatusBadRequest, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
+		{status: http.StatusUnauthorized, name: "401_auth_error", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
+		{status: http.StatusForbidden, name: "403_auth_error", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
+		{status: http.StatusNotFound, name: "404_not_found", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
+		{status: http.StatusPaymentRequired, name: "402_quota_error", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
+		{status: http.StatusTeapot, name: "418_other_client_error", expectStatus: http.StatusTeapot, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
+		{status: http.StatusUnprocessableEntity, name: "422_request_error", expectStatus: http.StatusUnprocessableEntity, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
+		{status: http.StatusTooManyRequests, name: "429_rate_limit", expectStatus: http.StatusOK, expectFailingHits: 5, expectFallbackHits: 0, expectProviderBody: "eventual-success", expectCooldownAbsent: true},
+		{status: http.StatusInternalServerError, name: "500_server_error", expectStatus: http.StatusOK, expectFailingHits: 5, expectFallbackHits: 0, expectProviderBody: "eventual-success", expectCooldownAbsent: true},
 	}
 
 	for _, tt := range cases {
@@ -88,18 +94,37 @@ func TestDisableErrorCooldownRetriesBeyondRetryPolicy(t *testing.T) {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("final status=%d body=%s, want 200 from retried provider", resp.StatusCode, body)
+			if resp.StatusCode != tt.expectStatus {
+				t.Fatalf("final status=%d body=%s, want %d", resp.StatusCode, body, tt.expectStatus)
 			}
-			if failingHits.Load() != 5 {
-				t.Fatalf("status %d provider hits=%d, want 5 (4 failures beyond retry limit + success)", tt.status, failingHits.Load())
+			if failingHits.Load() != tt.expectFailingHits {
+				t.Fatalf("status %d provider hits=%d, want %d", tt.status, failingHits.Load(), tt.expectFailingHits)
 			}
-			if fallbackHits.Load() != 0 {
-				t.Fatalf("status %d fallback hits=%d, want 0 when disabled freeze keeps retrying same provider", tt.status, fallbackHits.Load())
+			if fallbackHits.Load() != tt.expectFallbackHits {
+				t.Fatalf("status %d fallback hits=%d, want %d", tt.status, fallbackHits.Load(), tt.expectFallbackHits)
 			}
-			assertNoCooldownForProvider(t, env, resilientID)
+			if tt.expectProviderBody != "" && !jsonBodyContainsContent(body, tt.expectProviderBody) {
+				t.Fatalf("status %d body=%s, want content %q", tt.status, body, tt.expectProviderBody)
+			}
+			if tt.expectCooldownAbsent {
+				assertNoCooldownForProvider(t, env, resilientID)
+			}
 		})
 	}
+}
+
+func jsonBodyContainsContent(body []byte, want string) bool {
+	var payload struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	return len(payload.Choices) > 0 && payload.Choices[0].Message.Content == want
 }
 
 func createDisableErrorCooldownProvider(t *testing.T, env *ProxyTestEnv, name, baseURL string, disable bool) uint64 {
