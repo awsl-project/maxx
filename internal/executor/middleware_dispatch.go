@@ -342,6 +342,9 @@ routeLoop:
 				state.currentAttempt = nil
 
 				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType), mappedModel)
+				if matchedRoute.Provider != nil && matchedRoute.Provider.Config != nil && matchedRoute.Provider.Config.ConsecutiveErrorFreezeEnabled {
+					cooldown.Default().ResetFailures(matchedRoute.Provider.ID, "", "")
+				}
 				if useSmartMappingRetry {
 					e.recordSmartMappingSuccess(smartMappingKey, mappedModel)
 				}
@@ -507,10 +510,34 @@ routeLoop:
 				return
 			}
 
+			providerFrozenAfterThreshold := false
 			if ok && ctx.Err() != context.Canceled {
 				log.Printf("[Executor] ProxyError - Scope: %s, Reason: %s, Retryable: %v, Provider: %d",
 					proxyErr.Scope, proxyErr.Reason, proxyErr.Retryable, matchedRoute.Provider.ID)
-				if !shouldSkipErrorCooldownUpdate(matchedRoute.Provider, proxyErr) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, retryConfig) {
+				if shouldUseConsecutiveErrorFreeze(matchedRoute.Provider, proxyErr) {
+					failureCount, freezeUntil := cooldown.Default().RecordFailureAfterThreshold(
+						matchedRoute.Provider.ID,
+						string(currentClientType),
+						mappedModel,
+						cooldown.CooldownReason(proxyErr.Reason),
+						domain.ScopeProvider,
+						e.rateLimitDefaultCooldownUntil(),
+						consecutiveErrorFreezeThreshold(matchedRoute.Provider),
+					)
+					providerFrozenAfterThreshold = !freezeUntil.IsZero()
+					log.Printf("[Executor] Provider %d consecutive upstream failure count=%d threshold=%d frozen=%v until=%s",
+						matchedRoute.Provider.ID,
+						failureCount,
+						consecutiveErrorFreezeThreshold(matchedRoute.Provider),
+						providerFrozenAfterThreshold,
+						freezeUntil.Format(time.RFC3339),
+					)
+					if providerFrozenAfterThreshold && e.broadcaster != nil {
+						e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
+							"providerID": matchedRoute.Provider.ID,
+						})
+					}
+				} else if !shouldSkipErrorCooldownUpdate(matchedRoute.Provider, proxyErr) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, retryConfig) {
 					e.handleCooldown(proxyErr, matchedRoute.Provider, currentClientType, mappedModel)
 					if e.broadcaster != nil {
 						e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
@@ -522,6 +549,11 @@ routeLoop:
 				log.Printf("[Executor] Client disconnected, skipping cooldown for Provider: %d", matchedRoute.Provider.ID)
 			} else if !ok {
 				log.Printf("[Executor] Error is not ProxyError, type: %T, error: %v", err, err)
+			}
+
+			if providerFrozenAfterThreshold {
+				log.Printf("[Executor] Provider %d reached consecutive error freeze threshold; failing over to next provider", matchedRoute.Provider.ID)
+				continue routeLoop
 			}
 
 			if !ok || !proxyErr.Retryable {
