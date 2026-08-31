@@ -417,7 +417,28 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 }
 
 func shouldSkipErrorCooldownUpdate(provider *domain.Provider, proxyErr *domain.ProxyError) bool {
-	return shouldSkipErrorCooldown(provider)
+	return shouldSkipErrorCooldown(provider) && !shouldUseConsecutiveErrorFreeze(provider, proxyErr)
+}
+
+func shouldUseConsecutiveErrorFreeze(provider *domain.Provider, proxyErr *domain.ProxyError) bool {
+	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown && provider.Config.ConsecutiveErrorFreezeEnabled && isConsecutiveErrorFreezeError(proxyErr)
+}
+
+func consecutiveErrorFreezeThreshold(provider *domain.Provider) int {
+	if provider == nil || provider.Config == nil || provider.Config.ConsecutiveErrorFreezeThreshold <= 0 {
+		return 3
+	}
+	if provider.Config.ConsecutiveErrorFreezeThreshold > 100 {
+		return 100
+	}
+	return provider.Config.ConsecutiveErrorFreezeThreshold
+}
+
+func isConsecutiveErrorFreezeError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil || proxyErr.Scope == domain.ScopeRequest {
+		return false
+	}
+	return proxyErr.HTTPStatusCode == http.StatusTooManyRequests
 }
 
 func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {

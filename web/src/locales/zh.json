@@ -1900,7 +1900,11 @@
       "max": "最高"
     },
     "quotaEnabled": "启用额度检查",
-    "quotaEnabledDesc": "开启后，使用该提供商的请求会检查对应 API 令牌的额度；令牌无额度时直接拦截。"
+    "quotaEnabledDesc": "开启后，使用该提供商的请求会检查对应 API 令牌的额度；令牌无额度时直接拦截。",
+    "consecutiveErrorFreeze": "连续错误后临时冻结",
+    "consecutiveErrorFreezeDesc": "开启后，当该提供商连续发生可归因于上游的错误达到阈值时，会按全局冷却时间临时冻结，并切到后续提供商。",
+    "consecutiveErrorFreezeThreshold": "连续错误阈值",
+    "consecutiveErrorFreezeHint": "只统计非请求级的 HTTP 429 错误；其他错误都不会触发这条连续错误冻结。冻结时长复用设置里的默认冷却时间。"
   },
   "cooldown": {
     "title": "冷却保护中",

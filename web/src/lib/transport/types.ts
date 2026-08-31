@@ -258,6 +258,8 @@ export interface ProviderModelCheckResponse {
 export interface ProviderConfig {
   quotaEnabled?: boolean;
   disableErrorCooldown?: boolean;
+  consecutiveErrorFreezeEnabled?: boolean;
+  consecutiveErrorFreezeThreshold?: number;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
   reasoning?: ReasoningPolicy;

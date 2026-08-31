@@ -426,6 +426,10 @@ type ProviderConfig struct {
 
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
 	DisableErrorCooldown bool `json:"disableErrorCooldown,omitempty"`
+	// 禁用错误自动冷冻时，连续上游错误超过阈值后临时冻结该 provider 并切换到后续 provider。
+	ConsecutiveErrorFreezeEnabled bool `json:"consecutiveErrorFreezeEnabled,omitempty"`
+	// 连续上游错误临时冻结阈值。<=0 时使用默认值 3。
+	ConsecutiveErrorFreezeThreshold int `json:"consecutiveErrorFreezeThreshold,omitempty"`
 	// 智能映射轮询重试：禁用错误自动冻结时，按候选映射模型轮询失败重试。
 	SmartMappingRetryEnabled bool `json:"smartMappingRetryEnabled,omitempty"`
 	// 每个映射模型失败多少次后切换到下一个候选模型。
