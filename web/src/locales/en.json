@@ -1907,7 +1907,7 @@
     "consecutiveErrorFreeze": "Temporarily freeze after consecutive errors",
     "consecutiveErrorFreezeDesc": "When enabled, this provider is temporarily frozen after consecutive upstream-attributed errors reach the threshold, then routing falls through to later providers.",
     "consecutiveErrorFreezeThreshold": "Consecutive error threshold",
-    "consecutiveErrorFreezeHint": "Only upstream errors such as 5xx, 429, connection failures, timeouts, and stream interruptions are counted. 400/401/403, model-not-found, and invalid request errors do not freeze the provider. Freeze duration reuses the default cooldown setting."
+    "consecutiveErrorFreezeHint": "Only non-request-level HTTP 429 responses are counted. All other errors do not trigger this consecutive-error freeze. Freeze duration reuses the default cooldown setting."
   },
   "cooldown": {
     "title": "Cooldown Protection",
