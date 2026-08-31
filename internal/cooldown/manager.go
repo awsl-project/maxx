@@ -215,7 +215,7 @@ func (m *Manager) RecordFailureAfterThreshold(providerID uint64, clientType stri
 		return failureCount, time.Time{}
 	}
 
-	until := time.Time{}
+	var until time.Time
 	if explicitUntil != nil {
 		until = *explicitUntil
 	} else if policy, ok := m.policies[reason]; ok {

@@ -520,7 +520,7 @@ routeLoop:
 						string(currentClientType),
 						mappedModel,
 						cooldown.CooldownReason(proxyErr.Reason),
-						domain.ScopeProvider,
+						proxyErr.Scope,
 						e.rateLimitDefaultCooldownUntil(),
 						consecutiveErrorFreezeThreshold(matchedRoute.Provider),
 					)

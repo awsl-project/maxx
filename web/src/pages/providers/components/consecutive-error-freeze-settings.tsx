@@ -27,6 +27,7 @@ export function ConsecutiveErrorFreezeSettings({
   onThresholdChange,
 }: ConsecutiveErrorFreezeSettingsProps) {
   const { t } = useTranslation();
+  const thresholdInputId = 'consecutive-error-freeze-threshold';
 
   if (!disableErrorCooldown) return null;
 
@@ -47,10 +48,11 @@ export function ConsecutiveErrorFreezeSettings({
 
       {enabled && (
         <div className="grid gap-2 sm:grid-cols-[180px_1fr] sm:items-center">
-          <label className="text-xs font-medium text-foreground">
+          <label htmlFor={thresholdInputId} className="text-xs font-medium text-foreground">
             {t('provider.consecutiveErrorFreezeThreshold')}
           </label>
           <Input
+            id={thresholdInputId}
             type="number"
             min={1}
             max={100}

@@ -438,10 +438,7 @@ func isConsecutiveErrorFreezeError(proxyErr *domain.ProxyError) bool {
 	if proxyErr == nil || proxyErr.Scope == domain.ScopeRequest {
 		return false
 	}
-	if proxyErr.Reason == domain.CooldownReasonServerError || proxyErr.Reason == domain.CooldownReasonNetworkError || proxyErr.Reason == domain.CooldownReasonRateLimitExceeded || proxyErr.Reason == domain.CooldownReasonConcurrentLimit {
-		return true
-	}
-	return proxyErr.HTTPStatusCode == http.StatusTooManyRequests || proxyErr.HTTPStatusCode >= 500
+	return proxyErr.HTTPStatusCode == http.StatusTooManyRequests
 }
 
 func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {
