@@ -39,6 +39,8 @@ var proxyAPIEndpoints = []proxyAPIEndpoint{
 	{path: "/v1/images/generations", subtree: false}, // OpenAI Images API
 	{path: "/v1/images/edits", subtree: false},       // OpenAI Images API
 	{path: "/v1/images", subtree: false},             // OpenRouter unified image API
+	{path: "/v1/video/generations", subtree: true},   // Async video generation
+	{path: "/v1/videos", subtree: true},              // OpenAI-compatible video API
 	{path: "/responses", subtree: true},              // Codex API
 	{path: "/v1/responses", subtree: true},           // Codex API
 	{path: "/v1/models", subtree: true},              // Model list API
@@ -92,4 +94,26 @@ func proxyRouteExposureEnabled(settings repository.SystemSettingRepository, path
 
 func proxyRouteExposureEnabledByDefault(key string) bool {
 	return true
+}
+
+func isStaticAPIPath(path string) bool {
+	if path == "/api" || strings.HasPrefix(path, "/api/") ||
+		path == "/provider" || strings.HasPrefix(path, "/provider/") ||
+		path == "/responses" || strings.HasPrefix(path, "/responses/") ||
+		path == "/chat" || strings.HasPrefix(path, "/chat/") ||
+		path == "/images" || strings.HasPrefix(path, "/images/") ||
+		path == "/video" || strings.HasPrefix(path, "/video/") ||
+		path == "/videos" || strings.HasPrefix(path, "/videos/") ||
+		path == "/models" || strings.HasPrefix(path, "/models/") ||
+		path == "/v1" || strings.HasPrefix(path, "/v1/") ||
+		path == "/v1beta" || strings.HasPrefix(path, "/v1beta/") ||
+		path == "/v1internal" || strings.HasPrefix(path, "/v1internal/") {
+		return true
+	}
+	for _, e := range proxyAPIEndpoints {
+		if path == e.path || strings.HasPrefix(path, e.path+"/") {
+			return true
+		}
+	}
+	return false
 }

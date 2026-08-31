@@ -257,19 +257,22 @@ func isOpenAIImagesPath(path string) bool {
 }
 
 // IsVideoGenerationsPath matches the async video-generation surface: the exact
-// submit path (POST /v1/video/generations) and the poll subpath
-// (GET /v1/video/generations/{task_id}). The poll carries no body/model, so it
-// must be classified by path. Exported so the ingress gate can allow GET polls.
+// submit path (POST /v1/video/generations or the OpenAI-compatible
+// POST /v1/videos alias) and the poll subpath (GET /.../{task_id}). The poll
+// carries no body/model, so it must be classified by path. Exported so the
+// ingress gate can allow GET polls.
 func IsVideoGenerationsPath(path string) bool {
 	return path == "/v1/video/generations" || strings.HasPrefix(path, "/v1/video/generations/") ||
-		path == "/video/generations" || strings.HasPrefix(path, "/video/generations/")
+		path == "/video/generations" || strings.HasPrefix(path, "/video/generations/") ||
+		path == "/v1/videos" || strings.HasPrefix(path, "/v1/videos/") ||
+		path == "/videos" || strings.HasPrefix(path, "/videos/")
 }
 
 // IsVideoPollPath reports whether path is a video-generation POLL — the
 // collection path plus a non-empty task id (e.g. /v1/video/generations/task_abc).
 // Only the poll is a GET; the bare collection path is submit-only (POST).
 func IsVideoPollPath(path string) bool {
-	for _, base := range []string{"/v1/video/generations/", "/video/generations/"} {
+	for _, base := range []string{"/v1/video/generations/", "/video/generations/", "/v1/videos/", "/videos/"} {
 		if strings.HasPrefix(path, base) && strings.TrimPrefix(path, base) != "" {
 			return true
 		}

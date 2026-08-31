@@ -48,6 +48,10 @@ func RegisterProxyRoutes(mux *http.ServeMux, handlers ProxyRouteHandlers) {
 		mux.Handle("/v1/video/generations/", handlers.ProxyHandler)
 		mux.Handle("/video/generations", handlers.ProxyHandler)
 		mux.Handle("/video/generations/", handlers.ProxyHandler)
+		mux.Handle("/v1/videos", handlers.ProxyHandler)
+		mux.Handle("/v1/videos/", handlers.ProxyHandler)
+		mux.Handle("/videos", handlers.ProxyHandler)
+		mux.Handle("/videos/", handlers.ProxyHandler)
 		// Codex API
 		mux.Handle("/responses", responsesHandler)
 		mux.Handle("/responses/", responsesHandler)

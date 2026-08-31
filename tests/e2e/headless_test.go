@@ -44,6 +44,16 @@ func TestServeMode_UIServesStaticFiles(t *testing.T) {
 		t.Fatalf("expected SPA fallback to index.html, got: %q", body)
 	}
 
+	// Unknown API-shaped routes must not fall back to index.html.
+	resp = env.UnauthGet("/v1/unknown")
+	AssertStatus(t, resp, http.StatusNotFound)
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", ct)
+	}
+	if body := ReadBody(t, resp); strings.Contains(body, "maxx-test-ui") {
+		t.Fatalf("API 404 fell back to index.html: %q", body)
+	}
+
 	// The API still works alongside static serving.
 	resp = env.AdminGet("/api/admin/providers")
 	AssertStatus(t, resp, http.StatusOK)

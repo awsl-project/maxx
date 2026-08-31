@@ -86,8 +86,8 @@ func TestDetectClientTypeRecognizesVideoGenerationsPath(t *testing.T) {
 	adapter := NewAdapter()
 
 	// Submit: POST with a JSON body carrying the model.
-	submitBody := []byte(`{"model":"doubao-seedance-2-0-260128","prompt":"a cat runs"}`)
-	for _, path := range []string{"/v1/video/generations", "/video/generations"} {
+	submitBody := []byte(`{"model":"video-test-model","prompt":"a cat runs"}`)
+	for _, path := range []string{"/v1/video/generations", "/video/generations", "/v1/videos", "/videos"} {
 		req := httptest.NewRequest("POST", path, strings.NewReader(string(submitBody)))
 		if got := adapter.DetectClientType(req, submitBody); got != domain.ClientTypeVideo {
 			t.Fatalf("DetectClientType(POST %s) = %s, want %s", path, got, domain.ClientTypeVideo)
@@ -95,13 +95,13 @@ func TestDetectClientTypeRecognizesVideoGenerationsPath(t *testing.T) {
 		if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeVideo {
 			t.Fatalf("Match(POST %s) = (%s, %v), want (%s, true)", path, got, ok, domain.ClientTypeVideo)
 		}
-		if got := adapter.ExtractModel(req, submitBody, domain.ClientTypeVideo); got != "doubao-seedance-2-0-260128" {
-			t.Fatalf("ExtractModel(%s) = %q, want the seedance model", path, got)
+		if got := adapter.ExtractModel(req, submitBody, domain.ClientTypeVideo); got != "video-test-model" {
+			t.Fatalf("ExtractModel(%s) = %q, want video-test-model", path, got)
 		}
 	}
 
 	// Poll: GET /{task_id} with no body — classified by path, model is empty.
-	for _, path := range []string{"/v1/video/generations/task_abc123", "/video/generations/task_abc123"} {
+	for _, path := range []string{"/v1/video/generations/task_abc123", "/video/generations/task_abc123", "/v1/videos/task_abc123", "/videos/task_abc123"} {
 		req := httptest.NewRequest("GET", path, nil)
 		if got := adapter.DetectClientType(req, nil); got != domain.ClientTypeVideo {
 			t.Fatalf("DetectClientType(GET %s) = %s, want %s", path, got, domain.ClientTypeVideo)
@@ -118,7 +118,7 @@ func TestDetectClientTypeRecognizesVideoGenerationsPath(t *testing.T) {
 // Only the poll (collection path + a non-empty task id) may be a GET; the bare
 // submit endpoints stay POST-only, so the method gate must not treat them as polls.
 func TestIsVideoPollPath(t *testing.T) {
-	polls := []string{"/v1/video/generations/task_abc123", "/video/generations/task_abc123"}
+	polls := []string{"/v1/video/generations/task_abc123", "/video/generations/task_abc123", "/v1/videos/task_abc123", "/videos/task_abc123"}
 	for _, p := range polls {
 		if !IsVideoPollPath(p) {
 			t.Fatalf("IsVideoPollPath(%s) = false, want true", p)
@@ -127,6 +127,8 @@ func TestIsVideoPollPath(t *testing.T) {
 	notPolls := []string{
 		"/v1/video/generations", "/video/generations",
 		"/v1/video/generations/", "/video/generations/", // trailing slash, no task id
+		"/v1/videos", "/videos",
+		"/v1/videos/", "/videos/", // trailing slash, no task id
 		"/v1/chat/completions",
 	}
 	for _, p := range notPolls {

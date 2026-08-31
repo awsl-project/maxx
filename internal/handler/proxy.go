@@ -158,7 +158,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := flow.NewCtx(w, r)
+	ctx := flow.NewCtx(executor.NewResponseCapture(w), r)
 	h.engine.HandleWith(ctx, h.proxyHandlers()...)
 }
 
@@ -354,11 +354,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
 			log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
 			h.executor.RecordRejectedProxyRequest(c, apiToken, http.StatusTooManyRequests, err.Error())
-			if stream {
-				writeStreamRateLimitError(w, err.Error(), 1)
-			} else {
-				writeRateLimitError(w, err.Error(), 1)
-			}
+			writeRateLimitError(w, err.Error(), 1)
 			c.Abort()
 			return
 		}
@@ -438,7 +434,7 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 	proxyErr, ok := asHandlerProxyError(err)
 	if ok {
 		if stream {
-			writeStreamError(c.Writer, proxyErr)
+			writeProxyStreamError(c.Writer, proxyErr)
 		} else {
 			writeProxyError(c.Writer, proxyErr)
 		}
@@ -608,6 +604,46 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	}
 	w.WriteHeader(statusCode)
 
+	payload := map[string]interface{}{
+		"message":   err.Error(),
+		"type":      "upstream_error",
+		"retryable": err.Retryable,
+	}
+	if err.Code != "" {
+		payload["code"] = err.Code
+	}
+	errorEvent := map[string]interface{}{
+		"type":  "error",
+		"error": payload,
+	}
+	data, _ := json.Marshal(errorEvent)
+	w.Write([]byte("data: "))
+	w.Write(data)
+	w.Write([]byte("\n\n"))
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func writeProxyStreamError(w http.ResponseWriter, err *domain.ProxyError) {
+	if responseStarted(w) {
+		writeStreamErrorEvent(w, err)
+		return
+	}
+	writeProxyError(w, err)
+}
+
+type responseStartTracker interface {
+	WroteToClient() bool
+}
+
+func responseStarted(w http.ResponseWriter) bool {
+	tracker, ok := w.(responseStartTracker)
+	return ok && tracker.WroteToClient()
+}
+
+func writeStreamErrorEvent(w http.ResponseWriter, err *domain.ProxyError) {
 	payload := map[string]interface{}{
 		"message":   err.Error(),
 		"type":      "upstream_error",

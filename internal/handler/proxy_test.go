@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
 
@@ -148,6 +150,59 @@ func TestWriteStreamErrorPreservesStatusAndRetryAfter(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"type":"error"`) {
 		t.Fatalf("stream body = %q, want error event", rec.Body.String())
+	}
+}
+
+func TestWriteProxyStreamErrorBeforeResponseStartsUsesJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := executor.NewResponseCapture(rec)
+	writeProxyStreamError(w, &domain.ProxyError{
+		Err:            domain.ErrUpstreamError,
+		Message:        "upstream returned status 401",
+		HTTPStatusCode: http.StatusUnauthorized,
+		Code:           "authentication_error",
+	})
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	if strings.HasPrefix(rec.Body.String(), "data:") {
+		t.Fatalf("body = %q, should be JSON not SSE", rec.Body.String())
+	}
+	var payload map[string]map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got := payload["error"]["code"]; got != "authentication_error" {
+		t.Fatalf("error.code = %v, want authentication_error", got)
+	}
+}
+
+func TestWriteProxyStreamErrorAfterResponseStartsAppendsSSEEvent(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := executor.NewResponseCapture(rec)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.WriteString(w, "data: partial\n\n"); err != nil {
+		t.Fatalf("write partial: %v", err)
+	}
+
+	writeProxyStreamError(w, &domain.ProxyError{
+		Err:            domain.ErrUpstreamError,
+		Message:        "upstream stream failed",
+		HTTPStatusCode: http.StatusInternalServerError,
+		Code:           "server_error",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d after response started", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "data: partial") || !strings.Contains(body, `"code":"server_error"`) {
+		t.Fatalf("body = %q, want partial data plus SSE error", body)
 	}
 }
 

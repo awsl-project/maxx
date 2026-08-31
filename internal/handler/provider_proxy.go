@@ -9,6 +9,7 @@ import (
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/requestmeta"
@@ -86,7 +87,7 @@ func (h *ProviderProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	log.Printf("[ProviderProxy] Direct forwarding through provider: %s (ID: %d)", provider.Name, provider.ID)
 	r.URL.Path = apiPath
 
-	ctx := flow.NewCtx(w, r)
+	ctx := flow.NewCtx(executor.NewResponseCapture(w), r)
 	handlers := append([]flow.HandlerFunc{}, h.proxyHandler.extra...)
 	handlers = append(handlers, h.directDispatch(provider))
 	h.proxyHandler.engine.HandleWith(ctx, handlers...)
@@ -145,7 +146,7 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 
 		if proxyErr, ok := asHandlerProxyError(err); ok {
 			if isStream {
-				writeStreamError(c.Writer, proxyErr)
+				writeProxyStreamError(c.Writer, proxyErr)
 			} else {
 				writeProxyError(c.Writer, proxyErr)
 			}
