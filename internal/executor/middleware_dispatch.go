@@ -404,6 +404,10 @@ routeLoop:
 			attemptRecord.EndTime = time.Now()
 			attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 			state.lastErr = err
+			// Record a compact, secret-free summary of this failed attempt so a
+			// later catch-all provider's unrelated error can't mask the real
+			// first-provider cause when the request ultimately fails.
+			state.attemptTrail = append(state.attemptTrail, newAttemptFailure(matchedRoute.Provider.ID, err))
 
 			attemptRecord.Status = attemptFailureStatus(ctx, err)
 			attemptRecord.Error = err.Error()
@@ -614,6 +618,20 @@ routeLoop:
 			}
 			attempt++
 		}
+	}
+
+	// A request that ran out of routes after failing over across more than one
+	// provider currently surfaces ONLY the last provider's error. When the last
+	// provider is a catch-all (e.g. an OpenAI-compatible fallback), that error is
+	// often unrelated to the real cause on the first provider (e.g. the fal
+	// provider's "403 User is locked / balance" masked by the catch-all's "404 no
+	// model found"). Fold the first informative upstream error into the final
+	// error and emit one WARN line summarizing the whole attempt chain, so the
+	// true cause is observable. Routing/failover behavior is unchanged.
+	if augmented, firstFailure, ok := augmentFallthroughError(state.lastErr, state.attemptTrail); ok {
+		state.lastErr = augmented
+		log.Printf("[Executor] WARN request failed after fallthrough across %d attempts; surfacing first upstream cause. chain=[%s] firstInformative=%q finalError=%v",
+			len(state.attemptTrail), attemptTrailSummary(state.attemptTrail), firstFailure.summary(), state.lastErr)
 	}
 
 	proxyReq.Status = "FAILED"
