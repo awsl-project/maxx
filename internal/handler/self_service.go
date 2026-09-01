@@ -1792,6 +1792,11 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		grok.IDToken = ""
 		config.Grok = &grok
 	}
+	if config.Fal != nil {
+		fal := *config.Fal
+		fal.APIKey = ""
+		config.Fal = &fal
+	}
 	sanitized.Config = &config
 	return &sanitized
 }
