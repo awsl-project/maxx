@@ -1068,7 +1068,7 @@ func normalizeOpenAIUpstreamRequestPath(requestPath string) string {
 		return "/v1" + requestPath
 	case requestPath == "/video/generations" || strings.HasPrefix(requestPath, "/video/generations/"):
 		return "/v1" + requestPath
-	case requestPath == "/videos" || strings.HasPrefix(requestPath, "/videos/"):
+	case requestPath == "/videos" || strings.HasPrefix(requestPath, "/videos/") || strings.HasPrefix(requestPath, "/videos?"):
 		return "/v1" + requestPath
 	case requestPath == "/models" || strings.HasPrefix(requestPath, "/models?"):
 		return "/v1" + requestPath

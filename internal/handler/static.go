@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -65,7 +66,11 @@ func newFileSystemStaticHandler() http.Handler {
 		file, err := os.Open(filePath)
 		if err != nil {
 			if isStaticAPIPath(r.URL.Path) {
-				writeError(w, http.StatusNotFound, "not found")
+				if errors.Is(err, os.ErrNotExist) {
+					writeError(w, http.StatusNotFound, "not found")
+				} else {
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+				}
 				return
 			}
 			// File not found, try index.html for SPA routing

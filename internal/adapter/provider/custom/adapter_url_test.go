@@ -117,6 +117,12 @@ func TestBuildUpstreamURLNormalizesOpenAIBaseRoots(t *testing.T) {
 			want:        "https://video.example.test/v1/videos",
 		},
 		{
+			name:        "root-style videos query path gains v1",
+			baseURL:     "https://video.example.test",
+			requestPath: "/videos?limit=1",
+			want:        "https://video.example.test/v1/videos?limit=1",
+		},
+		{
 			name:        "root-style videos poll path gains v1",
 			baseURL:     "https://video.example.test",
 			requestPath: "/videos/task_abc",

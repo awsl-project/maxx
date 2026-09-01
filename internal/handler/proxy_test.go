@@ -206,6 +206,30 @@ func TestWriteProxyStreamErrorAfterResponseStartsAppendsSSEEvent(t *testing.T) {
 	}
 }
 
+func TestWriteProxyStreamErrorAfterFlushOnlyAppendsSSEEvent(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := executor.NewResponseCapture(rec)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Flush()
+
+	writeProxyStreamError(w, &domain.ProxyError{
+		Err:            domain.ErrUpstreamError,
+		Message:        "upstream stream failed after flush",
+		HTTPStatusCode: http.StatusInternalServerError,
+		Code:           "server_error",
+	})
+
+	if got := rec.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+	if strings.HasPrefix(rec.Body.String(), "{") {
+		t.Fatalf("body = %q, should append SSE error event after flush", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"type":"error"`) || !strings.Contains(rec.Body.String(), `"code":"server_error"`) {
+		t.Fatalf("body = %q, want SSE error event after flush", rec.Body.String())
+	}
+}
+
 func TestProxyHandlerRejectsRequestsWhenKillSwitchEnabled(t *testing.T) {
 	systemsettingcache.Invalidate(domain.SettingKeyProxyRequestsDisabled)
 	repo := &proxyBooleanSettingRepo{values: []string{"true"}}

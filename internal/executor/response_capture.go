@@ -115,9 +115,13 @@ func (rc *ResponseCapture) Header() http.Header {
 	return rc.ResponseWriter.Header()
 }
 
-// Flush implements http.Flusher for streaming support
+// Flush implements http.Flusher for streaming support.
+// A flush can commit headers/body to the client even when no explicit Write or
+// WriteHeader happened on this wrapper yet, so mark the response as started
+// before delegating.
 func (rc *ResponseCapture) Flush() {
 	if f, ok := rc.ResponseWriter.(http.Flusher); ok {
+		rc.wrote = true
 		f.Flush()
 	}
 }
