@@ -137,7 +137,11 @@ func (r *Router) InitAdapters() error {
 		}
 		a, err := factory(p)
 		if err != nil {
-			return err
+			// A single mis-configured provider (e.g. empty config) must not
+			// abort building adapters for every other provider. Log and skip
+			// it so the rest still get live adapters.
+			log.Printf("[Router] InitAdapters: skipping provider %d (%s): factory error: %v", p.ID, p.Type, err)
+			continue
 		}
 		r.injectProviderUpdate(a, p)
 		next[p.ID] = a
@@ -186,7 +190,11 @@ func (r *Router) ReconcileAdapters() error {
 		}
 		a, err := factory(p)
 		if err != nil {
-			return err
+			// A single mis-configured provider must not abort reconciliation
+			// for every other provider (which would freeze hot-reload until a
+			// full restart). Log and skip it so the rest still reconcile.
+			log.Printf("[Router] ReconcileAdapters: skipping provider %d (%s): factory error: %v", p.ID, p.Type, err)
+			continue
 		}
 		r.injectProviderUpdate(a, p)
 		next[p.ID] = a
