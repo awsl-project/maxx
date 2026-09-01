@@ -13,6 +13,7 @@ export const PROVIDER_CREATE_PATHS: Record<ProviderTypeKey, string> = {
   newapi: '/providers/create/newapi',
   ollama: '/providers/create/ollama',
   grok: '/providers/create/grok',
+  fal: '/providers/create/fal',
 };
 
 export function getProviderCreatePath(type: ProviderTypeKey): string {
@@ -35,6 +36,7 @@ export function useProviderNavigation() {
     goToNewApi: () => navigate(PROVIDER_CREATE_PATHS.newapi),
     goToOllama: () => navigate(PROVIDER_CREATE_PATHS.ollama),
     goToGrok: () => navigate(PROVIDER_CREATE_PATHS.grok),
+    goToFal: () => navigate(PROVIDER_CREATE_PATHS.fal),
     goToProviderConfig: (type: ProviderTypeKey) => navigate(getProviderCreatePath(type)),
     goToProviders: () => navigate('/providers'),
     goBack: () => navigate(-1),

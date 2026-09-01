@@ -393,7 +393,7 @@ func (s *customWebSocketSession) executeTurn(
 	if eventChan != nil {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  "WEBSOCKET",
-			Headers: flattenCustomHeaders(s.handshakeHeader),
+			Headers: domain.RedactSensitiveHeaders(flattenCustomHeaders(s.handshakeHeader)),
 			Body:    string(frame),
 		})
 	}

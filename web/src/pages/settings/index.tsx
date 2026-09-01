@@ -413,12 +413,23 @@ export function DataRetentionSection() {
   const requestRetentionHours = settings?.request_retention_hours ?? '168';
   const sessionRetentionHours = settings?.session_retention_hours ?? '168';
   const requestDetailRetentionSeconds = settings?.request_detail_retention_seconds ?? '-1';
+  // 详情保留默认按成功/失败分桶（split 默认开启），避免历史 -1 永久默认撑爆磁盘。
   const requestDetailRetentionSplitEnabled =
-    settings?.request_detail_retention_split_enabled === 'true';
+    settings?.request_detail_retention_split_enabled === undefined
+      ? true
+      : settings?.request_detail_retention_split_enabled === 'true';
+  // 未显式设置统一键时，成功/失败回退到各自的有限默认值（1 天 / 3 天）。
+  const requestDetailRetentionUnifiedFallback = settings?.request_detail_retention_seconds ?? '-1';
   const requestDetailRetentionSecondsSuccess =
-    settings?.request_detail_retention_seconds_success ?? requestDetailRetentionSeconds;
+    settings?.request_detail_retention_seconds_success ??
+    (settings?.request_detail_retention_seconds !== undefined
+      ? requestDetailRetentionUnifiedFallback
+      : '86400');
   const requestDetailRetentionSecondsFailed =
-    settings?.request_detail_retention_seconds_failed ?? requestDetailRetentionSeconds;
+    settings?.request_detail_retention_seconds_failed ??
+    (settings?.request_detail_retention_seconds !== undefined
+      ? requestDetailRetentionUnifiedFallback
+      : '259200');
 
   const [requestDraft, setRequestDraft] = useState('');
   const [sessionDraft, setSessionDraft] = useState('');

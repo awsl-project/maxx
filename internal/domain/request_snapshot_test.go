@@ -81,3 +81,84 @@ func withSnapshotCap(n int) func() {
 	requestSnapshotMaxBytes = n
 	return func() { requestSnapshotMaxBytes = old }
 }
+
+func TestRedactSensitiveHeaders(t *testing.T) {
+	in := map[string]string{
+		"Authorization":        "Bearer sk-caller-token",
+		"authorization":        "Bearer sk-lowercase", // case-insensitive
+		"X-Api-Key":            "sk-xapikey",
+		"Api-Key":              "sk-apikey",
+		"X-Api-Token":          "tok-123",
+		"Proxy-Authorization":  "Basic abc",
+		"X-Goog-Api-Key":       "gemini-secret",
+		"anthropic-api-key":    "sk-ant-secret",
+		"OpenAI-Api-Key":       "sk-openai",
+		"X-Amz-Security-Token": "aws-session",
+		"Cookie":               "session=secret",
+		"Set-Cookie":           "session=secret",
+		"Content-Type":         "application/json",
+		"User-Agent":           "curl/8.0",
+		"anthropic-version":    "2023-06-01", // benign anthropic-* header, must be kept
+	}
+
+	out := RedactSensitiveHeaders(in)
+
+	// Every sensitive header must be replaced with the irrecoverable placeholder.
+	for _, k := range []string{
+		"Authorization", "authorization", "X-Api-Key", "Api-Key", "X-Api-Token",
+		"Proxy-Authorization", "X-Goog-Api-Key", "anthropic-api-key", "OpenAI-Api-Key",
+		"X-Amz-Security-Token", "Cookie", "Set-Cookie",
+	} {
+		if got := out[k]; got != "[REDACTED]" {
+			t.Fatalf("header %q = %q, want [REDACTED]", k, got)
+		}
+	}
+
+	// Benign headers must be preserved verbatim.
+	if out["Content-Type"] != "application/json" {
+		t.Fatalf("Content-Type = %q, want preserved", out["Content-Type"])
+	}
+	if out["User-Agent"] != "curl/8.0" {
+		t.Fatalf("User-Agent = %q, want preserved", out["User-Agent"])
+	}
+	if out["anthropic-version"] != "2023-06-01" {
+		t.Fatalf("anthropic-version = %q, want preserved (not a key header)", out["anthropic-version"])
+	}
+
+	// The placeholder must not be a reversible/hashed form of the secret: it is a
+	// constant string that does not contain any part of the original credential.
+	if strings.Contains(out["Authorization"], "sk-caller-token") {
+		t.Fatalf("redacted value still leaks the original token")
+	}
+
+	// Input map must not be mutated.
+	if in["Authorization"] != "Bearer sk-caller-token" {
+		t.Fatalf("RedactSensitiveHeaders mutated its input")
+	}
+
+	// nil is passed through as nil.
+	if RedactSensitiveHeaders(nil) != nil {
+		t.Fatalf("nil input should return nil")
+	}
+}
+
+func TestRedactRequestInfoHeaders(t *testing.T) {
+	info := &RequestInfo{
+		Method: "POST",
+		URL:    "/v1/messages",
+		Headers: map[string]string{
+			"Authorization": "Bearer sk-secret",
+			"Content-Type":  "application/json",
+		},
+		Body: "the-body",
+	}
+	RedactRequestInfoHeaders(info)
+	if info.Headers["Authorization"] != "[REDACTED]" {
+		t.Fatalf("Authorization not redacted: %q", info.Headers["Authorization"])
+	}
+	if info.Headers["Content-Type"] != "application/json" {
+		t.Fatalf("Content-Type not preserved: %q", info.Headers["Content-Type"])
+	}
+	// nil-safe.
+	RedactRequestInfoHeaders(nil)
+}

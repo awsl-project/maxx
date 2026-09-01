@@ -191,7 +191,7 @@ func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string)
 			proxyReq.RequestInfo = &domain.RequestInfo{
 				Method:  c.Request.Method,
 				URL:     requestURI,
-				Headers: headers,
+				Headers: domain.RedactSensitiveHeaders(headers),
 				Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), state.apiTokenDevMode),
 			}
 		}

@@ -1214,32 +1214,10 @@ func flattenHeaders(h http.Header) map[string]string {
 
 // sanitizeHeadersForEvent returns a header map safe for request event logging,
 // redacting upstream credentials that may be injected from provider config.
+// Delegates to the shared domain redactor so the sensitive-header set stays
+// consistent across every adapter and the persistence layer.
 func sanitizeHeadersForEvent(h http.Header) map[string]string {
-	result := flattenHeaders(h)
-	for key := range result {
-		if isSensitiveEventHeader(key) {
-			result[key] = "[REDACTED]"
-		}
-	}
-	return result
-}
-
-func isSensitiveEventHeader(key string) bool {
-	switch strings.ToLower(key) {
-	case "authorization",
-		"proxy-authorization",
-		"x-api-key",
-		"x-goog-api-key",
-		"api-key",
-		"anthropic-api-key",
-		"openai-api-key",
-		"x-amz-security-token",
-		"cookie",
-		"set-cookie":
-		return true
-	default:
-		return false
-	}
+	return domain.RedactSensitiveHeaders(flattenHeaders(h))
 }
 
 // Headers to filter out - only privacy/proxy related, NOT application headers like anthropic-version

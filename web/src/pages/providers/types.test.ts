@@ -20,6 +20,7 @@ describe('provider type helpers', () => {
       'grok',
       'newapi',
       'ollama',
+      'fal',
       'custom',
     ]);
   });

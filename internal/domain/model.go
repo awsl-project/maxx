@@ -383,6 +383,21 @@ type ProviderConfigZai struct {
 	Plan string `json:"plan,omitempty"`
 }
 
+// ProviderConfigFal 是 fal（fal.ai）一级供应商的配置。fal 不是 OpenAI 兼容的：它是
+// 队列式、按路径路由模型的推理平台，鉴权用 Authorization: Key <id:secret>（不是 Bearer）。
+// maxx 通过一个翻译层把 fal 暴露成既有的 OpenAI 图片接口（/v1/images/generations，同步）和
+// 异步视频接口（/v1/video/generations，new-api 风格）。运行时由 fal 适配器把客户端请求翻译成
+// fal 输入，直接向 fal 发起 HTTP 调用并把响应翻译回 OpenAI/new-api 形状，无需 custom 适配器
+// 的透传逻辑。
+//
+// 只保留 APIKey：模型映射走通用的 ModelMapping 实体（executor.mapModel），映射后的模型 id
+// （如 fal-ai/flux/dev、fal-ai/veo3.1）成为 fal 的 URL 路径段。
+type ProviderConfigFal struct {
+	// API Key —— 完整的 "id:secret" 字符串（fal 控制台生成）。适配器把它原样注入
+	// Authorization: Key <apiKey>。
+	APIKey string `json:"apiKey"`
+}
+
 // ProviderConfigGrok stores xAI/Grok OAuth credentials exported by CLIProxyAPI.
 // Sensitive token fields are stored server-side and must be redacted before any UI display/export.
 type ProviderConfigGrok struct {
@@ -411,6 +426,10 @@ type ProviderConfig struct {
 
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
 	DisableErrorCooldown bool `json:"disableErrorCooldown,omitempty"`
+	// 禁用错误自动冷冻时，连续上游错误超过阈值后临时冻结该 provider 并切换到后续 provider。
+	ConsecutiveErrorFreezeEnabled bool `json:"consecutiveErrorFreezeEnabled,omitempty"`
+	// 连续上游错误临时冻结阈值。<=0 时使用默认值 3。
+	ConsecutiveErrorFreezeThreshold int `json:"consecutiveErrorFreezeThreshold,omitempty"`
 	// 智能映射轮询重试：禁用错误自动冻结时，按候选映射模型轮询失败重试。
 	SmartMappingRetryEnabled bool `json:"smartMappingRetryEnabled,omitempty"`
 	// 每个映射模型失败多少次后切换到下一个候选模型。
@@ -424,6 +443,7 @@ type ProviderConfig struct {
 	Claude      *ProviderConfigClaude      `json:"claude,omitempty"`
 	OpenRouter  *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
 	Zai         *ProviderConfigZai         `json:"zai,omitempty"`
+	Fal         *ProviderConfigFal         `json:"fal,omitempty"`
 	Grok        *ProviderConfigGrok        `json:"grok,omitempty"`
 
 	// Reasoning is the provider-scoped outbound reasoning-effort policy, applied
@@ -992,10 +1012,10 @@ const (
 	SettingKeyProxyPort                            = "proxy_port"                                // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours                = "request_retention_hours"                   // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeySessionRetentionHours                = "session_retention_hours"                   // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"          // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
-	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"    // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
-	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success"  // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
-	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"   // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
+	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"          // 请求详情保留秒数（统一），-1=永久保存，0=不保存，>0=保留秒数；当 split=false 时使用。未设置时不再默认永久保存，见下方 split 默认值
+	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"    // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "true"（默认按成功/失败分桶保留）
+	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success"  // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 86400（1 天）
+	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"   // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 259200（3 天）
 	SettingKeyTimezone                             = "timezone"                                  // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                    // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"       // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
@@ -1023,6 +1043,27 @@ const (
 	SettingKeyEnablePprof                          = "enable_pprof"                              // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
 	SettingKeyPprofPort                            = "pprof_port"                                // pprof 服务端口，默认 6060
 	SettingKeyPprofPassword                        = "pprof_password"                            // pprof 访问密码，为空表示不需要密码
+)
+
+// 请求详情保留默认值。
+//
+// 背景：request_detail_retention_seconds 历史默认 -1（永久保存），配合
+// 失败详情放大 bug，图片请求携带 base64（约 18KB/条）产生约 97 万条失败详情，
+// 撑爆 20GiB RDS，Postgres 拒绝连接导致 maxx CrashLoopBackOff、域名 14 小时不可用。
+// 即使没有放大 bug，无上限的默认值也是潜在的磁盘耗尽风险。
+//
+// 现改为默认按成功/失败分桶保留有限时长（与生产事故中验证有效的缓解值一致）：
+//   - 成功详情：默认 1 天（86400s）
+//   - 失败详情：默认 3 天（259200s）——失败详情通常更需要保留用于排障
+//
+// 运营者仍可显式把任一保留值设为 -1 恢复“永久保存”，只是默认不再无上限。
+const (
+	// DefaultRequestDetailRetentionSplitEnabled 默认开启成功/失败分桶保留。
+	DefaultRequestDetailRetentionSplitEnabled = true
+	// DefaultRequestDetailRetentionSecondsSuccess 成功请求详情默认保留 1 天。
+	DefaultRequestDetailRetentionSecondsSuccess = 86400
+	// DefaultRequestDetailRetentionSecondsFailed 失败请求详情默认保留 3 天。
+	DefaultRequestDetailRetentionSecondsFailed = 259200
 )
 
 // ModelPrice 模型价格（每个模型可有多条记录，每条代表一个版本）

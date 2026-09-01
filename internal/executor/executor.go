@@ -329,7 +329,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 			proxyReq.RequestInfo = &domain.RequestInfo{
 				Method:  c.Request.Method,
 				URL:     requestURI,
-				Headers: requestHeaders,
+				Headers: domain.RedactSensitiveHeaders(requestHeaders),
 				Body:    domain.RequestBodySnapshot(requestBody, rawHeaders.Get("Content-Type"), devMode),
 			}
 		}
@@ -417,7 +417,28 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 }
 
 func shouldSkipErrorCooldownUpdate(provider *domain.Provider, proxyErr *domain.ProxyError) bool {
-	return shouldSkipErrorCooldown(provider)
+	return shouldSkipErrorCooldown(provider) && !shouldUseConsecutiveErrorFreeze(provider, proxyErr)
+}
+
+func shouldUseConsecutiveErrorFreeze(provider *domain.Provider, proxyErr *domain.ProxyError) bool {
+	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown && provider.Config.ConsecutiveErrorFreezeEnabled && isConsecutiveErrorFreezeError(proxyErr)
+}
+
+func consecutiveErrorFreezeThreshold(provider *domain.Provider) int {
+	if provider == nil || provider.Config == nil || provider.Config.ConsecutiveErrorFreezeThreshold <= 0 {
+		return 3
+	}
+	if provider.Config.ConsecutiveErrorFreezeThreshold > 100 {
+		return 100
+	}
+	return provider.Config.ConsecutiveErrorFreezeThreshold
+}
+
+func isConsecutiveErrorFreezeError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil || proxyErr.Scope == domain.ScopeRequest {
+		return false
+	}
+	return proxyErr.HTTPStatusCode == http.StatusTooManyRequests
 }
 
 func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {
@@ -442,10 +463,41 @@ func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
 	if isBedrockAdaptiveThinkingSchemaError(proxyErr) {
 		return false
 	}
-	if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+	// Non-retryable client errors (4xx) must NOT be force-retried, even under
+	// disableErrorCooldown. Retrying or failing over on a bad client request
+	// (400 invalid image, 404 "No endpoints found that support tool use",
+	// 413/415/422 payload rejects, 401/403 auth) cannot succeed — the request
+	// itself is the problem, so retrying only amplifies load. A single such
+	// request once retried 151,780 times over 4 hours before this guard existed.
+	//
+	// Genuinely retryable upstream-side failures keep the escape hatch:
+	//   - 5xx server errors (provider is transiently broken)
+	//   - 429 rate limit / 408 request timeout (worth retry / failover)
+	//   - network + committed-stream-read errors (no HTTP status)
+	if code := proxyErr.HTTPStatusCode; code >= 400 && code < 500 {
+		if isRetryable4xxStatusCode(code) {
+			return true
+		}
+		return isCommittedStreamReadRetryableError(proxyErr)
+	}
+	if proxyErr.HTTPStatusCode >= 500 && proxyErr.HTTPStatusCode < 600 {
 		return true
 	}
 	return isCommittedStreamReadRetryableError(proxyErr)
+}
+
+// isRetryable4xxStatusCode reports whether a 4xx status is worth retrying or
+// failing over. Only rate limiting (429) and upstream request timeouts (408)
+// qualify; every other 4xx is a client-request error where the same request on
+// any provider yields the same rejection.
+func isRetryable4xxStatusCode(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests, // 429 — rate limit, back off / fail over
+		http.StatusRequestTimeout: // 408 — upstream timed out before responding
+		return true
+	default:
+		return false
+	}
 }
 
 func applyCommittedStreamReadRetryPolicy(proxyErr *domain.ProxyError) {
@@ -469,15 +521,11 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 		msg += " " + proxyErr.Err.Error()
 	}
 	msg = strings.ToLower(msg)
-	return strings.Contains(msg, "stream read error") ||
-		strings.Contains(msg, "upstream stream") ||
-		strings.Contains(msg, "unexpected eof") ||
-		strings.Contains(msg, "upstream response stream was interrupted") ||
-		(strings.Contains(msg, "response stream") && strings.Contains(msg, "interrupt"))
+	return false
 }
 
 func shouldRetryCommittedResponseError(proxyErr *domain.ProxyError) bool {
-	return proxyErr != nil && proxyErr.Retryable && isCommittedStreamReadRetryableError(proxyErr)
+	return false
 }
 
 func isBedrockAdaptiveThinkingSchemaError(proxyErr *domain.ProxyError) bool {
@@ -720,17 +768,33 @@ func (e *Executor) requestDetailRetentionConfig() (requestDetailRetentionConfig,
 		return n
 	}
 
+	// 语义必须与 core.BackgroundTaskDeps.requestDetailRetentionConfig 保持一致，
+	// 否则 ingress 即时清理与后台 cleanup 会对同一配置得出不同结论。
+	unifiedRaw, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSeconds)
 	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
+
+	// split 默认开启：未设置时按成功/失败分桶保留有限时长（默认 1 天 / 3 天），
+	// 避免历史 -1 永久默认撑爆磁盘；显式 split=false 可回退到统一键（含显式 -1 永久）。
 	splitVal, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
+	split := domain.DefaultRequestDetailRetentionSplitEnabled
+	if splitVal != "" {
+		split = splitVal == "true"
+	}
 	cfg := requestDetailRetentionConfig{
 		unified:    unified,
-		split:      splitVal == "true",
+		split:      split,
 		successSec: unified,
 		failedSec:  unified,
 	}
 	if cfg.split {
-		cfg.successSec = parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified)
-		cfg.failedSec = parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified)
+		successFallback := domain.DefaultRequestDetailRetentionSecondsSuccess
+		failedFallback := domain.DefaultRequestDetailRetentionSecondsFailed
+		if unifiedRaw != "" {
+			successFallback = unified
+			failedFallback = unified
+		}
+		cfg.successSec = parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, successFallback)
+		cfg.failedSec = parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, failedFallback)
 	}
 	return cfg, true
 }

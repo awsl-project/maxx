@@ -301,14 +301,66 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 		}
 	})
 
-	t.Run("retention=-1 (default) is no-op", func(t *testing.T) {
+	t.Run("all-unset defaults: split on, success 1d cleared, failed 3d retained", func(t *testing.T) {
+		// 事故修复回归：历史默认 -1（永久）撑爆磁盘。现默认 split 开启，
+		// 成功详情保留 1 天（86400s）、失败详情保留 3 天（259200s）。
+		// oldTime = now-2h：已过成功 1 天窗口？否——2h < 1d，成功应保留。
+		// 用一个超过 1 天但不足 3 天的时间戳来验证成功被清、失败仍保留。
 		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
 		if err != nil {
 			t.Fatalf("open db: %v", err)
 		}
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
-		settings := &fakeSettingRepo{} // 全部默认（即 -1）
+		settings := &fakeSettingRepo{} // 全部默认
+		deps := BackgroundTaskDeps{
+			ProxyRequest: reqRepo,
+			Settings:     settings,
+		}
+
+		// 校验解析出来的默认值确实是有限的、分桶的
+		successSec, failedSec, split := deps.requestDetailRetentionConfig()
+		if !split {
+			t.Fatalf("default should enable split, got split=false")
+		}
+		if successSec != domain.DefaultRequestDetailRetentionSecondsSuccess {
+			t.Fatalf("default successSec = %d, want %d", successSec, domain.DefaultRequestDetailRetentionSecondsSuccess)
+		}
+		if failedSec != domain.DefaultRequestDetailRetentionSecondsFailed {
+			t.Fatalf("default failedSec = %d, want %d", failedSec, domain.DefaultRequestDetailRetentionSecondsFailed)
+		}
+
+		betweenOneAndThreeDays := now.Add(-48 * time.Hour) // 2 天：过成功 1 天窗口，未过失败 3 天窗口
+		okOld := seedRequest(t, db, reqRepo, "COMPLETED", betweenOneAndThreeDays, 1)
+		badOld := seedRequest(t, db, reqRepo, "FAILED", betweenOneAndThreeDays, 2)
+		// 很新的请求：两桶都应保留
+		okFresh := seedRequest(t, db, reqRepo, "COMPLETED", now.Add(-1*time.Minute), 3)
+
+		deps.cleanupOldRequestDetails()
+
+		if !reloadDetailEmpty(t, db, okOld.ID) {
+			t.Error("2-day-old COMPLETED should be cleared by default success=86400 (1d)")
+		}
+		if reloadDetailEmpty(t, db, badOld.ID) {
+			t.Error("2-day-old FAILED should be retained by default failed=259200 (3d)")
+		}
+		if reloadDetailEmpty(t, db, okFresh.ID) {
+			t.Error("fresh COMPLETED should be retained (within 1d window)")
+		}
+	})
+
+	t.Run("explicit unified -1 with split=false still means forever (opt-in preserved)", func(t *testing.T) {
+		// 运营者仍可显式选择永久保存：split=false + unified=-1
+		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
+		defer db.Close()
+		reqRepo := sqlite.NewProxyRequestRepository(db)
+		settings := &fakeSettingRepo{values: map[string]string{
+			domain.SettingKeyRequestDetailRetentionSplitEnabled: "false",
+			domain.SettingKeyRequestDetailRetentionSeconds:      "-1",
+		}}
 		deps := BackgroundTaskDeps{
 			ProxyRequest: reqRepo,
 			Settings:     settings,
@@ -320,10 +372,10 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 		deps.cleanupOldRequestDetails()
 
 		if reloadDetailEmpty(t, db, ok.ID) {
-			t.Error("default -1 should retain")
+			t.Error("explicit -1 should retain COMPLETED forever")
 		}
 		if reloadDetailEmpty(t, db, bad.ID) {
-			t.Error("default -1 should retain")
+			t.Error("explicit -1 should retain FAILED forever")
 		}
 	})
 }
@@ -336,17 +388,17 @@ type fakeCoordinator struct {
 	err   error
 }
 
-func (f *fakeCoordinator) InstanceID() string                                       { return f.id }
-func (f *fakeCoordinator) Publish(context.Context, string, []byte) error            { return nil }
+func (f *fakeCoordinator) InstanceID() string                            { return f.id }
+func (f *fakeCoordinator) Publish(context.Context, string, []byte) error { return nil }
 func (f *fakeCoordinator) Subscribe(context.Context, string) (<-chan coordinator.Message, error) {
 	return nil, nil
 }
-func (f *fakeCoordinator) Get(context.Context, string) ([]byte, error)                { return nil, nil }
-func (f *fakeCoordinator) Set(context.Context, string, []byte, time.Duration) error   { return nil }
-func (f *fakeCoordinator) Del(context.Context, string) error                          { return nil }
-func (f *fakeCoordinator) RegisterInstance(context.Context, time.Duration) error      { return nil }
-func (f *fakeCoordinator) RefreshInstance(context.Context, time.Duration) error       { return nil }
-func (f *fakeCoordinator) UnregisterInstance(context.Context) error                   { return nil }
+func (f *fakeCoordinator) Get(context.Context, string) ([]byte, error)              { return nil, nil }
+func (f *fakeCoordinator) Set(context.Context, string, []byte, time.Duration) error { return nil }
+func (f *fakeCoordinator) Del(context.Context, string) error                        { return nil }
+func (f *fakeCoordinator) RegisterInstance(context.Context, time.Duration) error    { return nil }
+func (f *fakeCoordinator) RefreshInstance(context.Context, time.Duration) error     { return nil }
+func (f *fakeCoordinator) UnregisterInstance(context.Context) error                 { return nil }
 func (f *fakeCoordinator) ListAliveInstances(context.Context) ([]string, error) {
 	if f.err != nil {
 		return nil, f.err

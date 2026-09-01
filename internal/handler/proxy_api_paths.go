@@ -39,8 +39,10 @@ var proxyAPIEndpoints = []proxyAPIEndpoint{
 	{path: "/v1/images/generations", subtree: false}, // OpenAI Images API
 	{path: "/v1/images/edits", subtree: false},       // OpenAI Images API
 	{path: "/v1/images", subtree: false},             // OpenRouter unified image API
-	{path: "/v1/video/generations", subtree: true},   // Async video generation
+	{path: "/v1/video/generations", subtree: true},   // Async video API (submit + /{task_id} poll)
+	{path: "/video/generations", subtree: true},      // Async video API (root alias)
 	{path: "/v1/videos", subtree: true},              // OpenAI-compatible video API
+	{path: "/videos", subtree: true},                 // OpenAI-compatible root alias
 	{path: "/responses", subtree: true},              // Codex API
 	{path: "/v1/responses", subtree: true},           // Codex API
 	{path: "/v1/models", subtree: true},              // Model list API

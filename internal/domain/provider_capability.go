@@ -36,6 +36,17 @@ func CanonicalSupportedClientTypes(providerType string, configured []ClientType)
 	case "grok":
 		return []ClientType{ClientTypeOpenAI}
 
+	case "fal":
+		// fal (fal.ai) is a queue-based inference platform, NOT OpenAI-compatible.
+		// maxx exposes it through two existing surfaces via a translation layer:
+		// synchronous image generation (ClientTypeOpenAI, /v1/images/generations)
+		// and async video generation (ClientTypeVideo, /v1/video/generations). Both
+		// are native fal capabilities, so advertise both unconditionally — a video
+		// route and an image route can each reach a fal provider without a
+		// hand-authored capability set. fal model ids are reached via ModelMapping
+		// (executor.mapModel) and become the URL path segment.
+		return []ClientType{ClientTypeOpenAI, ClientTypeVideo}
+
 	case "custom", "newapi":
 		if len(configured) == 0 {
 			return []ClientType{ClientTypeOpenAI}

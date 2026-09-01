@@ -285,3 +285,70 @@ func TestProxyUpstreamAttemptClearDetailOlderThan(t *testing.T) {
 		}
 	})
 }
+
+// TestProxyUpstreamAttemptRedactsSensitiveHeaders 锁定凭据脱敏不变量:落库的
+// request_info / response_info 里,Authorization 等敏感头必须以 [REDACTED] 存储
+// (不可逆占位,不能回显调用方令牌或上游凭据),而 Content-Type 等无害头原样保留。
+func TestProxyUpstreamAttemptRedactsSensitiveHeaders(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	attRepo := NewProxyUpstreamAttemptRepository(db)
+
+	att := &domain.ProxyUpstreamAttempt{
+		TenantID:       1,
+		Status:         "IN_PROGRESS",
+		ProxyRequestID: 100,
+		RequestModel:   "claude-sonnet-4-5",
+		RequestInfo: &domain.RequestInfo{
+			Method: "POST",
+			URL:    "u",
+			Headers: map[string]string{
+				"Authorization": "Bearer sk-caller-secret-token",
+				"X-Api-Key":     "sk-provider-secret",
+				"Content-Type":  "application/json",
+			},
+			Body: "the-request-body",
+		},
+		ResponseInfo: &domain.ResponseInfo{
+			Status: 200,
+			Headers: map[string]string{
+				"Set-Cookie":   "session=leaky",
+				"Content-Type": "application/json",
+			},
+			Body: "resp",
+		},
+	}
+	if err := attRepo.Create(att); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+
+	var m ProxyUpstreamAttempt
+	if err := attRepo.db.gorm.First(&m, att.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	reqJSON := string(m.RequestInfo)
+	if strings.Contains(reqJSON, "sk-caller-secret-token") {
+		t.Fatalf("caller Authorization token leaked into persisted request_info: %q", reqJSON)
+	}
+	if strings.Contains(reqJSON, "sk-provider-secret") {
+		t.Fatalf("provider X-Api-Key leaked into persisted request_info: %q", reqJSON)
+	}
+	if !strings.Contains(reqJSON, "[REDACTED]") {
+		t.Fatalf("expected [REDACTED] placeholder in request_info, got: %q", reqJSON)
+	}
+	if !strings.Contains(reqJSON, "application/json") {
+		t.Fatalf("benign Content-Type header must be preserved in request_info: %q", reqJSON)
+	}
+
+	respJSON := string(m.ResponseInfo)
+	if strings.Contains(respJSON, "session=leaky") {
+		t.Fatalf("Set-Cookie leaked into persisted response_info: %q", respJSON)
+	}
+	if !strings.Contains(respJSON, "[REDACTED]") {
+		t.Fatalf("expected [REDACTED] placeholder in response_info, got: %q", respJSON)
+	}
+}

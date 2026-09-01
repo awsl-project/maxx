@@ -184,6 +184,53 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, model stri
 	return until
 }
 
+// RecordFailureAfterThreshold tracks consecutive failures for the same cooldown
+// key, but only writes cooldown state after threshold failures. It is used by
+// the provider "disable error cooldown" escape hatch to avoid pinning traffic to
+// a provider that is repeatedly returning transient upstream errors.
+func (m *Manager) RecordFailureAfterThreshold(providerID uint64, clientType string, model string, reason CooldownReason, scope domain.ErrorScope, explicitUntil *time.Time, threshold int) (int, time.Time) {
+	if scope == domain.ScopeRequest {
+		return 0, time.Time{}
+	}
+	if threshold <= 0 {
+		threshold = 3
+	}
+
+	effectiveClientType := clientType
+	effectiveModel := model
+	switch scope {
+	case domain.ScopeModel:
+	case domain.ScopeKey, domain.ScopeEndpoint:
+		effectiveModel = ""
+	case domain.ScopeProvider:
+		effectiveClientType = ""
+		effectiveModel = ""
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	failureCount := m.failureTracker.IncrementFailure(providerID, effectiveClientType, effectiveModel, reason)
+	if failureCount < threshold {
+		return failureCount, time.Time{}
+	}
+
+	var until time.Time
+	if explicitUntil != nil {
+		until = *explicitUntil
+	} else if policy, ok := m.policies[reason]; ok {
+		until = time.Now().Add(policy.CalculateCooldown(failureCount))
+	} else {
+		until = time.Now().Add(5 * time.Second)
+	}
+
+	m.setCooldownLocked(providerID, effectiveClientType, effectiveModel, until, reason, true)
+	log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): threshold cooldown until %s (reason=%s, scope=%s, failureCount=%d, threshold=%d)",
+		providerID, clientType, model, until.Format("2006-01-02 15:04:05"), reason, scope, failureCount, threshold)
+
+	return failureCount, until
+}
+
 // UpdateCooldown updates cooldown time without incrementing failure count
 // This is used for async updates (e.g., when quota reset time is fetched asynchronously)
 // Keeps the existing reason
@@ -248,6 +295,14 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string, model stri
 	m.bumpAndPublishLocked(providerID)
 
 	log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): Cleared model-level cooldown after successful request", providerID, clientType, model)
+}
+
+// ResetFailures clears failure counters matching the given provider/client/model
+// dimensions without changing cooldown state.
+func (m *Manager) ResetFailures(providerID uint64, clientType string, model string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.failureTracker.ResetFailures(providerID, clientType, model)
 }
 
 // setCooldownLocked sets cooldown without acquiring lock (internal use only).
@@ -630,10 +685,10 @@ func (m *Manager) getCooldownUntilLocked(providerID uint64, clientType string, m
 
 	// Check all 4 hierarchical levels
 	keys := []CooldownKey{
-		{ProviderID: providerID},                                          // 1. provider-level
-		{ProviderID: providerID, ClientType: clientType},                  // 2. key/endpoint-level
-		{ProviderID: providerID, Model: model},                            // 3. model-level (all client types)
-		{ProviderID: providerID, ClientType: clientType, Model: model},    // 4. model+clientType-level
+		{ProviderID: providerID},                                       // 1. provider-level
+		{ProviderID: providerID, ClientType: clientType},               // 2. key/endpoint-level
+		{ProviderID: providerID, Model: model},                         // 3. model-level (all client types)
+		{ProviderID: providerID, ClientType: clientType, Model: model}, // 4. model+clientType-level
 	}
 
 	for _, key := range keys {

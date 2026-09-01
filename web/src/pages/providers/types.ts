@@ -15,6 +15,7 @@ import {
   Network,
   Boxes,
   Gem,
+  Film,
 } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
@@ -38,7 +39,8 @@ export type ProviderTypeKey =
   | 'zai'
   | 'grok'
   | 'newapi'
-  | 'ollama';
+  | 'ollama'
+  | 'fal';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -138,6 +140,14 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('ollama'),
     isAccountBased: false,
     getDisplayInfo: (p) => p.config?.custom?.baseURL || 'Not configured',
+  },
+  fal: {
+    key: 'fal',
+    label: 'fal.ai',
+    icon: Film,
+    color: getProviderColorVar('fal'),
+    isAccountBased: false,
+    getDisplayInfo: () => 'fal.ai · image + video',
   },
   custom: {
     key: 'custom',
@@ -357,7 +367,8 @@ export type ProviderFormData = {
     | 'zai'
     | 'grok'
     | 'newapi'
-    | 'ollama';
+    | 'ollama'
+    | 'fal';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;

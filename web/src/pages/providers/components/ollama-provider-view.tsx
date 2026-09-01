@@ -13,6 +13,10 @@ import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
+import {
+  ConsecutiveErrorFreezeSettings,
+  normalizeConsecutiveErrorFreezeThreshold,
+} from './consecutive-error-freeze-settings';
 
 interface OllamaProviderViewProps {
   provider: Provider;
@@ -35,6 +39,12 @@ export function OllamaProviderView({ provider, onDelete, onClose }: OllamaProvid
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
+  const [consecutiveErrorFreezeEnabled, setConsecutiveErrorFreezeEnabled] = useState(
+    !!provider.config?.consecutiveErrorFreezeEnabled,
+  );
+  const [consecutiveErrorFreezeThreshold, setConsecutiveErrorFreezeThreshold] = useState(
+    normalizeConsecutiveErrorFreezeThreshold(provider.config?.consecutiveErrorFreezeThreshold),
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -56,6 +66,8 @@ export function OllamaProviderView({ provider, onDelete, onClose }: OllamaProvid
         maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
+          consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
+          consecutiveErrorFreezeThreshold,
           custom: {
             baseURL: baseURL.trim(),
             apiKey: apiKey.trim(),
@@ -125,10 +137,7 @@ export function OllamaProviderView({ provider, onDelete, onClose }: OllamaProvid
                 />
               </div>
 
-              <ProviderMaxConcurrencyField
-                value={maxConcurrency}
-                onChange={setMaxConcurrency}
-              />
+              <ProviderMaxConcurrencyField value={maxConcurrency} onChange={setMaxConcurrency} />
 
               {!secretsAreWriteOnly && (
                 <div>
@@ -206,6 +215,13 @@ export function OllamaProviderView({ provider, onDelete, onClose }: OllamaProvid
               </div>
               <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
             </div>
+            <ConsecutiveErrorFreezeSettings
+              disableErrorCooldown={disableErrorCooldown}
+              enabled={consecutiveErrorFreezeEnabled}
+              threshold={consecutiveErrorFreezeThreshold}
+              onEnabledChange={setConsecutiveErrorFreezeEnabled}
+              onThresholdChange={setConsecutiveErrorFreezeThreshold}
+            />
           </div>
 
           {saveStatus === 'error' && (

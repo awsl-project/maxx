@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { ChevronLeft, Key, Check, Eye, EyeOff, Trash2, Globe } from 'lucide-react';
+import { ChevronLeft, Key, Check, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUpdateProvider } from '@/hooks/queries';
-import type { ClientType, CreateProviderData, Provider } from '@/lib/transport';
+import type { CreateProviderData, Provider } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
@@ -13,50 +13,32 @@ import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
-import {
-  ConsecutiveErrorFreezeSettings,
-  normalizeConsecutiveErrorFreezeThreshold,
-} from './consecutive-error-freeze-settings';
 
-const NEWAPI_CLIENT_TYPES = ['openai', 'claude', 'gemini'] as const;
-
-interface NewApiProviderViewProps {
+interface FalProviderViewProps {
   provider: Provider;
   onDelete: () => void;
   onClose: () => void;
 }
 
-export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProviderViewProps) {
+// Edit view for a fal (fal.ai) provider. fal's supported client types (openai
+// images + video) are set canonically by the backend, so this view exposes only
+// the API key (full id:secret) and standard provider knobs. Model routing is via
+// the generic ModelMapping (mapped model id becomes the fal URL path segment).
+export function FalProviderView({ provider, onDelete, onClose }: FalProviderViewProps) {
   const { t } = useTranslation();
   const updateProvider = useUpdateProvider();
 
-  // Secrets (and base URL) are redacted on read for export-excluded providers;
-  // a blank submit preserves the stored value (backend keeps the existing one).
+  // Secrets are redacted on read whenever the provider is export-excluded, so the
+  // apiKey arrives blank; a blank submit preserves the stored key (the backend
+  // keeps the existing secret when the incoming apiKey is empty — see
+  // preserveEmptyProviderSecrets case "fal").
   const secretsAreWriteOnly = !!provider.excludeFromExport;
 
   const [name, setName] = useState(provider.name);
-  const [baseURL, setBaseURL] = useState(
-    secretsAreWriteOnly ? '' : provider.config?.custom?.baseURL || '',
-  );
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
-  const [clients, setClients] = useState<Record<ClientType, boolean>>(() => {
-    const supported = provider.supportedClientTypes || [];
-    return {
-      claude: supported.includes('claude'),
-      openai: supported.includes('openai'),
-      codex: false,
-      gemini: supported.includes('gemini'),
-    };
-  });
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
-  );
-  const [consecutiveErrorFreezeEnabled, setConsecutiveErrorFreezeEnabled] = useState(
-    !!provider.config?.consecutiveErrorFreezeEnabled,
-  );
-  const [consecutiveErrorFreezeThreshold, setConsecutiveErrorFreezeThreshold] = useState(
-    normalizeConsecutiveErrorFreezeThreshold(provider.config?.consecutiveErrorFreezeThreshold),
   );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
@@ -64,34 +46,24 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  const enabledClients = NEWAPI_CLIENT_TYPES.filter((c) => clients[c]);
-  const isValid = () => name.trim() !== '' && enabledClients.length > 0;
-
-  const toggleClient = (client: ClientType) =>
-    setClients((prev) => ({ ...prev, [client]: !prev[client] }));
+  const isValid = () => name.trim() !== '';
 
   const handleSave = async () => {
     if (!isValid()) return;
-
     setSaving(true);
     setSaveStatus('idle');
-
     try {
       const data: Partial<CreateProviderData> = {
         name: name.trim(),
-        type: 'newapi',
+        type: 'fal',
         maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
-          consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
-          consecutiveErrorFreezeThreshold,
-          custom: {
-            // Blank preserves the stored values for export-excluded providers.
-            baseURL: baseURL.trim(),
+          fal: {
+            // Blank preserves the stored key (backend keeps existing secret).
             apiKey: apiKey.trim(),
           },
         },
-        supportedClientTypes: enabledClients,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -110,7 +82,10 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
       <PageHeader
         icon={<ChevronLeft className="cursor-pointer" onClick={onClose} />}
         title={t('provider.edit')}
-        description={t('addProvider.newapi.description')}
+        description={t('addProvider.fal.description', {
+          defaultValue:
+            'fal.ai image (synchronous) + video (async) generation, exposed via OpenAI images and new-api video surfaces.',
+        })}
       >
         <Button onClick={onDelete} variant="destructive">
           <Trash2 size={14} />
@@ -150,30 +125,12 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="New API"
+                  placeholder="fal.ai"
                   className="w-full"
                 />
               </div>
 
               <ProviderMaxConcurrencyField value={maxConcurrency} onChange={setMaxConcurrency} />
-
-              {!secretsAreWriteOnly && (
-                <div>
-                  <label className="text-sm font-medium text-foreground block mb-2">
-                    <div className="flex items-center gap-2">
-                      <Globe size={14} />
-                      <span>{t('addProvider.newapi.baseURL')}</span>
-                    </div>
-                  </label>
-                  <Input
-                    type="text"
-                    value={baseURL}
-                    onChange={(e) => setBaseURL(e.target.value)}
-                    placeholder="https://your-new-api.example.com"
-                    className="w-full font-mono"
-                  />
-                </div>
-              )}
 
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">
@@ -188,9 +145,7 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={
-                      secretsAreWriteOnly
-                        ? t('provider.keyPlaceholderWriteOnly')
-                        : t('provider.keyPlaceholder')
+                      secretsAreWriteOnly ? t('provider.keyPlaceholderWriteOnly') : 'id:secret'
                     }
                     className="w-full pr-10 font-mono"
                   />
@@ -214,26 +169,6 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
             </div>
           </div>
 
-          {/* Client Types */}
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('addProvider.newapi.clientsTitle')}
-            </h3>
-            <div className="grid gap-3">
-              {NEWAPI_CLIENT_TYPES.map((client) => (
-                <div
-                  key={client}
-                  className="flex items-center justify-between p-4 bg-card border border-border rounded-xl"
-                >
-                  <div className="pr-4">
-                    <div className="text-sm font-medium text-foreground capitalize">{client}</div>
-                  </div>
-                  <Switch checked={clients[client]} onCheckedChange={() => toggleClient(client)} />
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Model Mappings (provider-scoped ModelMapping entities) */}
           <ProviderModelMappings provider={provider} />
 
@@ -253,13 +188,6 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
               </div>
               <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
             </div>
-            <ConsecutiveErrorFreezeSettings
-              disableErrorCooldown={disableErrorCooldown}
-              enabled={consecutiveErrorFreezeEnabled}
-              threshold={consecutiveErrorFreezeThreshold}
-              onEnabledChange={setConsecutiveErrorFreezeEnabled}
-              onThresholdChange={setConsecutiveErrorFreezeThreshold}
-            />
           </div>
 
           {saveStatus === 'error' && (

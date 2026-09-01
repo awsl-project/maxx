@@ -148,6 +148,8 @@ func TestProjectAndProviderAllowlistsAgree(t *testing.T) {
 		"/v1/chat/completions", "/v1/chat/completions/extra", "/v1/chat/completionsXYZ",
 		"/v1/images", "/v1/images/", "/v1/images/generations", "/v1/images/edits",
 		"/v1/images/variations", "/v1/images/generations/extra",
+		"/v1/video/generations", "/v1/video/generations/task123", "/v1/video/generationsX",
+		"/video/generations", "/video/generations/task123", "/video/generationsX",
 		"/responses", "/responses/items", "/responses123",
 		"/v1/responses", "/v1/responses/abc", "/v1/responsesXYZ",
 		"/v1/models", "/v1/models/list", "/v1/models-debug",
@@ -188,6 +190,33 @@ func TestIsModelListAPIPath(t *testing.T) {
 		if isModelListAPIPath(path) {
 			t.Fatalf("did not expect %q to be a model-list API path", path)
 		}
+	}
+}
+
+// TestProjectAPIPathAllowsVideoGenerations pins that the async video surface —
+// POST /v1/video/generations (submit) and GET /v1/video/generations/{task_id}
+// (poll), plus the /video/generations root alias — is reachable under the
+// /project/<slug>/ and /provider/<id>/ prefixes. proxy_routes.go registers these
+// at the root mux; before this entry the allowlist omitted video, so project- and
+// provider-scoped video requests 404'd with "invalid project proxy path" even
+// though the direct root route worked.
+func TestProjectAPIPathAllowsVideoGenerations(t *testing.T) {
+	for _, path := range []string{
+		"/v1/video/generations",
+		"/v1/video/generations/01a0482e-e839-74c3-9bbe-450e7c7eb41e",
+		"/video/generations",
+		"/video/generations/01a0482e-e839-74c3-9bbe-450e7c7eb41e",
+	} {
+		if !isValidAPIPath(path) {
+			t.Fatalf("expected %q to be valid for project proxy URLs", path)
+		}
+		if !isValidProviderAPIPath(path) {
+			t.Fatalf("expected %q to be valid for provider proxy URLs", path)
+		}
+	}
+	// Guard the subtree boundary: a look-alike must not leak through.
+	if isValidAPIPath("/v1/video/generationsX") {
+		t.Fatal("did not expect /v1/video/generationsX to be valid")
 	}
 }
 
