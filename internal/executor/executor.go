@@ -516,16 +516,28 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 	if proxyErr.Reason != domain.CooldownReasonNetworkError {
 		return false
 	}
+	if proxyErr.HTTPStatusCode != 0 {
+		return false
+	}
 	msg := proxyErr.Message
 	if proxyErr.Err != nil {
 		msg += " " + proxyErr.Err.Error()
 	}
 	msg = strings.ToLower(msg)
-	return false
+	return strings.Contains(msg, "upstream stream read error after response started") ||
+		strings.Contains(msg, "upstream response stream was interrupted") ||
+		strings.Contains(msg, "stream transport reset") ||
+		strings.Contains(msg, "wsarecv") ||
+		strings.Contains(msg, "forcibly closed by the remote host") ||
+		strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "stream id") ||
+		strings.Contains(msg, "internal_error") ||
+		strings.Contains(msg, "unexpected eof") ||
+		strings.Contains(msg, "premature eof")
 }
 
 func shouldRetryCommittedResponseError(proxyErr *domain.ProxyError) bool {
-	return false
+	return isCommittedStreamReadRetryableError(proxyErr)
 }
 
 func isBedrockAdaptiveThinkingSchemaError(proxyErr *domain.ProxyError) bool {

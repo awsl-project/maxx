@@ -96,49 +96,52 @@ func (a *disabledCooldown429Adapter) Execute(_ *flow.Ctx, _ *domain.Provider) er
 	return proxyErr
 }
 
-func TestDispatchDoesNotRetryCommittedStreamReadErrorWhenErrorCooldownDisabled(t *testing.T) {
+func TestDispatchRetriesCommittedStreamReadErrorWhenErrorCooldownDisabled(t *testing.T) {
 	c, adapter, attemptRepo, proxyRepo := newDisabledCooldownStreamDispatchCtx(true)
 	e := newDisabledCooldownStreamTestExecutor(proxyRepo, attemptRepo)
 
 	e.dispatch(c)
 
-	if c.Err == nil {
-		t.Fatal("expected committed stream read error")
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
 	}
-	if adapter.calls != 1 {
-		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
 	}
-	if len(attemptRepo.created) != 1 {
-		t.Fatalf("created attempts = %d, want 1", len(attemptRepo.created))
+	if len(attemptRepo.created) != 2 {
+		t.Fatalf("created attempts = %d, want 2", len(attemptRepo.created))
 	}
-	if got := attemptRepo.updated[len(attemptRepo.updated)-1].Status; got != "FAILED" {
-		t.Fatalf("attempt status = %q, want FAILED", got)
+	if got := attemptRepo.updated[0].Status; got != "FAILED" {
+		t.Fatalf("first attempt status = %q, want FAILED", got)
 	}
-	if got := c.Writer.(*httptest.ResponseRecorder).Body.String(); got != "data: partial\n\n" {
+	if got := attemptRepo.updated[len(attemptRepo.updated)-1].Status; got != "COMPLETED" {
+		t.Fatalf("final attempt status = %q, want COMPLETED", got)
+	}
+	if got := c.Writer.(*httptest.ResponseRecorder).Body.String(); got != "data: partial\n\ndata: fallback\n\ndata: [DONE]\n\n" {
 		t.Fatalf("client body = %q", got)
 	}
-	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "FAILED" {
-		t.Fatalf("expected failed proxy request update, got %#v", proxyRepo.updated)
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
 	}
 }
 
-func TestDispatchDoesNotRetryCommittedStreamReadErrorWhenErrorCooldownEnabled(t *testing.T) {
+func TestDispatchRetriesCommittedStreamReadErrorWhenErrorCooldownEnabled(t *testing.T) {
 	c, adapter, _, proxyRepo := newDisabledCooldownStreamDispatchCtx(false)
 	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
 
 	e.dispatch(c)
 
-	if c.Err == nil {
-		t.Fatal("expected committed stream read error")
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
 	}
-	if adapter.calls != 1 {
-		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
 	}
-	if got := c.Writer.(*httptest.ResponseRecorder).Body.String(); got != "data: partial\n\n" {
+	if got := c.Writer.(*httptest.ResponseRecorder).Body.String(); got != "data: partial\n\ndata: fallback\n\ndata: [DONE]\n\n" {
 		t.Fatalf("client body = %q", got)
 	}
-	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "FAILED" {
-		t.Fatalf("expected failed proxy request update, got %#v", proxyRepo.updated)
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
 	}
 }
 
@@ -913,4 +916,64 @@ func newDisabledCooldownHTTPErrorDispatchCtx(disableErrorCooldown bool, maxRetri
 	}
 	c.Set(flow.KeyExecutorState, state)
 	return c, adapter, attemptRepo, proxyRepo
+}
+
+func TestCommittedStreamReadRetryClassifierMatchesRemoteResetVariants(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  string
+		err  error
+	}{
+		{
+			name: "reported wsarecv reset after response started",
+			msg:  "upstream stream read error after response started",
+			err:  errors.New("read tcp 192.168.1.169:57843->upstream: wsarecv: An existing connection was forcibly closed by the remote host"),
+		},
+		{
+			name: "http2 stream reset",
+			msg:  "upstream stream read error after response started",
+			err:  errors.New("stream error: stream ID 1; INTERNAL_ERROR; received from peer"),
+		},
+		{
+			name: "unexpected eof after first chunk",
+			msg:  "upstream response stream was interrupted",
+			err:  errors.New("unexpected EOF"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			proxyErr := domain.NewProxyErrorWithMessage(tc.err, false, tc.msg)
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+
+			if !isCommittedStreamReadRetryableError(proxyErr) {
+				t.Fatalf("expected retryable committed stream read error: %v", proxyErr)
+			}
+			applyCommittedStreamReadRetryPolicy(proxyErr)
+			if !proxyErr.Retryable {
+				t.Fatal("expected policy to mark error retryable")
+			}
+			if !shouldRetryCommittedResponseError(proxyErr) {
+				t.Fatal("expected committed response guard to allow this retry")
+			}
+		})
+	}
+}
+
+func TestCommittedStreamReadRetryClassifierRejectsHTTPAndRequestErrors(t *testing.T) {
+	providerHTTPError := domain.NewProxyErrorWithMessage(errors.New("upstream returned 500"), true, "upstream returned 500")
+	providerHTTPError.Scope = domain.ScopeProvider
+	providerHTTPError.Reason = domain.CooldownReasonServerError
+	providerHTTPError.HTTPStatusCode = http.StatusInternalServerError
+	if isCommittedStreamReadRetryableError(providerHTTPError) || shouldRetryCommittedResponseError(providerHTTPError) {
+		t.Fatal("committed HTTP errors must not be replayed after downstream bytes were written")
+	}
+
+	requestError := domain.NewProxyErrorWithMessage(errors.New("client disconnected"), false, "client disconnected")
+	requestError.Scope = domain.ScopeRequest
+	requestError.Reason = domain.CooldownReasonNetworkError
+	if isCommittedStreamReadRetryableError(requestError) || shouldRetryCommittedResponseError(requestError) {
+		t.Fatal("request/client errors must not be retried as committed stream read failures")
+	}
 }
