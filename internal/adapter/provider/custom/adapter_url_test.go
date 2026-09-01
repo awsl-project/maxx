@@ -94,21 +94,45 @@ func TestBuildUpstreamURLNormalizesOpenAIBaseRoots(t *testing.T) {
 		},
 		{
 			name:        "root-style video submit path gains v1",
-			baseURL:     "https://code0.ai",
+			baseURL:     "https://video.example.test",
 			requestPath: "/video/generations",
-			want:        "https://code0.ai/v1/video/generations",
+			want:        "https://video.example.test/v1/video/generations",
 		},
 		{
 			name:        "root-style video poll path gains v1",
-			baseURL:     "https://code0.ai",
+			baseURL:     "https://video.example.test",
 			requestPath: "/video/generations/task_abc",
-			want:        "https://code0.ai/v1/video/generations/task_abc",
+			want:        "https://video.example.test/v1/video/generations/task_abc",
 		},
 		{
 			name:        "canonical v1 video poll path unchanged",
-			baseURL:     "https://code0.ai",
+			baseURL:     "https://video.example.test",
 			requestPath: "/v1/video/generations/task_abc",
-			want:        "https://code0.ai/v1/video/generations/task_abc",
+			want:        "https://video.example.test/v1/video/generations/task_abc",
+		},
+		{
+			name:        "root-style videos submit path gains v1",
+			baseURL:     "https://video.example.test",
+			requestPath: "/videos",
+			want:        "https://video.example.test/v1/videos",
+		},
+		{
+			name:        "root-style videos query path gains v1",
+			baseURL:     "https://video.example.test",
+			requestPath: "/videos?limit=1",
+			want:        "https://video.example.test/v1/videos?limit=1",
+		},
+		{
+			name:        "root-style videos poll path gains v1",
+			baseURL:     "https://video.example.test",
+			requestPath: "/videos/task_abc",
+			want:        "https://video.example.test/v1/videos/task_abc",
+		},
+		{
+			name:        "canonical v1 videos poll path unchanged",
+			baseURL:     "https://video.example.test",
+			requestPath: "/v1/videos/task_abc",
+			want:        "https://video.example.test/v1/videos/task_abc",
 		},
 	}
 

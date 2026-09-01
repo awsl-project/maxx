@@ -24,18 +24,32 @@ func TestCustomAdapterExecuteVideoSubmitAndPoll(t *testing.T) {
 		wantPath   string
 	}{
 		{
-			name:       "submit",
+			name:       "legacy submit",
 			method:     http.MethodPost,
 			requestURI: "/v1/video/generations",
-			body:       []byte(`{"model":"doubao-seedance-2-0-260128","prompt":"a cat runs"}`),
+			body:       []byte(`{"model":"video-test-model","prompt":"a cat runs"}`),
 			wantPath:   "/v1/video/generations",
 		},
 		{
-			name:       "poll",
+			name:       "legacy poll",
 			method:     http.MethodGet,
 			requestURI: "/v1/video/generations/task_abc123",
 			body:       nil,
 			wantPath:   "/v1/video/generations/task_abc123",
+		},
+		{
+			name:       "videos submit",
+			method:     http.MethodPost,
+			requestURI: "/v1/videos",
+			body:       []byte(`{"model":"video-test-model","prompt":"a cat runs"}`),
+			wantPath:   "/v1/videos",
+		},
+		{
+			name:       "videos poll",
+			method:     http.MethodGet,
+			requestURI: "/v1/videos/task_abc123",
+			body:       nil,
+			wantPath:   "/v1/videos/task_abc123",
 		},
 	}
 
@@ -55,13 +69,13 @@ func TestCustomAdapterExecuteVideoSubmitAndPoll(t *testing.T) {
 			defer server.Close()
 
 			adapter, err := NewAdapter(&domain.Provider{
-				Name:                 "code0-seedance",
+				Name:                 "video-provider",
 				Type:                 "custom",
 				SupportedClientTypes: []domain.ClientType{domain.ClientTypeVideo},
 				Config: &domain.ProviderConfig{
 					Custom: &domain.ProviderConfigCustom{
 						BaseURL: server.URL,
-						APIKey:  "sk-seedance",
+						APIKey:  "sk-video-provider",
 					},
 				},
 			})
@@ -95,8 +109,8 @@ func TestCustomAdapterExecuteVideoSubmitAndPoll(t *testing.T) {
 			if gotPath != tc.wantPath {
 				t.Fatalf("upstream path = %q, want %q", gotPath, tc.wantPath)
 			}
-			if gotAuth != "Bearer sk-seedance" {
-				t.Fatalf("upstream Authorization = %q, want %q", gotAuth, "Bearer sk-seedance")
+			if gotAuth != "Bearer sk-video-provider" {
+				t.Fatalf("upstream Authorization = %q, want %q", gotAuth, "Bearer sk-video-provider")
 			}
 			// The client's token must not leak through any alternate auth header.
 			if gotAPIKey != "" || gotGoog != "" || gotProxyAuth != "" {

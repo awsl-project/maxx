@@ -88,6 +88,37 @@ func TestRegisterProxyRoutes_RoutesGeminiGenerationToProxy(t *testing.T) {
 	}
 }
 
+func TestRegisterProxyRoutes_RoutesVideosToProxy(t *testing.T) {
+	mux := http.NewServeMux()
+	calledPaths := make([]string, 0, 2)
+
+	RegisterProxyRoutes(mux, ProxyRouteHandlers{
+		ProxyHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calledPaths = append(calledPaths, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	})
+
+	for _, path := range []string{"/v1/videos", "/v1/videos/task_abc123"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusNoContent)
+		}
+	}
+	wantPaths := map[string]bool{"/v1/videos": false, "/v1/videos/task_abc123": false}
+	for _, path := range calledPaths {
+		if _, ok := wantPaths[path]; ok {
+			wantPaths[path] = true
+		}
+	}
+	for path, called := range wantPaths {
+		if !called {
+			t.Fatalf("proxy handler calls = %v, missing %s", calledPaths, path)
+		}
+	}
+}
+
 func TestRegisterProxyRoutes_GeminiGenerationEnabledByDefault(t *testing.T) {
 	mux := http.NewServeMux()
 	proxyCalled := false

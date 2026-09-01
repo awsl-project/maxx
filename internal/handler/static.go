@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -64,6 +65,14 @@ func newFileSystemStaticHandler() http.Handler {
 		// Try to open the file
 		file, err := os.Open(filePath)
 		if err != nil {
+			if isStaticAPIPath(r.URL.Path) {
+				if errors.Is(err, os.ErrNotExist) {
+					writeError(w, http.StatusNotFound, "not found")
+				} else {
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+				}
+				return
+			}
 			// File not found, try index.html for SPA routing
 			filePath = filepath.Join(webDistPath, "index.html")
 			urlPath = "index.html"
@@ -132,6 +141,10 @@ func newEmbeddedStaticHandler(fsys fs.FS) http.Handler {
 		// Try to get from cache
 		cached, ok := cache[urlPath]
 		if !ok {
+			if isStaticAPIPath(r.URL.Path) {
+				writeError(w, http.StatusNotFound, "not found")
+				return
+			}
 			// File not found, serve index.html for SPA routing
 			if indexCache != nil {
 				serveFromCache(w, r, indexCache)
