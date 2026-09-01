@@ -145,7 +145,16 @@ func (a *Adapter) doJSON(ctx context.Context, method, url string, body []byte) (
 			fmt.Sprintf("fal returned status %d", resp.StatusCode),
 		)
 		proxyErr.HTTPStatusCode = resp.StatusCode
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		if isFalBalanceLocked(resp.StatusCode, respBody) {
+			// fal returns 403 (occasionally 402) with a "User is locked. Reason:
+			// TOP_UP." / "Exhausted balance." detail when the account runs out of
+			// credit. The key is valid and recovery is self-service (top up), so
+			// this must NOT get the heavy 1h auth-failure cooldown — a short
+			// key-scoped cooldown lets the provider recover promptly post top-up.
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonInsufficientBalance
+			proxyErr.Retryable = false
+		} else if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			proxyErr.Scope = domain.ScopeKey
 			proxyErr.Reason = domain.CooldownReasonAuthFailure
 			proxyErr.Retryable = false
@@ -159,6 +168,36 @@ func (a *Adapter) doJSON(ctx context.Context, method, url string, body []byte) (
 		return respBody, resp.StatusCode, proxyErr
 	}
 	return respBody, resp.StatusCode, nil
+}
+
+// falBalanceLockSignals are case-insensitive substrings fal uses in its 4xx
+// `detail` string when an account is out of credit / locked pending a top-up
+// (e.g. `{"detail":"User is locked. Reason: TOP_UP."}` or "...Reason: Exhausted
+// balance. Top up your balance at fal.ai/dashboard/billing."). These are a
+// billing state, NOT a bad/expired key.
+var falBalanceLockSignals = []string{
+	"top_up",
+	"top up",
+	"exhausted balance",
+	"user is locked",
+	"insufficient",
+	"balance",
+}
+
+// isFalBalanceLocked reports whether a fal 4xx response is a billing/lock state
+// (out of credit) rather than a genuine auth failure. Only 402/403 bodies are
+// considered — a 401 is always treated as a real credential problem.
+func isFalBalanceLocked(code int, body []byte) bool {
+	if code != http.StatusForbidden && code != http.StatusPaymentRequired {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	for _, sig := range falBalanceLockSignals {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
 }
 
 func isRetryableStatus(code int) bool {
