@@ -62,15 +62,16 @@ func (p *ExponentialBackoffPolicy) CalculateCooldown(failureCount int) time.Dura
 type CooldownReason string
 
 const (
-	ReasonServerError     CooldownReason = "server_error"          // 5xx errors
-	ReasonNetworkError    CooldownReason = "network_error"         // Connection timeout, DNS failure, etc.
-	ReasonQuotaExhausted  CooldownReason = "quota_exhausted"       // API quota exhausted (fallback when no explicit time)
-	ReasonRateLimit       CooldownReason = "rate_limit_exceeded"   // Rate limit (fallback when no explicit time)
-	ReasonConcurrentLimit CooldownReason = "concurrent_limit"      // Concurrent request limit (fallback when no explicit time)
-	ReasonUnknown          CooldownReason = "unknown"               // Unknown error
-	ReasonAuthFailure      CooldownReason = "auth_failure"          // API key invalid, expired, or account suspended
-	ReasonModelUnavailable CooldownReason = "model_unavailable"     // Model not found or access denied
-	ReasonManual           CooldownReason = "manual"                // Manually frozen by admin
+	ReasonServerError         CooldownReason = "server_error"         // 5xx errors
+	ReasonNetworkError        CooldownReason = "network_error"        // Connection timeout, DNS failure, etc.
+	ReasonQuotaExhausted      CooldownReason = "quota_exhausted"      // API quota exhausted (fallback when no explicit time)
+	ReasonRateLimit           CooldownReason = "rate_limit_exceeded"  // Rate limit (fallback when no explicit time)
+	ReasonConcurrentLimit     CooldownReason = "concurrent_limit"     // Concurrent request limit (fallback when no explicit time)
+	ReasonUnknown             CooldownReason = "unknown"              // Unknown error
+	ReasonAuthFailure         CooldownReason = "auth_failure"         // API key invalid, expired, or account suspended
+	ReasonInsufficientBalance CooldownReason = "insufficient_balance" // Account out of credit / locked pending top-up (recovers on its own after a top-up)
+	ReasonModelUnavailable    CooldownReason = "model_unavailable"    // Model not found or access denied
+	ReasonManual              CooldownReason = "manual"               // Manually frozen by admin
 )
 
 // DefaultPolicies returns the default policy configuration
@@ -108,6 +109,12 @@ func DefaultPolicies() map[CooldownReason]CooldownPolicy {
 		// Auth failure: fixed 1 hour (needs human intervention or key rotation)
 		ReasonAuthFailure: &FixedDurationPolicy{
 			Duration: 1 * time.Hour,
+		},
+		// Insufficient balance / account locked pending top-up: fixed 2 minutes.
+		// The key is valid — the account just ran out of credit — so recovery is
+		// self-service (top up) and should be picked up quickly, unlike a bad key.
+		ReasonInsufficientBalance: &FixedDurationPolicy{
+			Duration: 2 * time.Minute,
 		},
 		// Model unavailable: fixed 5 minutes (model might come back)
 		ReasonModelUnavailable: &FixedDurationPolicy{

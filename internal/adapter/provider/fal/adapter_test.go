@@ -640,3 +640,108 @@ func TestTaskIDIsURLSafe(t *testing.T) {
 		t.Fatalf("decode round-trip failed: %v", err)
 	}
 }
+
+// ---- Error classification: 403 balance/lock vs genuine auth failure ----
+
+// TestDoJSONBalanceLockedNotAuthFailure guards the real incident: fal returns
+// HTTP 403 with a "User is locked. Reason: TOP_UP." / "Exhausted balance." detail
+// when an account runs out of credit. That must classify as the lighter
+// insufficient_balance reason (short, self-recovering cooldown), NOT the 1h
+// auth_failure cooldown, while genuine credential problems still classify as
+// auth_failure.
+func TestDoJSONBalanceLockedNotAuthFailure(t *testing.T) {
+	cases := []struct {
+		name       string
+		status     int
+		body       string
+		wantScope  domain.ErrorScope
+		wantReason domain.CooldownReason
+	}{
+		{
+			name:       "403 TOP_UP lock",
+			status:     http.StatusForbidden,
+			body:       `{"detail":"User is locked. Reason: TOP_UP."}`,
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonInsufficientBalance,
+		},
+		{
+			name:       "403 exhausted balance",
+			status:     http.StatusForbidden,
+			body:       `{"detail":"User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing."}`,
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonInsufficientBalance,
+		},
+		{
+			name:       "402 insufficient balance",
+			status:     http.StatusPaymentRequired,
+			body:       `{"detail":"insufficient balance"}`,
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonInsufficientBalance,
+		},
+		{
+			name:       "403 genuine auth failure (no billing signal)",
+			status:     http.StatusForbidden,
+			body:       `{"detail":"Forbidden: invalid key"}`,
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonAuthFailure,
+		},
+		{
+			name:       "401 always auth failure",
+			status:     http.StatusUnauthorized,
+			body:       `{"detail":"Unauthorized. Reason: TOP_UP."}`, // even with a billing-ish word, 401 stays auth
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonAuthFailure,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+
+			a := newFalAdapter(t)
+			_, status, err := a.doJSON(t.Context(), http.MethodPost, server.URL+"/fal-ai/flux/dev", []byte(`{}`))
+			if status != tc.status {
+				t.Fatalf("status = %d, want %d", status, tc.status)
+			}
+			pe, ok := err.(*domain.ProxyError)
+			if !ok {
+				t.Fatalf("error = %T (%v), want *domain.ProxyError", err, err)
+			}
+			if pe.Scope != tc.wantScope {
+				t.Fatalf("scope = %q, want %q", pe.Scope, tc.wantScope)
+			}
+			if pe.Reason != tc.wantReason {
+				t.Fatalf("reason = %q, want %q", pe.Reason, tc.wantReason)
+			}
+			if pe.Retryable {
+				t.Fatalf("balance/auth errors must be non-retryable, got Retryable=true")
+			}
+		})
+	}
+}
+
+func TestIsFalBalanceLocked(t *testing.T) {
+	cases := []struct {
+		code int
+		body string
+		want bool
+	}{
+		{http.StatusForbidden, `{"detail":"User is locked. Reason: TOP_UP."}`, true},
+		{http.StatusForbidden, `{"detail":"Exhausted balance."}`, true},
+		{http.StatusForbidden, `{"detail":"TOP UP your balance"}`, true},
+		{http.StatusPaymentRequired, `{"detail":"insufficient funds"}`, true},
+		{http.StatusForbidden, `{"detail":"invalid api key"}`, false},
+		{http.StatusUnauthorized, `{"detail":"User is locked. Reason: TOP_UP."}`, false}, // 401 never billing
+		{http.StatusTooManyRequests, `{"detail":"balance"}`, false},                      // wrong status
+	}
+	for _, tc := range cases {
+		if got := isFalBalanceLocked(tc.code, []byte(tc.body)); got != tc.want {
+			t.Fatalf("isFalBalanceLocked(%d, %q) = %v, want %v", tc.code, tc.body, got, tc.want)
+		}
+	}
+}

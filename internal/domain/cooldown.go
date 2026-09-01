@@ -6,14 +6,15 @@ import "time"
 type CooldownReason string
 
 const (
-	CooldownReasonServerError        CooldownReason = "server_error"
-	CooldownReasonNetworkError       CooldownReason = "network_error"
-	CooldownReasonQuotaExhausted     CooldownReason = "quota_exhausted"
-	CooldownReasonRateLimitExceeded  CooldownReason = "rate_limit_exceeded"
-	CooldownReasonConcurrentLimit    CooldownReason = "concurrent_limit"
-	CooldownReasonAuthFailure        CooldownReason = "auth_failure"
-	CooldownReasonModelUnavailable   CooldownReason = "model_unavailable"
-	CooldownReasonUnknown            CooldownReason = "unknown"
+	CooldownReasonServerError         CooldownReason = "server_error"
+	CooldownReasonNetworkError        CooldownReason = "network_error"
+	CooldownReasonQuotaExhausted      CooldownReason = "quota_exhausted"
+	CooldownReasonRateLimitExceeded   CooldownReason = "rate_limit_exceeded"
+	CooldownReasonConcurrentLimit     CooldownReason = "concurrent_limit"
+	CooldownReasonAuthFailure         CooldownReason = "auth_failure"
+	CooldownReasonInsufficientBalance CooldownReason = "insufficient_balance"
+	CooldownReasonModelUnavailable    CooldownReason = "model_unavailable"
+	CooldownReasonUnknown             CooldownReason = "unknown"
 )
 
 // Cooldown represents a provider cooldown record
