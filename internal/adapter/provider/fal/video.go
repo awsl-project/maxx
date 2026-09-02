@@ -175,10 +175,19 @@ func extractVideoURL(body []byte) string {
 	return found
 }
 
-// pollTaskID extracts the {task_id} segment from a video poll path
-// (/v1/video/generations/{task_id} or /video/generations/{task_id}).
+// pollTaskID extracts the {task_id} segment from a video poll path. It must
+// accept every prefix client.IsVideoPollPath routes here — the legacy
+// /v1/video/generations/{task_id} and /video/generations/{task_id} forms as
+// well as the /v1/videos/{task_id} and /videos/{task_id} forms added in #839.
+// Missing the /videos variants made GET /videos/{id} return "invalid fal video
+// task id" even though the gateway had already routed it to executeVideoPoll.
 func pollTaskID(uri string) string {
-	for _, base := range []string{"/v1/video/generations/", "/video/generations/"} {
+	for _, base := range []string{
+		"/v1/video/generations/",
+		"/video/generations/",
+		"/v1/videos/",
+		"/videos/",
+	} {
 		if strings.HasPrefix(uri, base) {
 			id := strings.TrimPrefix(uri, base)
 			if i := strings.IndexAny(id, "/?"); i >= 0 {

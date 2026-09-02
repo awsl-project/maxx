@@ -745,3 +745,30 @@ func TestIsFalBalanceLocked(t *testing.T) {
 		}
 	}
 }
+
+func TestPollTaskID(t *testing.T) {
+	const id = "aHR0cHM6Ly9xdWV1ZS5mYWwucnVu" // opaque base64url task id
+	cases := []struct {
+		uri  string
+		want string
+	}{
+		// legacy /video/generations forms
+		{"/v1/video/generations/" + id, id},
+		{"/video/generations/" + id, id},
+		// /videos forms added in #839 — regression this test guards
+		{"/v1/videos/" + id, id},
+		{"/videos/" + id, id},
+		// trailing segment / query string are trimmed
+		{"/videos/" + id + "?foo=bar", id},
+		{"/v1/video/generations/" + id + "/status", id},
+		// non-poll paths yield empty
+		{"/v1/images/generations", ""},
+		{"/videos", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := pollTaskID(tc.uri); got != tc.want {
+			t.Fatalf("pollTaskID(%q) = %q, want %q", tc.uri, got, tc.want)
+		}
+	}
+}
