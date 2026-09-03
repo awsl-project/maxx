@@ -1,4 +1,4 @@
-export const USER_PANEL_TABS = ['main', 'requests'] as const;
+export const USER_PANEL_TABS = ['main', 'model-status', 'requests'] as const;
 
 export type UserPanelTab = (typeof USER_PANEL_TABS)[number];
 
@@ -6,11 +6,12 @@ const DEFAULT_USER_PANEL_TAB: UserPanelTab = 'main';
 const STORAGE_PREFIX = 'maxx:user-panel:active-tab';
 
 export function isUserPanelTab(value: string | null | undefined): value is UserPanelTab {
-  return value === 'main' || value === 'requests';
+  return value === 'main' || value === 'model-status' || value === 'requests';
 }
 
 export function getUserPanelTabStorageKey(userId: number | string | null | undefined): string {
-  const scope = userId === null || userId === undefined || userId === '' ? 'anonymous' : String(userId);
+  const scope =
+    userId === null || userId === undefined || userId === '' ? 'anonymous' : String(userId);
   return `${STORAGE_PREFIX}:${scope}`;
 }
 
