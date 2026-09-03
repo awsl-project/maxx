@@ -201,7 +201,27 @@
     "availableModelsLoadFailed": "可用模型加载失败",
     "noAvailableModels": "暂无可用模型，请联系管理员配置路由或模型。",
     "moreAvailableModels": "+{{count}} 个更多",
-    "routeCodex": "Codex"
+    "routeCodex": "Codex",
+    "modelStatusTab": "模型状态",
+    "modelStatusSummary": "用户视角的模型可用情况",
+    "modelStatusSummaryDescription": "基于当前可用模型和最近 24 小时专用 Key 请求自动汇总，不展示后台 provider 细节。",
+    "modelStatusLoadFailed": "模型状态加载失败。",
+    "noModelStatus": "暂无模型状态",
+    "noModelStatusDescription": "还没有可用模型或最近请求数据，请生成 Key 并开始调用后查看。",
+    "modelStatusNoRecentData": "当前可用，但最近 24 小时暂无请求数据。",
+    "modelStatusHealthyDetail": "最近 24 小时 {{count}} 次成功，未发现失败。",
+    "modelStatusDegradedDetail": "最近 24 小时 {{total}} 次请求中有 {{failed}} 次失败。",
+    "modelStatusUnavailableDetail": "最近连续 {{count}} 次失败，建议暂时换用其他模型。",
+    "modelStatusRecentRequests": "24h 请求",
+    "modelStatusRecentFailures": "24h 失败",
+    "modelStatusLastSeen": "最近出现",
+    "modelStatusLastError": "最近错误",
+    "modelHealth": {
+      "healthy": "正常",
+      "degraded": "波动",
+      "no-data": "暂无数据",
+      "unavailable": "不可用"
+    }
   },
   "testField": {
     "title": "测试场",

@@ -201,7 +201,27 @@
     "availableModelsLoadFailed": "Failed to load available models",
     "noAvailableModels": "No available models. Contact an administrator to configure routes or models.",
     "moreAvailableModels": "+{{count}} more",
-    "routeCodex": "Codex"
+    "routeCodex": "Codex",
+    "modelStatusTab": "Model Status",
+    "modelStatusSummary": "User-facing model availability",
+    "modelStatusSummaryDescription": "Summarized from currently available models and dedicated-key requests in the last 24 hours without exposing provider internals.",
+    "modelStatusLoadFailed": "Failed to load model status.",
+    "noModelStatus": "No model status yet",
+    "noModelStatusDescription": "No available models or recent request data yet. Generate a key and make requests to start tracking.",
+    "modelStatusNoRecentData": "Available now, but no requests in the last 24 hours.",
+    "modelStatusHealthyDetail": "{{count}} successful requests in the last 24 hours and no failures.",
+    "modelStatusDegradedDetail": "{{failed}} failures out of {{total}} requests in the last 24 hours.",
+    "modelStatusUnavailableDetail": "The latest {{count}} requests failed consecutively. Try another model for now.",
+    "modelStatusRecentRequests": "24h requests",
+    "modelStatusRecentFailures": "24h failures",
+    "modelStatusLastSeen": "Last seen",
+    "modelStatusLastError": "Latest error",
+    "modelHealth": {
+      "healthy": "Normal",
+      "degraded": "Degraded",
+      "no-data": "No data",
+      "unavailable": "Unavailable"
+    }
   },
   "testField": {
     "title": "Test Field",
