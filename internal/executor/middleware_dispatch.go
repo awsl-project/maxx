@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -682,7 +683,7 @@ func normalizeUpstreamConnectionError(proxyErr *domain.ProxyError) {
 	if proxyErr == nil || !errors.Is(proxyErr.Err, domain.ErrUpstreamError) {
 		return
 	}
-	if proxyErr.Message != "failed to connect to upstream" && proxyErr.Message != "failed to connect to upstream after token refresh" {
+	if !strings.HasPrefix(proxyErr.Message, "failed to connect to upstream") {
 		return
 	}
 	proxyErr.Scope = domain.ScopeProvider

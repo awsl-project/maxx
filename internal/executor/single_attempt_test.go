@@ -569,7 +569,7 @@ func TestExecuteProviderProxyNormalizesLegacyUpstreamConnectionError(t *testing.
 	cooldown.Default().ClearCooldown(providerID, "", "")
 	defer cooldown.Default().ClearCooldown(providerID, "", "")
 
-	legacyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to connect to upstream")
+	legacyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to connect to upstream: upstream error")
 	adapter := &sequenceAdapter{errs: []error{legacyErr}}
 	e := &Executor{
 		proxyRequestRepo: &recordingProxyRequestRepo{},
