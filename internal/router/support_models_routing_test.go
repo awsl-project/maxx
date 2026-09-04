@@ -3,6 +3,7 @@ package router
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -127,5 +128,89 @@ func TestStrictSupportModelsRoutingReturnsModelUnsupportedWhenAllSkipped(t *test
 	_, err := r.Match(&MatchContext{TenantID: 1, ClientType: domain.ClientTypeCodex, RequestModel: "codex-target"})
 	if !errors.Is(err, domain.ErrModelNotSupported) {
 		t.Fatalf("Match() error = %v, want ErrModelNotSupported", err)
+	}
+}
+
+func TestStrictSupportModelsRoutingUsesMappedModelCandidates(t *testing.T) {
+	r := newSupportModelRoutingTestRouter(t, true,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: 101, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+			{ID: 2, TenantID: 1, ProviderID: 102, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: 101, TenantID: 1, Type: wsRouterNativeType, Name: "pre-mapped-only", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}, SupportModels: []string{"gpt-5"}},
+			{ID: 102, TenantID: 1, Type: wsRouterNativeType, Name: "mapped-target", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}, SupportModels: []string{"moonshotai/kimi-k3"}},
+		},
+	)
+
+	result, err := r.Match(&MatchContext{
+		TenantID:     1,
+		ClientType:   domain.ClientTypeCodex,
+		RequestModel: "gpt-5",
+		ModelCandidates: func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string {
+			if requestModel == "gpt-5" {
+				return []string{"moonshotai/kimi-k3"}
+			}
+			return []string{requestModel}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if got := matchedProviderIDs(result); len(got) != 1 || got[0] != 102 {
+		t.Fatalf("matched provider IDs = %v, want [102]", got)
+	}
+}
+
+func TestStrictSupportModelsRoutingFallsBackToRequestModelWithoutCandidates(t *testing.T) {
+	r := newSupportModelRoutingTestRouter(t, true,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: 101, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+		},
+		[]*domain.Provider{
+			{ID: 101, TenantID: 1, Type: wsRouterNativeType, Name: "direct", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}, SupportModels: []string{"moonshotai/kimi-k3"}},
+		},
+	)
+
+	result, err := r.Match(&MatchContext{TenantID: 1, ClientType: domain.ClientTypeCodex, RequestModel: "moonshotai/kimi-k3"})
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if got := matchedProviderIDs(result); len(got) != 1 || got[0] != 101 {
+		t.Fatalf("matched provider IDs = %v, want [101]", got)
+	}
+}
+
+func TestRouteMatchChecksCooldownAgainstMappedModelCandidates(t *testing.T) {
+	r := newSupportModelRoutingTestRouter(t, true,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: 101, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+			{ID: 2, TenantID: 1, ProviderID: 102, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: 101, TenantID: 1, Type: wsRouterNativeType, Name: "mapped-target-cooldown", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}, SupportModels: []string{"moonshotai/kimi-k3"}},
+			{ID: 102, TenantID: 1, Type: wsRouterNativeType, Name: "mapped-target-live", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}, SupportModels: []string{"moonshotai/kimi-k3"}},
+		},
+	)
+
+	r.cooldownManager.SetCooldownUntil(101, string(domain.ClientTypeCodex), "moonshotai/kimi-k3", time.Now().Add(time.Minute))
+	defer r.cooldownManager.ClearCooldown(101, string(domain.ClientTypeCodex), "moonshotai/kimi-k3")
+
+	result, err := r.Match(&MatchContext{
+		TenantID:     1,
+		ClientType:   domain.ClientTypeCodex,
+		RequestModel: "gpt-5",
+		ModelCandidates: func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string {
+			if requestModel == "gpt-5" {
+				return []string{"moonshotai/kimi-k3"}
+			}
+			return []string{requestModel}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if got := matchedProviderIDs(result); len(got) != 1 || got[0] != 102 {
+		t.Fatalf("matched provider IDs = %v, want [102]", got)
 	}
 }

@@ -59,6 +59,7 @@ type MatchContext struct {
 	ClientType                domain.ClientType
 	ProjectID                 uint64
 	RequestModel              string
+	ModelCandidates           func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string
 	APITokenID                uint64
 	SessionID                 string
 	RequireResponsesWebSocket bool
@@ -374,8 +375,10 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 			continue
 		}
 
-		// Skip providers in cooldown (checks provider, key, and model-level cooldowns)
-		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType), requestModel) {
+		modelCandidates := r.modelCandidatesForMatch(route, prov, clientType, requestModel, ctx.ModelCandidates)
+
+		// Skip providers in cooldown (checks provider, key, and outbound model-level cooldowns)
+		if r.isAnyModelCandidateInCooldown(route.ProviderID, clientType, modelCandidates) {
 			sawTransientSkip = true
 			continue
 		}
@@ -406,13 +409,15 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 			}
 		}
 
-		// Check if provider supports the request model only when the adapter
-		// natively speaks the request protocol. Converted routes (for example an
-		// OpenAI chat route targeting a Claude provider) map the model later in
-		// dispatch, so applying provider-native SupportModels to the pre-mapped
-		// request model here would incorrectly drop valid cross-protocol routes.
+		// Check if provider supports the outbound model only when the adapter
+		// natively speaks the request protocol. Model mappings are route/provider
+		// scoped and dispatch applies them after route matching, so route matching
+		// must evaluate the same candidate list here; otherwise a request such as
+		// gpt-5 -> moonshotai/kimi-k3 can be routed by the pre-mapped gpt-5 allowlist
+		// to a provider/key that cannot serve the mapped model, while a direct
+		// moonshotai/kimi-k3 request would choose a different working route.
 		if (r.strictSupportModelsRoutingEnabled() || ctx.StrictSupportModels) && adapterSupportsClientType(adp, clientType) && len(prov.SupportModels) > 0 && requestModel != "" {
-			if !r.isModelSupported(requestModel, prov.SupportModels) {
+			if !r.isAnyModelCandidateSupported(prov, modelCandidates) {
 				sawModelReject = true
 				continue
 			}
@@ -625,6 +630,37 @@ func (r *Router) CloseResponsesWebSocketConnection(connectionID string) {
 
 func (r *Router) strictSupportModelsRoutingEnabled() bool {
 	return systemsettingcache.GetBooleanDefault(r.settingRepo, domain.SettingKeyStrictSupportModelsRoutingEnabled, false)
+}
+
+func (r *Router) modelCandidatesForMatch(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string, candidatesFn func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string) []string {
+	candidates := []string{requestModel}
+	if candidatesFn != nil {
+		if mapped := candidatesFn(route, provider, clientType, requestModel); len(mapped) > 0 {
+			candidates = mapped
+		}
+	}
+	return candidates
+}
+
+func (r *Router) isAnyModelCandidateInCooldown(providerID uint64, clientType domain.ClientType, candidates []string) bool {
+	if len(candidates) == 0 {
+		return r.cooldownManager.IsInCooldown(providerID, string(clientType), "")
+	}
+	for _, model := range candidates {
+		if r.cooldownManager.IsInCooldown(providerID, string(clientType), model) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Router) isAnyModelCandidateSupported(provider *domain.Provider, candidates []string) bool {
+	for _, model := range candidates {
+		if model != "" && r.isModelSupported(model, provider.SupportModels) {
+			return true
+		}
+	}
+	return false
 }
 
 // isModelSupported checks if a model matches any pattern in the support list
