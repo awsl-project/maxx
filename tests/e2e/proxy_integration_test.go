@@ -1862,6 +1862,105 @@ func TestProxyAllProtocolsCoexist(t *testing.T) {
 // Cooldown Integration Tests (using mock server)
 // ============================================================
 
+func TestTokenConcurrencyLimitOnlyRejectsExcessRequestsForThatToken(t *testing.T) {
+	firstTokenEntered := make(chan struct{}, 1)
+	firstTokenRelease := make(chan struct{})
+	firstTokenBlocking := true
+	var mu sync.Mutex
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		blockThisRequest := firstTokenBlocking
+		if firstTokenBlocking {
+			firstTokenBlocking = false
+		}
+		mu.Unlock()
+
+		if blockThisRequest {
+			firstTokenEntered <- struct{}{}
+			<-firstTokenRelease
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":      "chatcmpl-mock-001",
+			"object":  "chat.completion",
+			"model":   "gpt-4o",
+			"created": 1700000000,
+			"choices": []map[string]any{{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "ok",
+				},
+				"finish_reason": "stop",
+			}},
+		})
+	}))
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-token-isolation", mock.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+	resp = env.AdminPut("/api/admin/settings/api_token_concurrent_limit", map[string]any{"value": "1"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	createToken := func(name string) string {
+		t.Helper()
+		resp := env.AdminPost("/api/admin/api-tokens", map[string]any{"name": name})
+		AssertStatus(t, resp, http.StatusCreated)
+		var created map[string]any
+		DecodeJSON(t, resp, &created)
+		tokenStr, ok := created["token"].(string)
+		if !ok || tokenStr == "" {
+			t.Fatalf("Expected token string, got %v", created["token"])
+		}
+		return tokenStr
+	}
+	tokenA := createToken("isolated-concurrency-a")
+	tokenB := createToken("isolated-concurrency-b")
+
+	firstDone := make(chan error, 1)
+	go func() {
+		resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), map[string]string{
+			"Authorization": "Bearer " + tokenA,
+		})
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			firstDone <- fmt.Errorf("first request status=%d body=%s", resp.StatusCode, body)
+			return
+		}
+		firstDone <- nil
+	}()
+
+	select {
+	case <-firstTokenEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first token request to reach upstream")
+	}
+
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), map[string]string{
+		"Authorization": "Bearer " + tokenA,
+	})
+	AssertStatus(t, resp, http.StatusTooManyRequests)
+	resp.Body.Close()
+
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), map[string]string{
+		"Authorization": "Bearer " + tokenB,
+	})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	close(firstTokenRelease)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 	cases := []struct {
 		name               string

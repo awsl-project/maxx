@@ -122,12 +122,18 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var apiToken *domain.APIToken
 		if h.tokenAuth != nil {
 			var err error
-			apiToken, err = h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex)
+			apiToken, err = h.tokenAuth.ResolveToken(r)
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, err.Error())
 				return
 			}
 			if apiToken != nil {
+				if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
+					writeRateLimitError(w, err.Error(), 1)
+					return
+				}
+				defer h.tokenAuth.ReleaseConcurrency(apiToken)
+				h.tokenAuth.UpdateLastSeen(r, apiToken)
 				if apiToken.TenantID > 0 {
 					tenantID = apiToken.TenantID
 				}
@@ -218,12 +224,42 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/v1")
 	}
 
+	var apiToken *domain.APIToken
+	var apiTokenID uint64
+	if h.tokenAuth != nil {
+		var err error
+		apiToken, err = h.tokenAuth.ResolveToken(r)
+		if err != nil {
+			log.Printf("[Proxy] Token auth failed: %v", err)
+			writeError(w, http.StatusUnauthorized, err.Error())
+			c.Abort()
+			return
+		}
+		if apiToken != nil {
+			apiTokenID = apiToken.ID
+			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
+			c.Set(flow.KeyAPITokenID, apiTokenID)
+			c.Set(flow.KeyAPITokenDevMode, apiToken.DevMode)
+
+			if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
+				log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
+				c.Set(flow.KeyRequestHeaders, r.Header)
+				c.Set(flow.KeyRequestURI, r.URL.RequestURI())
+				h.executor.RecordRejectedProxyRequest(c, apiToken, http.StatusTooManyRequests, err.Error())
+				writeRateLimitError(w, err.Error(), 1)
+				c.Abort()
+				return
+			}
+			defer h.tokenAuth.ReleaseConcurrency(apiToken)
+			h.tokenAuth.UpdateLastSeen(r, apiToken)
+		}
+	}
+
 	// 大上传准入控制:在把 body 读进内存之前先门控,避免大量并发大上传同时挤爆堆。
 	// 名额持有到本函数返回(c.Next 同步跑完整个请求链路后),覆盖 body 在内存的整个生命周期。
 	//
-	// 刻意放在 stream 检测/鉴权之前:目的就是在做任何工作、读任何 body 之前廉价地泄洪。
-	// 代价是被泄洪的请求即使本是 SSE,拿到的也是 HTTP 层 413/429 而非 SSE 错误事件——
-	// 此时 body 还没读、client type 还不知道,无法构造对应协议的错误,可接受。
+	// API token 并发门控已在上方抢先完成:同一 token 超额请求会在读 body /
+	// 占用大上传槽位之前直接 429,避免它们拖累其他正常请求。
 	if h.uploadLimiter != nil {
 		if h.uploadLimiter.tooLarge(r.ContentLength) {
 			log.Printf("[Proxy] rejecting over-limit upload: %s %s (len=%d > %d)", r.Method, r.URL.Path, r.ContentLength, h.uploadLimiter.maxBytes)
@@ -288,24 +324,6 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		return
 	}
 
-	var err error
-	var apiToken *domain.APIToken
-	var apiTokenID uint64
-	if h.tokenAuth != nil {
-		apiToken, err = h.tokenAuth.ValidateRequest(r, clientType)
-		if err != nil {
-			log.Printf("[Proxy] Token auth failed: %v", err)
-			writeError(w, http.StatusUnauthorized, err.Error())
-			c.Abort()
-			return
-		}
-		if apiToken != nil {
-			apiTokenID = apiToken.ID
-			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
-			c.Set(flow.KeyAPITokenDevMode, apiToken.DevMode)
-		}
-	}
-
 	if isClaudeCountTokensRequest(r, clientType) {
 		log.Printf("[Proxy] Handling Claude count_tokens locally")
 		writeClaudeCountTokensResponse(w, body)
@@ -349,17 +367,6 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		log.Printf("[Proxy] Using initial project ID: %d", projectID)
 	}
 	c.Set(flow.KeyProjectID, projectID)
-
-	if apiToken != nil {
-		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
-			log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
-			h.executor.RecordRejectedProxyRequest(c, apiToken, http.StatusTooManyRequests, err.Error())
-			writeRateLimitError(w, err.Error(), 1)
-			c.Abort()
-			return
-		}
-		defer h.tokenAuth.ReleaseConcurrency(apiToken)
-	}
 
 	// Determine tenantID from API token or use default
 	var tenantID uint64

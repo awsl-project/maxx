@@ -180,7 +180,17 @@ func (m *TokenAuthMiddleware) ValidateRequest(req *http.Request, clientType doma
 		return nil, err
 	}
 
-	// Update usage (async to not block request)
+	m.UpdateLastSeen(req, apiToken)
+
+	return apiToken, nil
+}
+
+// UpdateLastSeen records successful token use asynchronously so request handling
+// is not blocked by bookkeeping writes.
+func (m *TokenAuthMiddleware) UpdateLastSeen(req *http.Request, apiToken *domain.APIToken) {
+	if m == nil || apiToken == nil || apiToken.ID == 0 {
+		return
+	}
 	lastSeenAt := time.Now()
 	clientIP := strings.TrimSpace(getClientIP(req))
 	go func(tenantID uint64, tokenID uint64, lastIP string, seenAt time.Time) {
@@ -188,8 +198,6 @@ func (m *TokenAuthMiddleware) ValidateRequest(req *http.Request, clientType doma
 			log.Printf("[TokenAuth] Failed to update token last seen for ID %d: %v", tokenID, err)
 		}
 	}(apiToken.TenantID, apiToken.ID, clientIP, lastSeenAt)
-
-	return apiToken, nil
 }
 
 // WrapModelList protects GET model-list endpoints with the same API-token gate
