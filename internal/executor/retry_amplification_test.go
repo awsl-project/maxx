@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider/cliproxyerr"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/router"
@@ -38,6 +39,13 @@ func (a *classifiedErrorAdapter) Execute(_ *flow.Ctx, _ *domain.Provider) error 
 }
 
 func newAmplificationDispatchCtx(disableErrorCooldown bool, adapter *classifiedErrorAdapter) (*flow.Ctx, *recordingProxyRequestRepo) {
+	return newMultiRouteAmplificationDispatchCtx(1, disableErrorCooldown, adapter)
+}
+
+// newMultiRouteAmplificationDispatchCtx builds a dispatch context fronted by
+// routeCount routes that all share the same failing adapter, so a test can
+// exercise failover fan-out as well as single-provider retry behaviour.
+func newMultiRouteAmplificationDispatchCtx(routeCount int, disableErrorCooldown bool, adapter *classifiedErrorAdapter) (*flow.Ctx, *recordingProxyRequestRepo) {
 	proxyRepo := &recordingProxyRequestRepo{}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
@@ -49,28 +57,30 @@ func newAmplificationDispatchCtx(disableErrorCooldown bool, adapter *classifiedE
 		Status:     "IN_PROGRESS",
 		StartTime:  time.Now(),
 	}
+	routes := make([]*router.MatchedRoute, 0, routeCount)
+	for i := range routeCount {
+		routes = append(routes, &router.MatchedRoute{
+			Route: &domain.Route{ID: uint64(10 + i), TenantID: domain.DefaultTenantID, ProviderID: uint64(20 + i), ClientType: domain.ClientTypeOpenAI},
+			Provider: &domain.Provider{
+				ID:       uint64(20 + i),
+				TenantID: domain.DefaultTenantID,
+				Type:     "custom",
+				Name:     "custom-disabled-cooldown-amplification",
+				Config:   &domain.ProviderConfig{DisableErrorCooldown: disableErrorCooldown},
+			},
+			ProviderAdapter: adapter,
+			// InitialInterval 0 reproduces the production config (empty
+			// retry_configs → 0 backoff) that let the loop spin at ~10/sec.
+			RetryConfig: &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+		})
+	}
 	state := &execState{
 		ctx:          context.Background(),
 		proxyReq:     proxyReq,
 		tenantID:     domain.DefaultTenantID,
 		clientType:   domain.ClientTypeOpenAI,
 		requestModel: "gpt-image-model",
-		routes: []*router.MatchedRoute{
-			{
-				Route: &domain.Route{ID: 10, TenantID: domain.DefaultTenantID, ProviderID: 20, ClientType: domain.ClientTypeOpenAI},
-				Provider: &domain.Provider{
-					ID:       20,
-					TenantID: domain.DefaultTenantID,
-					Type:     "custom",
-					Name:     "custom-disabled-cooldown-amplification",
-					Config:   &domain.ProviderConfig{DisableErrorCooldown: disableErrorCooldown},
-				},
-				ProviderAdapter: adapter,
-				// InitialInterval 0 reproduces the production config (empty
-				// retry_configs → 0 backoff) that let the loop spin at ~10/sec.
-				RetryConfig: &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
-			},
-		},
+		routes:       routes,
 	}
 	c.Set(flow.KeyExecutorState, state)
 	return c, proxyRepo
@@ -140,14 +150,11 @@ func TestDispatchDoesNotAmplifyInvalidImageError(t *testing.T) {
 	}
 }
 
-// TestDispatchHardCapsRunawayRetryableErrors is the backstop test: even a
-// genuinely-retryable error that (via a classification bug or misconfiguration)
-// never stops retrying must be bounded by the hard per-request ceiling, instead
-// of running for hours.
-func TestDispatchHardCapsRunawayRetryableErrors(t *testing.T) {
-	adapter := &classifiedErrorAdapter{build: func() *domain.ProxyError {
-		// A 5xx under disableErrorCooldown retries forever-until-success by
-		// design; here it never succeeds, so only the hard cap can stop it.
+// newAlways500Adapter returns an adapter whose every call fails with a
+// retryable 5xx — under disableErrorCooldown this is the shape that used to
+// retry until the global ceiling stopped it.
+func newAlways500Adapter() *classifiedErrorAdapter {
+	return &classifiedErrorAdapter{build: func() *domain.ProxyError {
 		pe := domain.NewProxyErrorWithMessage(
 			errors.New("upstream returned 500"),
 			true,
@@ -158,7 +165,38 @@ func TestDispatchHardCapsRunawayRetryableErrors(t *testing.T) {
 		pe.HTTPStatusCode = http.StatusInternalServerError
 		return pe
 	}}
+}
+
+// TestDispatchCapsRetriesWhenErrorCooldownDisabled pins the per-provider budget:
+// disableErrorCooldown still buys far more retries than the RetryConfig allows,
+// but no longer an unbounded loop against one provider.
+func TestDispatchCapsRetriesWhenErrorCooldownDisabled(t *testing.T) {
+	adapter := newAlways500Adapter()
 	c, proxyRepo := newAmplificationDispatchCtx(true, adapter)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+
+	e.dispatch(c)
+
+	if c.Err == nil {
+		t.Fatal("expected dispatch to fail once the per-provider cap is hit")
+	}
+	if adapter.calls != maxAttemptsPerProviderWithoutErrorCooldown {
+		t.Fatalf("adapter calls = %d, want %d (per-provider cap)", adapter.calls, maxAttemptsPerProviderWithoutErrorCooldown)
+	}
+	if last := lastProxyStatus(proxyRepo); last != "FAILED" {
+		t.Fatalf("final proxy status = %q, want FAILED", last)
+	}
+}
+
+// TestDispatchHardCapsRunawayRetryableErrors is the backstop test: even a
+// genuinely-retryable error that (via a classification bug or misconfiguration)
+// never stops retrying must be bounded by the hard per-request ceiling, instead
+// of running for hours. Enough routes are matched that the per-provider cap
+// alone would allow more calls than the ceiling permits.
+func TestDispatchHardCapsRunawayRetryableErrors(t *testing.T) {
+	routeCount := maxUpstreamAttemptsPerRequest/maxAttemptsPerProviderWithoutErrorCooldown + 1
+	adapter := newAlways500Adapter()
+	c, proxyRepo := newMultiRouteAmplificationDispatchCtx(routeCount, true, adapter)
 	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
 
 	e.dispatch(c)
@@ -168,6 +206,76 @@ func TestDispatchHardCapsRunawayRetryableErrors(t *testing.T) {
 	}
 	if adapter.calls != maxUpstreamAttemptsPerRequest {
 		t.Fatalf("adapter calls = %d, want %d (hard ceiling)", adapter.calls, maxUpstreamAttemptsPerRequest)
+	}
+	if last := lastProxyStatus(proxyRepo); last != "FAILED" {
+		t.Fatalf("final proxy status = %q, want FAILED", last)
+	}
+}
+
+// cliProxySDKErr mimics the CLIProxyAPI SDK's status-carrying error: the
+// message is the raw upstream body and StatusCode reports the HTTP status.
+type cliProxySDKErr struct {
+	body string
+	code int
+}
+
+func (e cliProxySDKErr) Error() string   { return e.body }
+func (e cliProxySDKErr) StatusCode() int { return e.code }
+
+// TestDispatchDoesNotRetryUsageLimitUnderDisabledCooldown reproduces
+// proxy_request 75010 end to end, through the real adapter-side classifier: a
+// Codex account whose quota resets in 2.6 days answered "usage_limit_reached",
+// which the SDK reports as HTTP 429. Treating that as a transient throttle got
+// it retried 100 more times. It must now cost exactly one upstream call.
+func TestDispatchDoesNotRetryUsageLimitUnderDisabledCooldown(t *testing.T) {
+	const usageLimitBody = `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"prolite","resets_at":1788747900,"resets_in_seconds":227596}}`
+	adapter := &classifiedErrorAdapter{build: func() *domain.ProxyError {
+		return cliproxyerr.Classify(
+			cliProxySDKErr{body: usageLimitBody, code: http.StatusTooManyRequests},
+			"gpt-5.6-sol",
+			"executor stream request failed",
+			domain.ScopeProvider, domain.CooldownReasonServerError,
+		)
+	}}
+	c, proxyRepo := newAmplificationDispatchCtx(true, adapter)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+
+	e.dispatch(c)
+
+	if c.Err == nil {
+		t.Fatal("expected dispatch to fail on an exhausted usage limit")
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1 (a multi-day usage limit must not be retried)", adapter.calls)
+	}
+	if last := lastProxyStatus(proxyRepo); last != "FAILED" {
+		t.Fatalf("final proxy status = %q, want FAILED", last)
+	}
+}
+
+// TestDispatchCapsRateLimitRetriesUnderDisabledCooldown covers the other 191
+// attempts on proxy_request 75010: a plain 429 stays retryable, but under
+// disableErrorCooldown it must exhaust the per-provider budget rather than loop
+// until the global ceiling.
+func TestDispatchCapsRateLimitRetriesUnderDisabledCooldown(t *testing.T) {
+	adapter := &classifiedErrorAdapter{build: func() *domain.ProxyError {
+		return cliproxyerr.Classify(
+			cliProxySDKErr{body: `{"detail":"Rate limit exceeded"}`, code: http.StatusTooManyRequests},
+			"gpt-5.6-sol",
+			"executor stream request failed",
+			domain.ScopeProvider, domain.CooldownReasonServerError,
+		)
+	}}
+	c, proxyRepo := newAmplificationDispatchCtx(true, adapter)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+
+	e.dispatch(c)
+
+	if c.Err == nil {
+		t.Fatal("expected dispatch to fail once the rate limit persisted")
+	}
+	if adapter.calls != maxAttemptsPerProviderWithoutErrorCooldown {
+		t.Fatalf("adapter calls = %d, want %d (per-provider cap)", adapter.calls, maxAttemptsPerProviderWithoutErrorCooldown)
 	}
 	if last := lastProxyStatus(proxyRepo); last != "FAILED" {
 		t.Fatalf("final proxy status = %q, want FAILED", last)

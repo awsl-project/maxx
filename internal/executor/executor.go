@@ -217,6 +217,13 @@ func (e *Executor) recordSmartMappingSuccess(key string, mappedModel string) {
 	e.smartMappingMu.Unlock()
 }
 
+// fallbackRetryInitialInterval and fallbackRetryMaxInterval back the retry
+// config used when a tenant has no default configured.
+const (
+	fallbackRetryInitialInterval = time.Second
+	fallbackRetryMaxInterval     = 30 * time.Second
+)
+
 func (e *Executor) getRetryConfig(tenantID uint64, config *domain.RetryConfig) *domain.RetryConfig {
 	if config != nil {
 		return config
@@ -228,21 +235,34 @@ func (e *Executor) getRetryConfig(tenantID uint64, config *domain.RetryConfig) *
 		return defaultConfig
 	}
 
-	// No default config means no retry
+	// No default config means no retry. The intervals still matter: providers
+	// with disableErrorCooldown retry past MaxRetries, and a zero interval made
+	// that a busy loop (proxy_request 75010 fired ~90 upstream calls per second
+	// because the tenant had no default retry config yet).
 	return &domain.RetryConfig{
 		MaxRetries:      0,
-		InitialInterval: 0,
-		BackoffRate:     1.0,
-		MaxInterval:     0,
+		InitialInterval: fallbackRetryInitialInterval,
+		BackoffRate:     2.0,
+		MaxInterval:     fallbackRetryMaxInterval,
 	}
 }
 
 func (e *Executor) calculateBackoff(config *domain.RetryConfig, attempt int) time.Duration {
-	wait := float64(config.InitialInterval)
-	for i := 0; i < attempt; i++ {
-		wait *= config.BackoffRate
+	if config == nil {
+		return fallbackRetryInitialInterval
 	}
-	if time.Duration(wait) > config.MaxInterval {
+	wait := float64(config.InitialInterval)
+	// A rate below 1 would shrink the wait on every retry; treat it as flat.
+	rate := config.BackoffRate
+	if rate < 1 {
+		rate = 1
+	}
+	for i := 0; i < attempt; i++ {
+		wait *= rate
+	}
+	// MaxInterval <= 0 means no ceiling was configured. Clamping to it would
+	// silently collapse every backoff to zero.
+	if config.MaxInterval > 0 && time.Duration(wait) > config.MaxInterval {
 		return config.MaxInterval
 	}
 	return time.Duration(wait)
@@ -464,6 +484,15 @@ func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
 		return false
 	}
 	if isBedrockAdaptiveThinkingSchemaError(proxyErr) {
+		return false
+	}
+	// A quota / usage-limit / balance rejection is not transient: the upstream
+	// reports a reset that is hours or days out (Codex "usage_limit_reached"
+	// carries resets_in_seconds, observed at 2.6 days). Retrying the same key
+	// before then can only fail, so the escape hatch does not apply — the SDK
+	// reports these as 429, which would otherwise read as a retryable throttle.
+	switch proxyErr.Reason {
+	case domain.CooldownReasonQuotaExhausted, domain.CooldownReasonInsufficientBalance:
 		return false
 	}
 	// Non-retryable client errors (4xx) must NOT be force-retried, even under
