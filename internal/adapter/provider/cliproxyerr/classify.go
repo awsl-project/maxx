@@ -87,7 +87,7 @@ func applyRetryHint(proxyErr *domain.ProxyError, err error) {
 	if hint == nil || *hint <= 0 {
 		return
 	}
-	setCooldownUntil(proxyErr, time.Now().Add(*hint))
+	_ = setCooldownUntil(proxyErr, time.Now().Add(*hint))
 	if *hint <= maxRetryAfterHint {
 		proxyErr.RetryAfter = *hint
 	}
@@ -214,18 +214,23 @@ func classifyStatus(proxyErr *domain.ProxyError, body string) {
 }
 
 // applyQuotaReset records the upstream's own reset time as the cooldown
-// deadline, so the key is skipped until it can actually serve again.
+// deadline, so the key is skipped until it can actually serve again. Each
+// source is tried until one yields a deadline that is actually in the future:
+// resets_at is an absolute instant and goes stale under clock skew, in which
+// case the relative resets_in_seconds still gives us a usable horizon.
 func applyQuotaReset(proxyErr *domain.ProxyError, body string) {
 	for _, path := range []string{"error.resets_at", "resets_at"} {
 		if v := gjson.Get(body, path); v.Exists() && v.Int() > 0 {
-			setCooldownUntil(proxyErr, time.Unix(v.Int(), 0))
-			return
+			if setCooldownUntil(proxyErr, time.Unix(v.Int(), 0)) {
+				return
+			}
 		}
 	}
 	for _, path := range []string{"error.resets_in_seconds", "resets_in_seconds"} {
 		if v := gjson.Get(body, path); v.Exists() && v.Int() > 0 {
-			setCooldownUntil(proxyErr, time.Now().Add(time.Duration(v.Int())*time.Second))
-			return
+			if setCooldownUntil(proxyErr, time.Now().Add(time.Duration(v.Int())*time.Second)) {
+				return
+			}
 		}
 	}
 }
@@ -234,21 +239,23 @@ func applyQuotaReset(proxyErr *domain.ProxyError, body string) {
 // short default cooldown rather than none at all.
 func ensureRateLimitCooldown(proxyErr *domain.ProxyError) {
 	if proxyErr.CooldownUntil == nil && proxyErr.RetryAfter <= 0 {
-		setCooldownUntil(proxyErr, time.Now().Add(defaultRateLimitCooldown))
+		_ = setCooldownUntil(proxyErr, time.Now().Add(defaultRateLimitCooldown))
 	}
 }
 
 // setCooldownUntil stores until as the cooldown deadline, ignoring times that
-// are already past and clamping ones absurdly far out.
-func setCooldownUntil(proxyErr *domain.ProxyError, until time.Time) {
+// are already past and clamping ones absurdly far out. It reports whether a
+// deadline was recorded, so callers can fall through to another source.
+func setCooldownUntil(proxyErr *domain.ProxyError, until time.Time) bool {
 	now := time.Now()
 	if !until.After(now) {
-		return
+		return false
 	}
 	if horizon := now.Add(maxCooldownHorizon); until.After(horizon) {
 		until = horizon
 	}
 	proxyErr.CooldownUntil = &until
+	return true
 }
 
 // firstString returns the first non-empty string among the given JSON paths,

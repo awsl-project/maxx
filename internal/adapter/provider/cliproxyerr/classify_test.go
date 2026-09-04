@@ -2,6 +2,7 @@ package cliproxyerr
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,16 +21,24 @@ func (e sdkErr) Error() string              { return e.body }
 func (e sdkErr) StatusCode() int            { return e.code }
 func (e sdkErr) RetryAfter() *time.Duration { return e.retryAfter }
 
-// usageLimitBody is the exact payload proxy_request 75010 received 9 times and
-// then retried 100 more times, and resetsAt is its reported reset instant.
-const usageLimitBody = `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"prolite","resets_at":1788747900,"eligible_promo":null,"resets_in_seconds":227596}}`
+// usageLimitReset is the reset horizon proxy_request 75010 was given, 2.6 days
+// out. The upstream reports it as an absolute instant, so the fixture builds it
+// relative to now: a hard-coded timestamp would go stale and silently stop
+// exercising the cooldown path it is meant to pin.
+const usageLimitReset = 227596 * time.Second
 
-const resetsAt = 1788747900
+// usageLimitBody renders the payload proxy_request 75010 received 9 times and
+// then retried 100 more times, with its reset pointed at resetsAt.
+func usageLimitBody(resetsAt time.Time) string {
+	return fmt.Sprintf(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"prolite","resets_at":%d,"eligible_promo":null,"resets_in_seconds":%d}}`,
+		resetsAt.Unix(), int(time.Until(resetsAt).Seconds()))
+}
 
 func TestClassifyUsageLimitReachedIsNotRetryable(t *testing.T) {
+	resetsAt := time.Now().Add(usageLimitReset)
 	// The SDK rewrites usage_limit_reached to HTTP 429, so status alone would
 	// call this a transient throttle worth retrying.
-	proxyErr := Classify(sdkErr{body: usageLimitBody, code: 429}, "gpt-5.6-sol", "executor stream request failed",
+	proxyErr := Classify(sdkErr{body: usageLimitBody(resetsAt), code: 429}, "gpt-5.6-sol", "executor stream request failed",
 		domain.ScopeProvider, domain.CooldownReasonServerError)
 
 	if proxyErr.Retryable {
@@ -44,8 +53,8 @@ func TestClassifyUsageLimitReachedIsNotRetryable(t *testing.T) {
 	if proxyErr.CooldownUntil == nil {
 		t.Fatal("expected a cooldown deadline from resets_at")
 	}
-	if got := proxyErr.CooldownUntil.Unix(); got != resetsAt {
-		t.Errorf("cooldown until = %d, want %d (resets_at)", got, resetsAt)
+	if got := proxyErr.CooldownUntil.Unix(); got != resetsAt.Unix() {
+		t.Errorf("cooldown until = %d, want %d (resets_at)", got, resetsAt.Unix())
 	}
 	// A 2.6-day reset must never become an in-request retry wait.
 	if proxyErr.RetryAfter != 0 {
@@ -59,6 +68,20 @@ func TestClassifyUsageLimitFromResetsInSecondsOnly(t *testing.T) {
 
 	if proxyErr.CooldownUntil == nil {
 		t.Fatal("expected a cooldown deadline from resets_in_seconds")
+	}
+	if d := time.Until(*proxyErr.CooldownUntil); d < 9*time.Minute || d > 11*time.Minute {
+		t.Errorf("cooldown in %v, want ~10m", d)
+	}
+}
+
+func TestClassifyUsageLimitFallsBackWhenResetsAtIsStale(t *testing.T) {
+	// resets_at is absolute and goes stale under clock skew between us and the
+	// upstream; the relative resets_in_seconds must still park the key.
+	body := `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":1,"resets_in_seconds":600}}`
+	proxyErr := Classify(sdkErr{body: body, code: 429}, "gpt-5.6-sol", "msg", domain.ScopeProvider, domain.CooldownReasonServerError)
+
+	if proxyErr.CooldownUntil == nil {
+		t.Fatal("a stale resets_at must not swallow the resets_in_seconds fallback")
 	}
 	if d := time.Until(*proxyErr.CooldownUntil); d < 9*time.Minute || d > 11*time.Minute {
 		t.Errorf("cooldown in %v, want ~10m", d)
