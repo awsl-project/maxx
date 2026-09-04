@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
+	"github.com/awsl-project/maxx/internal/adapter/provider/cliproxyerr"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -204,10 +205,8 @@ func (a *CLIProxyAPIGrokAdapter) executeNonStream(c *flow.Ctx, w http.ResponseWr
 	resp, err := a.executor.Execute(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
 		log.Printf("[CLIProxyAPI-Grok] executeNonStream error: model=%s, err=%v", execReq.Model, err)
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor request failed: %v", err))
-		proxyErr.Scope = domain.ScopeProvider
-		proxyErr.Reason = domain.CooldownReasonServerError
-		return proxyErr
+		return cliproxyerr.Classify(err, execReq.Model, fmt.Sprintf("executor request failed: %v", err),
+			domain.ScopeProvider, domain.CooldownReasonServerError)
 	}
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
 		eventChan.SendResponseInfo(&domain.ResponseInfo{Status: http.StatusOK, Body: string(resp.Payload)})
@@ -236,10 +235,8 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 	stream, err := a.executor.ExecuteStream(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
 		log.Printf("[CLIProxyAPI-Grok] executeStream error: model=%s, err=%v", execReq.Model, err)
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor stream request failed: %v", err))
-		proxyErr.Scope = domain.ScopeProvider
-		proxyErr.Reason = domain.CooldownReasonServerError
-		return proxyErr
+		return cliproxyerr.Classify(err, execReq.Model, fmt.Sprintf("executor stream request failed: %v", err),
+			domain.ScopeProvider, domain.CooldownReasonServerError)
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -304,10 +301,8 @@ func (a *CLIProxyAPIGrokAdapter) executeStream(c *flow.Ctx, w http.ResponseWrite
 		}
 	}
 	if streamErr != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(streamErr, true, fmt.Sprintf("stream error: %v", streamErr))
-		proxyErr.Scope = domain.ScopeProvider
-		proxyErr.Reason = domain.CooldownReasonServerError
-		return proxyErr
+		return cliproxyerr.Classify(streamErr, execReq.Model, fmt.Sprintf("stream error: %v", streamErr),
+			domain.ScopeProvider, domain.CooldownReasonServerError)
 	}
 	return nil
 }

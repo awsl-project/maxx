@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
+	"github.com/awsl-project/maxx/internal/adapter/provider/cliproxyerr"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -325,10 +326,8 @@ func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseW
 
 	resp, err := a.executor.Execute(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor request failed: %v", err))
-		proxyErr.Scope = domain.ScopeProvider
-		proxyErr.Reason = domain.CooldownReasonServerError
-		return proxyErr
+		return cliproxyerr.Classify(err, execReq.Model, fmt.Sprintf("executor request failed: %v", err),
+			domain.ScopeProvider, domain.CooldownReasonServerError)
 	}
 
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
@@ -371,10 +370,8 @@ func (a *CLIProxyAPICodexAdapter) executeStream(c *flow.Ctx, w http.ResponseWrit
 
 	stream, err := a.executor.ExecuteStream(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor stream request failed: %v", err))
-		proxyErr.Scope = domain.ScopeProvider
-		proxyErr.Reason = domain.CooldownReasonServerError
-		return proxyErr
+		return cliproxyerr.Classify(err, execReq.Model, fmt.Sprintf("executor stream request failed: %v", err),
+			domain.ScopeProvider, domain.CooldownReasonServerError)
 	}
 
 	// 设置 SSE 响应头
@@ -436,10 +433,8 @@ func (a *CLIProxyAPICodexAdapter) executeStream(c *flow.Ctx, w http.ResponseWrit
 
 	// If error occurred before any data was sent, return error to caller
 	if streamErr != nil && sseBuffer.Len() == 0 {
-		proxyErr := domain.NewProxyErrorWithMessage(streamErr, true, fmt.Sprintf("stream chunk error: %v", streamErr))
-		proxyErr.Scope = domain.ScopeProvider
-		proxyErr.Reason = domain.CooldownReasonNetworkError
-		return proxyErr
+		return cliproxyerr.Classify(streamErr, execReq.Model, fmt.Sprintf("stream chunk error: %v", streamErr),
+			domain.ScopeProvider, domain.CooldownReasonNetworkError)
 	}
 
 	return nil
