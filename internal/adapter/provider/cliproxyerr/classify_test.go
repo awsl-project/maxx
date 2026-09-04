@@ -176,6 +176,39 @@ func TestClassifyModelNotSupportedIsModelScoped(t *testing.T) {
 	}
 }
 
+// TestClassifyBareStatusError covers the shape 30 of the amplified production
+// requests carried: the SDK's statusErr with no body at all, whose Error() is
+// just "status 404". The status must still be read off the error.
+func TestClassifyBareStatusError(t *testing.T) {
+	proxyErr := Classify(sdkErr{body: "status 404", code: 404}, "gpt-5.6-sol", "executor stream request failed",
+		domain.ScopeProvider, domain.CooldownReasonServerError)
+
+	if proxyErr.Retryable {
+		t.Error("a 404 must not be retried on the same provider")
+	}
+	if proxyErr.Scope != domain.ScopeEndpoint {
+		t.Errorf("scope = %q, want %q", proxyErr.Scope, domain.ScopeEndpoint)
+	}
+	if proxyErr.HTTPStatusCode != 404 {
+		t.Errorf("status = %d, want 404 (read from the SDK error, not the body)", proxyErr.HTTPStatusCode)
+	}
+}
+
+// TestClassifyTransportErrorKeepsFallback covers the client-disconnect shape
+// seen in production: a net/http error with no status and no JSON body.
+func TestClassifyTransportErrorKeepsFallback(t *testing.T) {
+	err := errors.New(`Post "https://chatgpt.com/backend-api/codex/responses": context canceled`)
+	proxyErr := Classify(err, "gpt-5.6-luna", "executor stream request failed",
+		domain.ScopeProvider, domain.CooldownReasonServerError)
+
+	if proxyErr.Scope != domain.ScopeProvider || proxyErr.Reason != domain.CooldownReasonServerError {
+		t.Errorf("scope/reason = %q/%q, want the caller's fallback", proxyErr.Scope, proxyErr.Reason)
+	}
+	if !proxyErr.Retryable {
+		t.Error("a transport error stays retryable; the dispatch loop bounds it")
+	}
+}
+
 func TestClassifyKeepsFallbackForUnreadableErrors(t *testing.T) {
 	// A bare transport error: no status, no JSON body. The caller's fallback
 	// classification must survive so genuine outages still trip the cooldown.
