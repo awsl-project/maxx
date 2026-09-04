@@ -31,6 +31,18 @@ import (
 // route×retry fan-out yet orders of magnitude below the observed blowups.
 const maxUpstreamAttemptsPerRequest = 200
 
+// maxAttemptsPerProviderWithoutErrorCooldown bounds how many upstream calls a
+// single provider may absorb for one request while disableErrorCooldown is on.
+//
+// disableErrorCooldown is an operator escape hatch meaning "do not build
+// cooldown state from this provider's failures". It used to also mean "retry
+// this provider forever", which turned any persistent retryable failure into a
+// tight loop that only the global ceiling could stop — proxy_request 75010 hit
+// a rate-limited Codex account 200 times in 99 seconds that way. Bounding the
+// per-provider budget keeps the escape hatch (far more retries than the
+// configured RetryConfig allows) while still failing over to the next route.
+const maxAttemptsPerProviderWithoutErrorCooldown = 10
+
 func (e *Executor) dispatch(c *flow.Ctx) {
 	state, ok := getExecState(c)
 	if !ok {
@@ -94,8 +106,18 @@ routeLoop:
 		}
 		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
 
+		// providerAttempts counts every upstream call made against this route.
+		// Unlike attempt it is never reset by smart-mapping model switches, so
+		// it bounds the whole provider visit rather than one candidate model.
+		providerAttempts := 0
+
 		for attempt := 0; ; {
 			if attempt > retryConfig.MaxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) {
+				break
+			}
+			if shouldSkipErrorCooldown(matchedRoute.Provider) && providerAttempts >= maxAttemptsPerProviderWithoutErrorCooldown {
+				log.Printf("[Executor] Provider %d reached the disableErrorCooldown attempt cap (%d) for this request; failing over. lastErr=%v",
+					matchedRoute.Provider.ID, maxAttemptsPerProviderWithoutErrorCooldown, state.lastErr)
 				break
 			}
 			if ctx.Err() != nil {
@@ -239,6 +261,7 @@ routeLoop:
 
 			proxyReq.ProxyUpstreamAttemptCount++
 			totalUpstreamAttempts++
+			providerAttempts++
 			if e.broadcaster != nil {
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
