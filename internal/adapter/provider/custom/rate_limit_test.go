@@ -182,3 +182,35 @@ func TestClassifyHTTPErrorRequestTimeoutIsRetryableNetworkError(t *testing.T) {
 		t.Fatal("408 upstream timeout should be retryable")
 	}
 }
+
+func TestClassifyHTTPError422InvalidModelIsModelScoped(t *testing.T) {
+	body := []byte(`{"error":{"message":"model not found: moonshotai/kimi-k3 (no channel candidates remain; applied filters: api_key.binding_mode=manual, api_key.channelIDs, api_format=openai/chat_completions, stream=true)","type":"invalid_model_error"}}`)
+
+	proxyErr := classifyHTTPError(http.StatusUnprocessableEntity, body, http.Header{}, domain.ClientTypeOpenAI, "moonshotai/kimi-k3")
+
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Fatalf("Scope = %v, want ScopeModel", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonModelUnavailable {
+		t.Fatalf("Reason = %v, want CooldownReasonModelUnavailable", proxyErr.Reason)
+	}
+	if proxyErr.Model != "moonshotai/kimi-k3" {
+		t.Fatalf("Model = %q, want moonshotai/kimi-k3", proxyErr.Model)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("422 invalid_model_error should not retry the same provider")
+	}
+}
+
+func TestClassifyHTTPError422ValidationRemainsRequestScoped(t *testing.T) {
+	body := []byte(`{"error":{"message":"messages: field required","type":"invalid_request_error"}}`)
+
+	proxyErr := classifyHTTPError(http.StatusUnprocessableEntity, body, http.Header{}, domain.ClientTypeOpenAI, "moonshotai/kimi-k3")
+
+	if proxyErr.Scope != domain.ScopeRequest {
+		t.Fatalf("Scope = %v, want ScopeRequest", proxyErr.Scope)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("422 validation error should not be retryable")
+	}
+}

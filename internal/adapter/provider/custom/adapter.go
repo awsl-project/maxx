@@ -1439,7 +1439,19 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 		proxyErr.Reason = domain.CooldownReasonNetworkError
 		proxyErr.Retryable = true
 
-	// 400, 413, 422 — request-level errors
+	// 422 can also mean provider/channel model availability, not a malformed
+	// client request. NewAPI-style upstreams return invalid_model_error with
+	// "model not found" / "no channel candidates remain" when the selected
+	// provider key/channel cannot serve the mapped model. Treat that as a
+	// provider-model miss so the executor cools that model/provider and fails
+	// over to the next route instead of returning immediately.
+	case statusCode == http.StatusUnprocessableEntity && isModelUnavailableBody(bodyLower):
+		proxyErr.Scope = domain.ScopeModel
+		proxyErr.Reason = domain.CooldownReasonModelUnavailable
+		proxyErr.Model = model
+		proxyErr.Retryable = false
+
+	// 400, 413, other 422 — request-level errors
 	case statusCode == 400 || statusCode == 413 || statusCode == 422:
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Retryable = false
@@ -1473,6 +1485,13 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 	}
 
 	return proxyErr
+}
+
+func isModelUnavailableBody(bodyLower string) bool {
+	if bodyLower == "" {
+		return false
+	}
+	return containsAny(bodyLower, "invalid_model_error", "invalid model", "model_not_found", "model not found", "no channel candidates remain") && containsAny(bodyLower, "model")
 }
 
 // classify429Error determines the scope and reason for 429 rate limit errors.

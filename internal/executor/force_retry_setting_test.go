@@ -274,3 +274,47 @@ func newForceRetryDispatchHarnessWithContext(
 	}
 	return adapter, proxyReq, c, e
 }
+
+func TestDispatchModelScopedNonRetryableErrorFailsOverToNextRoute(t *testing.T) {
+	modelErr := domain.NewProxyErrorWithMessage(errors.New(`{"error":{"message":"model not found: moonshotai/kimi-k3"}}`), false, "upstream returned status 422")
+	modelErr.Scope = domain.ScopeModel
+	modelErr.Reason = domain.CooldownReasonModelUnavailable
+	modelErr.Model = "moonshotai/kimi-k3"
+	modelErr.HTTPStatusCode = http.StatusUnprocessableEntity
+
+	first := &forceRetrySequenceAdapter{errs: []error{modelErr}}
+	second := &forceRetrySequenceAdapter{}
+	_, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		first,
+		&domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	)
+	storedState, ok := c.Get(flow.KeyExecutorState)
+	if !ok {
+		t.Fatal("executor state missing")
+	}
+	state := storedState.(*execState)
+	state.requestModel = "gpt-5"
+	state.routes = append(state.routes, &router.MatchedRoute{
+		Route:           &domain.Route{ID: 11, TenantID: domain.DefaultTenantID, ProviderID: 21, ClientType: domain.ClientTypeOpenAI},
+		Provider:        &domain.Provider{ID: 21, TenantID: domain.DefaultTenantID, Type: "custom", Name: "custom-success"},
+		ProviderAdapter: second,
+		RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	})
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch error = %v", c.Err)
+	}
+	if first.calls != 1 || second.calls != 1 {
+		t.Fatalf("adapter calls first=%d second=%d, want 1/1", first.calls, second.calls)
+	}
+	if proxyReq.Status != "COMPLETED" {
+		t.Fatalf("proxy request status = %q, want COMPLETED", proxyReq.Status)
+	}
+	if proxyReq.ProviderID != 21 {
+		t.Fatalf("final provider ID = %d, want 21", proxyReq.ProviderID)
+	}
+}
