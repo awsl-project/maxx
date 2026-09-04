@@ -2,6 +2,7 @@ package cliproxyerr
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,16 +21,24 @@ func (e sdkErr) Error() string              { return e.body }
 func (e sdkErr) StatusCode() int            { return e.code }
 func (e sdkErr) RetryAfter() *time.Duration { return e.retryAfter }
 
-// usageLimitBody is the exact payload proxy_request 75010 received 9 times and
-// then retried 100 more times, and resetsAt is its reported reset instant.
-const usageLimitBody = `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"prolite","resets_at":1788747900,"eligible_promo":null,"resets_in_seconds":227596}}`
+// usageLimitReset is the reset horizon proxy_request 75010 was given, 2.6 days
+// out. The upstream reports it as an absolute instant, so the fixture builds it
+// relative to now: a hard-coded timestamp would go stale and silently stop
+// exercising the cooldown path it is meant to pin.
+const usageLimitReset = 227596 * time.Second
 
-const resetsAt = 1788747900
+// usageLimitBody renders the payload proxy_request 75010 received 9 times and
+// then retried 100 more times, with its reset pointed at resetsAt.
+func usageLimitBody(resetsAt time.Time) string {
+	return fmt.Sprintf(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"prolite","resets_at":%d,"eligible_promo":null,"resets_in_seconds":%d}}`,
+		resetsAt.Unix(), int(time.Until(resetsAt).Seconds()))
+}
 
 func TestClassifyUsageLimitReachedIsNotRetryable(t *testing.T) {
+	resetsAt := time.Now().Add(usageLimitReset)
 	// The SDK rewrites usage_limit_reached to HTTP 429, so status alone would
 	// call this a transient throttle worth retrying.
-	proxyErr := Classify(sdkErr{body: usageLimitBody, code: 429}, "gpt-5.6-sol", "executor stream request failed",
+	proxyErr := Classify(sdkErr{body: usageLimitBody(resetsAt), code: 429}, "gpt-5.6-sol", "executor stream request failed",
 		domain.ScopeProvider, domain.CooldownReasonServerError)
 
 	if proxyErr.Retryable {
@@ -44,8 +53,8 @@ func TestClassifyUsageLimitReachedIsNotRetryable(t *testing.T) {
 	if proxyErr.CooldownUntil == nil {
 		t.Fatal("expected a cooldown deadline from resets_at")
 	}
-	if got := proxyErr.CooldownUntil.Unix(); got != resetsAt {
-		t.Errorf("cooldown until = %d, want %d (resets_at)", got, resetsAt)
+	if got := proxyErr.CooldownUntil.Unix(); got != resetsAt.Unix() {
+		t.Errorf("cooldown until = %d, want %d (resets_at)", got, resetsAt.Unix())
 	}
 	// A 2.6-day reset must never become an in-request retry wait.
 	if proxyErr.RetryAfter != 0 {
@@ -62,6 +71,55 @@ func TestClassifyUsageLimitFromResetsInSecondsOnly(t *testing.T) {
 	}
 	if d := time.Until(*proxyErr.CooldownUntil); d < 9*time.Minute || d > 11*time.Minute {
 		t.Errorf("cooldown in %v, want ~10m", d)
+	}
+}
+
+func TestClassifyUsageLimitFallsBackWhenResetsAtIsStale(t *testing.T) {
+	// resets_at is absolute and goes stale under clock skew between us and the
+	// upstream; the relative resets_in_seconds must still park the key.
+	body := `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":1,"resets_in_seconds":600}}`
+	proxyErr := Classify(sdkErr{body: body, code: 429}, "gpt-5.6-sol", "msg", domain.ScopeProvider, domain.CooldownReasonServerError)
+
+	if proxyErr.CooldownUntil == nil {
+		t.Fatal("a stale resets_at must not swallow the resets_in_seconds fallback")
+	}
+	if d := time.Until(*proxyErr.CooldownUntil); d < 9*time.Minute || d > 11*time.Minute {
+		t.Errorf("cooldown in %v, want ~10m", d)
+	}
+}
+
+func TestClassifyUsageLimitClampsOversizedResets(t *testing.T) {
+	// time.Duration is int64 nanoseconds, so a second count beyond ~292 years
+	// overflows the conversion and lands in the past — setCooldownUntil would
+	// then drop the deadline entirely instead of clamping it to the horizon.
+	tests := []struct {
+		name string
+		body string
+	}{
+		// 1e10 seconds (~317 years) is past the ~292-year int64-nanosecond
+		// ceiling and wraps to a negative duration, i.e. a deadline in the past.
+		{"oversized resets_in_seconds", `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_in_seconds":10000000000}}`},
+		{"oversized resets_at", `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":99999999999999}}`},
+		// A stale absolute reset must still fall through to the relative one
+		// even when that one is oversized.
+		{"stale resets_at with oversized resets_in_seconds", `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":1,"resets_in_seconds":10000000000}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proxyErr := Classify(sdkErr{body: tt.body, code: 429}, "gpt-5.6-sol", "msg",
+				domain.ScopeProvider, domain.CooldownReasonServerError)
+
+			if proxyErr.CooldownUntil == nil {
+				t.Fatal("an oversized reset must still record a cooldown")
+			}
+			d := time.Until(*proxyErr.CooldownUntil)
+			if d <= 0 {
+				t.Fatalf("cooldown in %v, want a future deadline (overflowed into the past)", d)
+			}
+			if d > maxCooldownHorizon || d < maxCooldownHorizon-time.Minute {
+				t.Errorf("cooldown in %v, want it clamped near %v", d, maxCooldownHorizon)
+			}
+		})
 	}
 }
 
@@ -150,6 +208,39 @@ func TestClassifyModelNotSupportedIsModelScoped(t *testing.T) {
 	}
 	if proxyErr.Retryable {
 		t.Error("an unsupported model must not be retried on the same provider")
+	}
+}
+
+// TestClassifyBareStatusError covers the shape 30 of the amplified production
+// requests carried: the SDK's statusErr with no body at all, whose Error() is
+// just "status 404". The status must still be read off the error.
+func TestClassifyBareStatusError(t *testing.T) {
+	proxyErr := Classify(sdkErr{body: "status 404", code: 404}, "gpt-5.6-sol", "executor stream request failed",
+		domain.ScopeProvider, domain.CooldownReasonServerError)
+
+	if proxyErr.Retryable {
+		t.Error("a 404 must not be retried on the same provider")
+	}
+	if proxyErr.Scope != domain.ScopeEndpoint {
+		t.Errorf("scope = %q, want %q", proxyErr.Scope, domain.ScopeEndpoint)
+	}
+	if proxyErr.HTTPStatusCode != 404 {
+		t.Errorf("status = %d, want 404 (read from the SDK error, not the body)", proxyErr.HTTPStatusCode)
+	}
+}
+
+// TestClassifyTransportErrorKeepsFallback covers the client-disconnect shape
+// seen in production: a net/http error with no status and no JSON body.
+func TestClassifyTransportErrorKeepsFallback(t *testing.T) {
+	err := errors.New(`Post "https://chatgpt.com/backend-api/codex/responses": context canceled`)
+	proxyErr := Classify(err, "gpt-5.6-luna", "executor stream request failed",
+		domain.ScopeProvider, domain.CooldownReasonServerError)
+
+	if proxyErr.Scope != domain.ScopeProvider || proxyErr.Reason != domain.CooldownReasonServerError {
+		t.Errorf("scope/reason = %q/%q, want the caller's fallback", proxyErr.Scope, proxyErr.Reason)
+	}
+	if !proxyErr.Retryable {
+		t.Error("a transport error stays retryable; the dispatch loop bounds it")
 	}
 }
 
