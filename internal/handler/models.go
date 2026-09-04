@@ -168,10 +168,13 @@ func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.Clie
 		return false
 	}
 	result, err := h.router.Match(&router.MatchContext{
-		TenantID:            tenantID,
-		ClientType:          clientType,
-		ProjectID:           projectID,
-		RequestModel:        model,
+		TenantID:     tenantID,
+		ClientType:   clientType,
+		ProjectID:    projectID,
+		RequestModel: model,
+		ModelCandidates: func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string {
+			return h.modelCandidatesForRoute(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
+		},
 		APITokenID:          apiTokenID,
 		StrictSupportModels: true,
 	})
@@ -185,7 +188,53 @@ func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.Clie
 		if providerID != 0 && matched.Provider.ID != providerID {
 			continue
 		}
-		if isProviderModelExposed(matched.Provider, model) {
+		candidates := h.modelCandidatesForRoute(tenantID, model, matched.Route, matched.Provider, clientType, projectID, apiTokenID)
+		if isProviderAnyModelExposed(matched.Provider, append([]string{model}, candidates...)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *ModelsHandler) modelCandidatesForRoute(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID, apiTokenID uint64) []string {
+	if h == nil || h.modelMappingRepo == nil || route == nil || provider == nil {
+		return []string{requestModel}
+	}
+	mappings, err := h.modelMappingRepo.ListByQuery(tenantID, &domain.ModelMappingQuery{
+		ClientType:   clientType,
+		ProviderType: provider.Type,
+		ProviderID:   provider.ID,
+		ProjectID:    projectID,
+		RouteID:      route.ID,
+		APITokenID:   apiTokenID,
+	})
+	if err != nil {
+		return []string{requestModel}
+	}
+	candidates := make([]string, 0, len(mappings))
+	seen := make(map[string]struct{}, len(mappings))
+	for _, mapping := range mappings {
+		if mapping == nil || !domain.MatchWildcard(mapping.Pattern, requestModel) {
+			continue
+		}
+		if _, exists := seen[mapping.Target]; exists {
+			continue
+		}
+		seen[mapping.Target] = struct{}{}
+		candidates = append(candidates, mapping.Target)
+	}
+	if len(candidates) == 0 {
+		return []string{requestModel}
+	}
+	return candidates
+}
+
+func isProviderAnyModelExposed(provider *domain.Provider, models []string) bool {
+	if provider == nil || !provider.ExposedModelsEnabled {
+		return true
+	}
+	for _, model := range models {
+		if isProviderModelExposed(provider, model) {
 			return true
 		}
 	}

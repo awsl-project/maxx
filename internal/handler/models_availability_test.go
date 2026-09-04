@@ -327,3 +327,44 @@ func TestUserPanelAvailableModelsIncludesCodexOnlyVisibleRoute(t *testing.T) {
 		t.Fatalf("names = %v, want Codex-only model", names)
 	}
 }
+
+func TestModelsHandlerAvailabilityUsesMappedModelCandidates(t *testing.T) {
+	providers := []*domain.Provider{
+		testCustomProvider(10, "pre-mapped-only", []string{"gpt-5"}),
+		testCustomProvider(20, "mapped-target", []string{"moonshotai/kimi-k3"}),
+	}
+	providers[1].ExposedModelsEnabled = true
+	providers[1].ExposedModels = []string{"moonshotai/kimi-k3"}
+	routes := []*domain.Route{
+		{ID: 1, TenantID: 1, ProviderID: 10, ClientType: domain.ClientTypeOpenAI, ProjectID: 0, IsEnabled: true, Position: 1, Weight: 1},
+		{ID: 2, TenantID: 1, ProviderID: 20, ClientType: domain.ClientTypeOpenAI, ProjectID: 0, IsEnabled: true, Position: 2, Weight: 1},
+	}
+	r, providerRepo := newModelAvailabilityRouter(t, providers, routes, nil)
+	mappingRepo := &fakeModelMappingRepo{mappings: []*domain.ModelMapping{
+		{Pattern: "gpt-5", Target: "moonshotai/kimi-k3", IsEnabled: true},
+	}}
+	handler := NewModelsHandler(&fakeResponseModelRepo{names: []string{"gpt-5", "moonshotai/kimi-k3"}}, providerRepo, mappingRepo, r)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	ids := decodeOpenAIModelIDs(t, rec.Body.Bytes())
+	if !containsModel(ids, "gpt-5") || !containsModel(ids, "moonshotai/kimi-k3") {
+		t.Fatalf("ids = %v, want both gpt-5 and moonshotai/kimi-k3 available through mapped-target", ids)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("X-Maxx-Provider-ID", "10")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	ids = decodeOpenAIModelIDs(t, rec.Body.Bytes())
+	if containsModel(ids, "gpt-5") || containsModel(ids, "moonshotai/kimi-k3") {
+		t.Fatalf("provider 10 ids = %v, want mapped request unavailable for pre-mapped-only provider", ids)
+	}
+}

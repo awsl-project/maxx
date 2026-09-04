@@ -132,6 +132,9 @@ func (e *Executor) mapModel(tenantID uint64, requestModel string, route *domain.
 }
 
 func (e *Executor) mapModelCandidates(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) []string {
+	if e == nil || e.modelMappingRepo == nil || route == nil || provider == nil {
+		return []string{requestModel}
+	}
 	query := &domain.ModelMappingQuery{
 		ClientType:   clientType,
 		ProviderType: provider.Type,

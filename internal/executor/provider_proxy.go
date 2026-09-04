@@ -39,8 +39,11 @@ func (e *Executor) MatchProviderProxyRoute(ctx context.Context, tenantID uint64,
 		ClientType:   clientType,
 		ProjectID:    projectID,
 		RequestModel: requestModel,
-		APITokenID:   apiTokenID,
-		SessionID:    sessionID,
+		ModelCandidates: func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string {
+			return e.mapModelCandidates(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
+		},
+		APITokenID: apiTokenID,
+		SessionID:  sessionID,
 	})
 	if err != nil {
 		return nil, err

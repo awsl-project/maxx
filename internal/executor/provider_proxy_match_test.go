@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
@@ -199,5 +200,58 @@ func TestMatchProviderProxyRouteUsesProjectRouteRetryPolicy(t *testing.T) {
 	}
 	if matched.RetryConfig == nil || matched.RetryConfig.MaxRetries != 2 {
 		t.Fatalf("matched retry config = %+v, want project MaxRetries=2", matched.RetryConfig)
+	}
+}
+
+func TestMatchProviderProxyRouteUsesMappedModelCandidatesForSupportModels(t *testing.T) {
+	routeRepo := cached.NewRouteRepository(&providerProxyMatchRouteRepo{routes: []*domain.Route{
+		{ID: 10, TenantID: 1, ProviderID: 79007, ClientType: domain.ClientTypeOpenAI, IsEnabled: true, Position: 1},
+		{ID: 11, TenantID: 1, ProviderID: 79008, ClientType: domain.ClientTypeOpenAI, IsEnabled: true, Position: 2},
+	}})
+	providerRepo := cached.NewProviderRepository(&providerProxyMatchProviderRepo{providers: []*domain.Provider{
+		{ID: 79007, TenantID: 1, Type: providerProxyMatchTestType, Name: "pre-mapped-only", SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI}, SupportModels: []string{"gpt-5"}},
+		{ID: 79008, TenantID: 1, Type: providerProxyMatchTestType, Name: "mapped-target", SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI}, SupportModels: []string{"moonshotai/kimi-k3"}},
+	}})
+	retryRepo := cached.NewRetryConfigRepository(&providerProxyMatchRetryRepo{configs: []*domain.RetryConfig{
+		{ID: 1, TenantID: 1, IsDefault: true, MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	}})
+	strategyRepo := cached.NewRoutingStrategyRepository(providerProxyMatchStrategyRepo{})
+	projectRepo := cached.NewProjectRepository(providerProxyMatchProjectRepo{})
+
+	for name, load := range map[string]func() error{
+		"routes":     routeRepo.Load,
+		"providers":  providerRepo.Load,
+		"retry":      retryRepo.Load,
+		"strategies": strategyRepo.Load,
+		"projects":   projectRepo.Load,
+	} {
+		if err := load(); err != nil {
+			t.Fatalf("load %s: %v", name, err)
+		}
+	}
+	r := router.NewRouter(routeRepo, providerRepo, strategyRepo, retryRepo, projectRepo, &stubExecutorSettingsRepo{values: map[string]string{
+		domain.SettingKeyStrictSupportModelsRoutingEnabled: "true",
+	}})
+	if err := r.InitAdapters(); err != nil {
+		t.Fatalf("init adapters: %v", err)
+	}
+	e := &Executor{
+		router: r,
+		modelMappingRepo: &staticModelMappingRepo{mappings: []*domain.ModelMapping{
+			{Pattern: "gpt-5", Target: "moonshotai/kimi-k3", IsEnabled: true},
+		}},
+	}
+
+	matched, err := e.MatchProviderProxyRoute(context.Background(), 1, 79008, domain.ClientTypeOpenAI, 0, "gpt-5", 46, "session-1")
+	if err != nil {
+		t.Fatalf("MatchProviderProxyRoute returned error: %v", err)
+	}
+	if matched.Provider.ID != 79008 {
+		t.Fatalf("matched provider ID = %d, want 79008", matched.Provider.ID)
+	}
+
+	_, err = e.MatchProviderProxyRoute(context.Background(), 1, 79007, domain.ClientTypeOpenAI, 0, "gpt-5", 46, "session-1")
+	if !errors.Is(err, domain.ErrNoAvailableProviders) {
+		t.Fatalf("MatchProviderProxyRoute error = %v, want ErrNoAvailableProviders", err)
 	}
 }

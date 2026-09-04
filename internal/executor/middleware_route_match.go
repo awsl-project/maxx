@@ -27,11 +27,14 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		requiredProviderID = state.wsExchange.PinnedProviderID
 	}
 	result, err := e.router.Match(&router.MatchContext{
-		Ctx:                       state.ctx,
-		TenantID:                  state.tenantID,
-		ClientType:                state.clientType,
-		ProjectID:                 state.projectID,
-		RequestModel:              state.requestModel,
+		Ctx:          state.ctx,
+		TenantID:     state.tenantID,
+		ClientType:   state.clientType,
+		ProjectID:    state.projectID,
+		RequestModel: state.requestModel,
+		ModelCandidates: func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string {
+			return e.mapModelCandidates(state.tenantID, requestModel, route, provider, clientType, state.projectID, state.apiTokenID)
+		},
 		APITokenID:                state.apiTokenID,
 		SessionID:                 state.sessionID,
 		RequireResponsesWebSocket: requireWS,
