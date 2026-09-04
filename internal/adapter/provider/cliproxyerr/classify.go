@@ -228,11 +228,23 @@ func applyQuotaReset(proxyErr *domain.ProxyError, body string) {
 	}
 	for _, path := range []string{"error.resets_in_seconds", "resets_in_seconds"} {
 		if v := gjson.Get(body, path); v.Exists() && v.Int() > 0 {
-			if setCooldownUntil(proxyErr, time.Now().Add(time.Duration(v.Int())*time.Second)) {
+			if setCooldownUntil(proxyErr, time.Now().Add(cooldownFromSeconds(v.Int()))) {
 				return
 			}
 		}
 	}
+}
+
+// cooldownFromSeconds converts an upstream-reported second count into a
+// duration, saturating at maxCooldownHorizon. The clamp has to happen before
+// the multiplication: time.Duration is int64 nanoseconds, so anything past
+// ~292 years wraps to a negative duration, which setCooldownUntil then drops as
+// a past deadline instead of clamping it to the horizon.
+func cooldownFromSeconds(seconds int64) time.Duration {
+	if seconds > int64(maxCooldownHorizon/time.Second) {
+		return maxCooldownHorizon
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // ensureRateLimitCooldown gives a rate limit without an explicit reset hint a

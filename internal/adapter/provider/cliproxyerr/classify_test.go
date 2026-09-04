@@ -88,6 +88,41 @@ func TestClassifyUsageLimitFallsBackWhenResetsAtIsStale(t *testing.T) {
 	}
 }
 
+func TestClassifyUsageLimitClampsOversizedResets(t *testing.T) {
+	// time.Duration is int64 nanoseconds, so a second count beyond ~292 years
+	// overflows the conversion and lands in the past — setCooldownUntil would
+	// then drop the deadline entirely instead of clamping it to the horizon.
+	tests := []struct {
+		name string
+		body string
+	}{
+		// 1e10 seconds (~317 years) is past the ~292-year int64-nanosecond
+		// ceiling and wraps to a negative duration, i.e. a deadline in the past.
+		{"oversized resets_in_seconds", `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_in_seconds":10000000000}}`},
+		{"oversized resets_at", `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":99999999999999}}`},
+		// A stale absolute reset must still fall through to the relative one
+		// even when that one is oversized.
+		{"stale resets_at with oversized resets_in_seconds", `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":1,"resets_in_seconds":10000000000}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proxyErr := Classify(sdkErr{body: tt.body, code: 429}, "gpt-5.6-sol", "msg",
+				domain.ScopeProvider, domain.CooldownReasonServerError)
+
+			if proxyErr.CooldownUntil == nil {
+				t.Fatal("an oversized reset must still record a cooldown")
+			}
+			d := time.Until(*proxyErr.CooldownUntil)
+			if d <= 0 {
+				t.Fatalf("cooldown in %v, want a future deadline (overflowed into the past)", d)
+			}
+			if d > maxCooldownHorizon || d < maxCooldownHorizon-time.Minute {
+				t.Errorf("cooldown in %v, want it clamped near %v", d, maxCooldownHorizon)
+			}
+		})
+	}
+}
+
 func TestClassifyRateLimitStaysRetryable(t *testing.T) {
 	// The other 191 attempts on proxy_request 75010.
 	proxyErr := Classify(sdkErr{body: `{"detail":"Rate limit exceeded"}`, code: 429}, "gpt-5.6-sol", "msg",
