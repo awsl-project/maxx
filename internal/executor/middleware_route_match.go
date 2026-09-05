@@ -68,7 +68,7 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 			proxyErr.Code = "model_not_supported"
 			proxyErr.Model = state.requestModel
 		} else if errors.Is(err, domain.ErrNoAvailableProviders) {
-			proxyErr = domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, false, message)
+			proxyErr = domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, false, "no available provider for matched route")
 			proxyErr.Code = "no_available_provider"
 		} else if errors.Is(err, domain.ErrNoRoutes) {
 			proxyErr.Code = "no_routes_available"
@@ -91,7 +91,7 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 	}
 
 	if len(result.Routes) == 0 {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, false, "route match failed: no available providers")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, false, "no available provider for matched route")
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Code = "no_available_provider"
 		proxyErr.HTTPStatusCode = http.StatusServiceUnavailable

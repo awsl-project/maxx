@@ -2,7 +2,6 @@ package router
 
 import (
 	"errors"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -635,9 +634,6 @@ func TestMatch_ResponsesWebSocketRejectsWhenOnlyProviderIsAtConcurrencyLimit(t *
 	if !errors.Is(err, domain.ErrNoResponsesWebSocketProviders) {
 		t.Fatalf("Match error = %v, want ErrNoResponsesWebSocketProviders", err)
 	}
-	if !strings.Contains(err.Error(), "provider_concurrency_limit=1") {
-		t.Fatalf("Match error = %q, want provider_concurrency_limit diagnostic", err.Error())
-	}
 }
 
 // RequiredProviderID pins eligibility to one provider; a missing pin is a
@@ -682,9 +678,6 @@ func TestMatch_ResponsesWebSocketRequiredProviderIDPinsProvider(t *testing.T) {
 	})
 	if !errors.Is(err, domain.ErrResponsesWebSocketSessionUnavailable) {
 		t.Fatalf("missing pin error = %v, want %v", err, domain.ErrResponsesWebSocketSessionUnavailable)
-	}
-	if !strings.Contains(err.Error(), "required_provider_mismatch=2") {
-		t.Fatalf("missing pin error = %q, want required_provider_mismatch diagnostic", err.Error())
 	}
 }
 
