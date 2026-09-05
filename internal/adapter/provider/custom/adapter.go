@@ -358,42 +358,8 @@ func applyCustomProtocolIdentity(c *flow.Ctx, clientType domain.ClientType, targ
 	if targetUserAgent != "" {
 		headers["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, targetUserAgent)}
 	}
-	if !flow.IsProtocolConversion(c) {
-		return
-	}
-
-	if clientType == domain.ClientTypeCodex {
+	if clientType == domain.ClientTypeCodex && flow.IsProtocolConversion(c) {
 		headers.Del("Version")
-		return
-	}
-	if clientType != domain.ClientTypeOpenAI {
-		return
-	}
-
-	// Codex→OpenAI Chat bridge requests are sent to /v1/chat/completions, so they
-	// must look like ordinary OpenAI Chat requests. Previously they could still
-	// carry Codex CLI fingerprints (OpenAI-Beta: responses=experimental,
-	// Originator, Version, Session_id, and codex_cli_rs User-Agent). NewAPI/OneAPI
-	// style upstreams can include those in channel selection / load-balancing
-	// policy, so the same provider and mapped model may succeed on the native
-	// OpenAI route while the bridged Codex route receives a different filtered
-	// candidate set and 422s with api_format=openai/chat_completions.
-	stripSourceProtocolHeaders(headers)
-}
-
-func stripSourceProtocolHeaders(headers http.Header) {
-	for _, h := range []string{
-		"OpenAI-Beta",
-		"Openai-Beta",
-		"Originator",
-		"Version",
-		"Session_id",
-		"Session-Id",
-	} {
-		headers.Del(h)
-	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(headers.Get("User-Agent"))), "codex_cli_rs/") {
-		headers.Del("User-Agent")
 	}
 }
 
