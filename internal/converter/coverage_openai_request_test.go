@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/tidwall/gjson"
 )
 
 func TestOpenAIToGeminiRequestToolChoice(t *testing.T) {
@@ -1095,5 +1097,44 @@ func TestCodexToOpenAIRequestNormalizesFilesImagesAndBareTextParts(t *testing.T)
 		if !strings.Contains(outStr, expected) {
 			t.Fatalf("expected %s in converted request: %s", expected, outStr)
 		}
+	}
+}
+
+func TestOpenAIToCodexSkipsEmptyAssistantToolCallMessage(t *testing.T) {
+	req := OpenAIRequest{
+		Model: "gpt-5.5",
+		Messages: []OpenAIMessage{
+			{Role: "user", Content: "hi"},
+			{
+				Role:    "assistant",
+				Content: nil,
+				ToolCalls: []OpenAIToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: OpenAIFunctionCall{
+						Name:      "lookup",
+						Arguments: `{"q":"x"}`,
+					},
+				}},
+			},
+			{Role: "tool", ToolCallID: "call_1", Content: "ok"},
+		},
+	}
+	body, _ := json.Marshal(req)
+	out, err := (&openaiToCodexRequest{}).Transform(body, "moonshotai/kimi-k3", true)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	input := gjson.GetBytes(out, "input").Array()
+	for i, item := range input {
+		if item.Get("type").String() == "message" && item.Get("role").String() == "assistant" && item.Get("content.#").Int() == 0 {
+			t.Fatalf("input[%d] is an empty assistant message: %s", i, string(out))
+		}
+	}
+	if got := gjson.GetBytes(out, `input.#(type="function_call").call_id`).String(); got != "call_1" {
+		t.Fatalf("function_call missing, got %q in %s", got, string(out))
+	}
+	if got := gjson.GetBytes(out, `input.#(type="function_call_output").call_id`).String(); got != "call_1" {
+		t.Fatalf("function_call_output missing, got %q in %s", got, string(out))
 	}
 }

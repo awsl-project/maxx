@@ -73,6 +73,28 @@ func TestApplyCustomProtocolIdentityDropsSourceVersionForCodexConversion(t *test
 	}
 }
 
+func TestApplyCustomProtocolIdentityStripsCodexHeadersForOpenAIConversion(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", nil)
+	ctx := flow.NewCtx(httptest.NewRecorder(), req)
+	ctx.Set(flow.KeyOriginalClientType, domain.ClientTypeCodex)
+	ctx.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+
+	headers := make(http.Header)
+	headers.Set("User-Agent", "codex_cli_rs/0.144.1 (Mac OS 26.0.1; arm64) Apple_Terminal/464")
+	headers.Set("OpenAI-Beta", "responses=experimental")
+	headers.Set("Originator", "codex_cli_rs")
+	headers.Set("Version", "0.144.1")
+	headers.Set("Session_id", "sess_123")
+
+	applyCustomProtocolIdentity(ctx, domain.ClientTypeOpenAI, "", headers)
+
+	for _, h := range []string{"User-Agent", "OpenAI-Beta", "Originator", "Version", "Session_id"} {
+		if got := headers.Get(h); got != "" {
+			t.Fatalf("%s = %q, want stripped after Codex->OpenAI conversion", h, got)
+		}
+	}
+}
+
 func assertCustomAdapterExecuteUserAgent(t *testing.T, originalClientType, targetClientType domain.ClientType, requestURI string, clientUA string, expectedUA string) {
 	t.Helper()
 
