@@ -359,13 +359,12 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	providers := r.providerRepo.GetAll()
 
 	// Track why candidates were dropped so an empty result can be reported
-	// precisely: sawModelReject means a route was skipped purely because the model
-	// is not in the provider's SupportModels allowlist (a client request error);
-	// sawTransientSkip means a route was skipped for a transient reason (cooldown)
-	// that might otherwise have served the model — in which case we stay with the
-	// generic ErrNoAvailableProviders rather than blaming the model.
+	// precisely: model rejections are a client request error only when every
+	// candidate failed solely on SupportModels. Provider/adapter/config/transport
+	// skips keep the generic no-available-provider path so we do not mislabel a
+	// broken or transient route set as an unsupported model.
 	sawModelReject := false
-	sawTransientSkip := false
+	sawNonModelReject := false
 	rejects := make(map[string]int)
 	noteReject := func(reason string) {
 		rejects[reason]++
@@ -374,11 +373,12 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	for _, route := range filtered {
 		prov, ok := providers[route.ProviderID]
 		if !ok {
+			sawNonModelReject = true
 			noteReject("provider_missing")
 			continue
 		}
 		if r.isProviderAtConcurrencyLimit(prov) {
-			sawTransientSkip = true
+			sawNonModelReject = true
 			noteReject("provider_concurrency_limit")
 			continue
 		}
@@ -387,17 +387,19 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 
 		// Skip providers in cooldown (checks provider, key, and outbound model-level cooldowns)
 		if r.isAnyModelCandidateInCooldown(route.ProviderID, clientType, modelCandidates) {
-			sawTransientSkip = true
+			sawNonModelReject = true
 			noteReject("cooldown")
 			continue
 		}
 
 		adp, ok := r.adapters[route.ProviderID]
 		if !ok {
+			sawNonModelReject = true
 			noteReject("adapter_missing")
 			continue
 		}
 		if ctx.RequiredProviderID != 0 && prov.ID != ctx.RequiredProviderID {
+			sawNonModelReject = true
 			noteReject("required_provider_mismatch")
 			continue
 		}
@@ -406,7 +408,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		native := domain.RouteIsNative(prov, route)
 		if ctx.RequireResponsesWebSocket {
 			if !provider.ResponsesWebSocketTransportAvailable(prov.ID) {
-				sawTransientSkip = true
+				sawNonModelReject = true
 				noteReject("websocket_transport_unavailable")
 				continue
 			}
@@ -417,6 +419,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 					"[Router] skip codex websocket candidate provider=%d type=%s native=%v wsAdapter=%v wsEnabled=%v adapter=%T",
 					prov.ID, prov.Type, native, wsAdapter, wsEnabled, adp,
 				)
+				sawNonModelReject = true
 				switch {
 				case !native:
 					noteReject("websocket_non_native_route")
@@ -464,14 +467,14 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	if len(matched) == 0 {
 		if ctx.RequireResponsesWebSocket {
 			if ctx.RequiredProviderID != 0 {
-				return nil, domain.ErrResponsesWebSocketSessionUnavailable
+				return nil, responsesWebSocketSessionUnavailableError(rejects)
 			}
-			return nil, domain.ErrNoResponsesWebSocketProviders
+			return nil, noResponsesWebSocketProvidersError(rejects)
 		}
 		// Only blame the model when the emptiness is entirely due to SupportModels
-		// rejections; a transient skip (cooldown) may hide a provider that does
-		// support it, so fall back to the generic error to avoid mislabeling.
-		if sawModelReject && !sawTransientSkip {
+		// rejections; any provider/adapter/config/transport rejection means the
+		// route set itself was unavailable and should keep diagnostic detail.
+		if sawModelReject && !sawNonModelReject {
 			return nil, domain.ErrModelNotSupported
 		}
 		return nil, noAvailableProvidersError(rejects)
@@ -963,8 +966,20 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter, p *domain.Prov
 }
 
 func noAvailableProvidersError(rejects map[string]int) error {
+	return withRejectionDiagnostics(domain.ErrNoAvailableProviders, rejects)
+}
+
+func noResponsesWebSocketProvidersError(rejects map[string]int) error {
+	return withRejectionDiagnostics(domain.ErrNoResponsesWebSocketProviders, rejects)
+}
+
+func responsesWebSocketSessionUnavailableError(rejects map[string]int) error {
+	return withRejectionDiagnostics(domain.ErrResponsesWebSocketSessionUnavailable, rejects)
+}
+
+func withRejectionDiagnostics(base error, rejects map[string]int) error {
 	if len(rejects) == 0 {
-		return domain.ErrNoAvailableProviders
+		return base
 	}
 	keys := make([]string, 0, len(rejects))
 	for key := range rejects {
@@ -975,5 +990,5 @@ func noAvailableProvidersError(rejects map[string]int) error {
 	for _, key := range keys {
 		parts = append(parts, fmt.Sprintf("%s=%d", key, rejects[key]))
 	}
-	return fmt.Errorf("%w (rejections: %s)", domain.ErrNoAvailableProviders, strings.Join(parts, ", "))
+	return fmt.Errorf("%w (rejections: %s)", base, strings.Join(parts, ", "))
 }
