@@ -117,9 +117,7 @@ func (c *openaiToCodexRequest) Transform(body []byte, model string, stream bool)
 					}
 				}
 
-				if gjson.Get(msg, "content.#").Int() > 0 {
-					out, _ = sjson.SetRaw(out, "input.-1", msg)
-				}
+				out, _ = sjson.SetRaw(out, "input.-1", msg)
 
 				if role == "assistant" {
 					if toolCalls := m.Get("tool_calls"); toolCalls.Exists() && toolCalls.IsArray() {
