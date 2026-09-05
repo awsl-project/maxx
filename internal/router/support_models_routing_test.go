@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -212,5 +213,29 @@ func TestRouteMatchChecksCooldownAgainstMappedModelCandidates(t *testing.T) {
 	}
 	if got := matchedProviderIDs(result); len(got) != 1 || got[0] != 102 {
 		t.Fatalf("matched provider IDs = %v, want [102]", got)
+	}
+}
+
+func TestStrictSupportModelsRoutingKeepsNoAvailableProvidersWhenMixedWithMissingAdapter(t *testing.T) {
+	r := newSupportModelRoutingTestRouter(t, true,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: 101, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+			{ID: 2, TenantID: 1, ProviderID: 901, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: 101, TenantID: 1, Type: wsRouterNativeType, Name: "unsupported", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}, SupportModels: []string{"other-model"}},
+			{ID: 901, TenantID: 1, Type: wsRouterBadType, Name: "broken-config", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}, SupportModels: []string{"codex-target"}},
+		},
+	)
+
+	_, err := r.Match(&MatchContext{TenantID: 1, ClientType: domain.ClientTypeCodex, RequestModel: "codex-target"})
+	if !errors.Is(err, domain.ErrNoAvailableProviders) {
+		t.Fatalf("Match() error = %v, want ErrNoAvailableProviders", err)
+	}
+	if strings.Contains(err.Error(), domain.ErrModelNotSupported.Error()) {
+		t.Fatalf("error = %q, must not mislabel mixed route unavailability as model_not_supported", err.Error())
+	}
+	if !strings.Contains(err.Error(), "adapter_missing=1") || !strings.Contains(err.Error(), "support_models_mismatch=1") {
+		t.Fatalf("error = %q, want adapter_missing and support_models_mismatch diagnostics", err.Error())
 	}
 }
