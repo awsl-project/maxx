@@ -8,10 +8,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -364,14 +366,20 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	// generic ErrNoAvailableProviders rather than blaming the model.
 	sawModelReject := false
 	sawTransientSkip := false
+	rejects := make(map[string]int)
+	noteReject := func(reason string) {
+		rejects[reason]++
+	}
 
 	for _, route := range filtered {
 		prov, ok := providers[route.ProviderID]
 		if !ok {
+			noteReject("provider_missing")
 			continue
 		}
 		if r.isProviderAtConcurrencyLimit(prov) {
 			sawTransientSkip = true
+			noteReject("provider_concurrency_limit")
 			continue
 		}
 
@@ -380,14 +388,17 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		// Skip providers in cooldown (checks provider, key, and outbound model-level cooldowns)
 		if r.isAnyModelCandidateInCooldown(route.ProviderID, clientType, modelCandidates) {
 			sawTransientSkip = true
+			noteReject("cooldown")
 			continue
 		}
 
 		adp, ok := r.adapters[route.ProviderID]
 		if !ok {
+			noteReject("adapter_missing")
 			continue
 		}
 		if ctx.RequiredProviderID != 0 && prov.ID != ctx.RequiredProviderID {
+			noteReject("required_provider_mismatch")
 			continue
 		}
 		// Derive native capability from provider + client type; never trust
@@ -396,6 +407,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		if ctx.RequireResponsesWebSocket {
 			if !provider.ResponsesWebSocketTransportAvailable(prov.ID) {
 				sawTransientSkip = true
+				noteReject("websocket_transport_unavailable")
 				continue
 			}
 			wsAdapter := adapterSupportsResponsesWebSocket(adp)
@@ -405,6 +417,14 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 					"[Router] skip codex websocket candidate provider=%d type=%s native=%v wsAdapter=%v wsEnabled=%v adapter=%T",
 					prov.ID, prov.Type, native, wsAdapter, wsEnabled, adp,
 				)
+				switch {
+				case !native:
+					noteReject("websocket_non_native_route")
+				case !wsAdapter:
+					noteReject("websocket_adapter_unsupported")
+				case !wsEnabled:
+					noteReject("websocket_provider_disabled")
+				}
 				continue
 			}
 		}
@@ -419,6 +439,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		if (r.strictSupportModelsRoutingEnabled() || ctx.StrictSupportModels) && adapterSupportsClientType(adp, clientType) && len(prov.SupportModels) > 0 && requestModel != "" {
 			if !r.isAnyModelCandidateSupported(prov, modelCandidates) {
 				sawModelReject = true
+				noteReject("support_models_mismatch")
 				continue
 			}
 		}
@@ -453,7 +474,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		if sawModelReject && !sawTransientSkip {
 			return nil, domain.ErrModelNotSupported
 		}
-		return nil, domain.ErrNoAvailableProviders
+		return nil, noAvailableProvidersError(rejects)
 	}
 
 	// Sticky / session-affinity layer. Only meaningful when:
@@ -939,4 +960,20 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter, p *domain.Prov
 			return repo.GetByID(tenantID, id)
 		})
 	}
+}
+
+func noAvailableProvidersError(rejects map[string]int) error {
+	if len(rejects) == 0 {
+		return domain.ErrNoAvailableProviders
+	}
+	keys := make([]string, 0, len(rejects))
+	for key := range rejects {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, rejects[key]))
+	}
+	return fmt.Errorf("%w (rejections: %s)", domain.ErrNoAvailableProviders, strings.Join(parts, ", "))
 }
