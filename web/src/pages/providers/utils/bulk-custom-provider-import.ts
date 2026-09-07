@@ -1,4 +1,9 @@
-import type { ClientType, CreateProviderData } from '@/lib/transport';
+import type {
+  ClientType,
+  CreateProviderData,
+  ProviderConfigCustomDisguise,
+  ReasoningPolicy,
+} from '@/lib/transport';
 
 export type BulkCustomProviderCommand = {
   lineNumber: number;
@@ -7,16 +12,26 @@ export type BulkCustomProviderCommand = {
   apiKey: string;
   clients: ClientType[];
   supportModels: string[];
+  exposedModelsEnabled: boolean;
+  exposedModels: string[];
   modelMapping: Record<string, string>;
   responseModelMapping: Record<string, string>;
   backend?: 'ollama';
   logo?: string;
+  clientBaseURL?: Partial<Record<ClientType, string>>;
+  clientMultiplier?: Partial<Record<ClientType, number>>;
+  disguise?: ProviderConfigCustomDisguise;
+  reasoning?: ReasoningPolicy;
+  quotaEnabled: boolean;
   disableErrorCooldown: boolean;
+  consecutiveErrorFreezeEnabled: boolean;
+  consecutiveErrorFreezeThreshold?: number;
   smartMappingRetryEnabled: boolean;
   smartMappingRetryLimit?: number;
   maxConcurrency: number;
   excludeFromExport: boolean;
   responsesPassthrough?: boolean;
+  responsesWebSocket: boolean;
 };
 
 export type BulkCustomProviderParseError = {
@@ -36,19 +51,29 @@ const VALUE_FLAGS = new Set([
   'api-key',
   'clients',
   'models',
+  'exposed-models',
   'map',
   'response-map',
   'backend',
   'logo',
+  'client-base-url',
+  'client-multiplier',
+  'disguise',
+  'reasoning',
+  'consecutive-error-freeze-threshold',
   'smart-mapping-retry-limit',
   'max-concurrency',
 ]);
 const BOOLEAN_FLAGS = new Set([
+  'quota-enabled',
   'disable-error-cooldown',
+  'consecutive-error-freeze',
   'smart-mapping-retry',
   'exclude-from-export',
+  'enable-exposed-models',
   'responses-passthrough',
   'no-responses-passthrough',
+  'responses-websocket',
 ]);
 
 function splitCommandLines(input: string): Array<{ lineNumber: number; text: string }> {
@@ -167,6 +192,74 @@ function setMapValues(target: Record<string, string>, source: Record<string, str
   }
 }
 
+function parseJSONFlag<T>(value: string, label: string): { value?: T; error?: string } {
+  try {
+    return { value: JSON.parse(value) as T };
+  } catch {
+    return { error: `${label} must be valid JSON` };
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseClientBaseURL(value: string): {
+  value?: Partial<Record<ClientType, string>>;
+  errors: string[];
+} {
+  const parsed = parseJSONFlag<Record<string, unknown>>(value, 'Client base URL');
+  if (parsed.error) return { errors: [parsed.error] };
+  if (!isPlainObject(parsed.value)) return { errors: ['Client base URL must be a JSON object'] };
+
+  const result: Partial<Record<ClientType, string>> = {};
+  const errors: string[] = [];
+  for (const [rawClient, rawURL] of Object.entries(parsed.value)) {
+    const client = rawClient.toLowerCase() as ClientType;
+    if (!CLIENT_TYPES.has(client)) {
+      errors.push(`Unsupported client "${rawClient}"`);
+      continue;
+    }
+    if (typeof rawURL !== 'string' || !rawURL.trim()) {
+      errors.push(`Client base URL for "${rawClient}" must be a non-empty string`);
+      continue;
+    }
+    result[client] = rawURL.trim();
+  }
+
+  return { value: result, errors };
+}
+
+function parseClientMultiplier(value: string): {
+  value?: Partial<Record<ClientType, number>>;
+  errors: string[];
+} {
+  const parsed = parseJSONFlag<Record<string, unknown>>(value, 'Client multiplier');
+  if (parsed.error) return { errors: [parsed.error] };
+  if (!isPlainObject(parsed.value)) return { errors: ['Client multiplier must be a JSON object'] };
+
+  const result: Partial<Record<ClientType, number>> = {};
+  const errors: string[] = [];
+  for (const [rawClient, rawMultiplier] of Object.entries(parsed.value)) {
+    const client = rawClient.toLowerCase() as ClientType;
+    if (!CLIENT_TYPES.has(client)) {
+      errors.push(`Unsupported client "${rawClient}"`);
+      continue;
+    }
+    if (
+      typeof rawMultiplier !== 'number' ||
+      !Number.isSafeInteger(rawMultiplier) ||
+      rawMultiplier < 0
+    ) {
+      errors.push(`Client multiplier for "${rawClient}" must be 0 or greater`);
+      continue;
+    }
+    result[client] = rawMultiplier;
+  }
+
+  return { value: result, errors };
+}
+
 function parseLine(lineNumber: number, text: string): BulkCustomProviderParseResult {
   const errors: BulkCustomProviderParseError[] = [];
   let tokens: string[];
@@ -194,16 +287,26 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
     apiKey: '',
     clients: [] as ClientType[],
     supportModels: [] as string[],
+    exposedModelsEnabled: false,
+    exposedModels: [] as string[],
     modelMapping: {} as Record<string, string>,
     responseModelMapping: {} as Record<string, string>,
     backend: undefined as 'ollama' | undefined,
     logo: undefined as string | undefined,
+    clientBaseURL: undefined as Partial<Record<ClientType, string>> | undefined,
+    clientMultiplier: undefined as Partial<Record<ClientType, number>> | undefined,
+    disguise: undefined as ProviderConfigCustomDisguise | undefined,
+    reasoning: undefined as ReasoningPolicy | undefined,
+    quotaEnabled: false,
     disableErrorCooldown: false,
+    consecutiveErrorFreezeEnabled: false,
+    consecutiveErrorFreezeThreshold: undefined as number | undefined,
     smartMappingRetryEnabled: false,
     smartMappingRetryLimit: undefined as number | undefined,
     maxConcurrency: 0,
     excludeFromExport: false,
     responsesPassthrough: undefined as boolean | undefined,
+    responsesWebSocket: false,
   };
 
   for (let index = 0; index < tokens.length; index += 1) {
@@ -221,11 +324,15 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
         errors.push({ lineNumber, message: `Flag --${flag} does not accept a value` });
         continue;
       }
+      if (flag === 'quota-enabled') parsed.quotaEnabled = true;
       if (flag === 'disable-error-cooldown') parsed.disableErrorCooldown = true;
+      if (flag === 'consecutive-error-freeze') parsed.consecutiveErrorFreezeEnabled = true;
       if (flag === 'smart-mapping-retry') parsed.smartMappingRetryEnabled = true;
       if (flag === 'exclude-from-export') parsed.excludeFromExport = true;
+      if (flag === 'enable-exposed-models') parsed.exposedModelsEnabled = true;
       if (flag === 'responses-passthrough') parsed.responsesPassthrough = true;
       if (flag === 'no-responses-passthrough') parsed.responsesPassthrough = false;
+      if (flag === 'responses-websocket') parsed.responsesWebSocket = true;
       continue;
     }
 
@@ -260,6 +367,10 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
       case 'models':
         parsed.supportModels = splitList(value);
         break;
+      case 'exposed-models':
+        parsed.exposedModels = splitList(value);
+        parsed.exposedModelsEnabled = true;
+        break;
       case 'map': {
         const result = parseMappingList(value);
         setMapValues(parsed.modelMapping, result.mapping);
@@ -281,6 +392,48 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
       case 'logo':
         parsed.logo = value.trim();
         break;
+      case 'client-base-url': {
+        const result = parseClientBaseURL(value);
+        parsed.clientBaseURL = result.value;
+        result.errors.forEach((message) => errors.push({ lineNumber, message }));
+        break;
+      }
+      case 'client-multiplier': {
+        const result = parseClientMultiplier(value);
+        parsed.clientMultiplier = result.value;
+        result.errors.forEach((message) => errors.push({ lineNumber, message }));
+        break;
+      }
+      case 'disguise': {
+        const result = parseJSONFlag<ProviderConfigCustomDisguise>(value, 'Disguise');
+        if (result.error) {
+          errors.push({ lineNumber, message: result.error });
+        } else {
+          parsed.disguise = result.value;
+        }
+        break;
+      }
+      case 'reasoning': {
+        const result = parseJSONFlag<ReasoningPolicy>(value, 'Reasoning');
+        if (result.error) {
+          errors.push({ lineNumber, message: result.error });
+        } else {
+          parsed.reasoning = result.value;
+        }
+        break;
+      }
+      case 'consecutive-error-freeze-threshold': {
+        const threshold = Number.parseInt(value, 10);
+        if (!Number.isFinite(threshold) || threshold < 1 || threshold > 100) {
+          errors.push({
+            lineNumber,
+            message: 'Consecutive error freeze threshold must be between 1 and 100',
+          });
+        } else {
+          parsed.consecutiveErrorFreezeThreshold = threshold;
+        }
+        break;
+      }
       case 'smart-mapping-retry-limit': {
         const parsedLimit = Number.parseInt(value, 10);
         if (!Number.isFinite(parsedLimit) || parsedLimit < 1 || parsedLimit > 20) {
@@ -319,6 +472,12 @@ function parseLine(lineNumber: number, text: string): BulkCustomProviderParseRes
       message: 'Smart mapping retry requires --disable-error-cooldown',
     });
   }
+  if (parsed.consecutiveErrorFreezeEnabled && !parsed.disableErrorCooldown) {
+    errors.push({
+      lineNumber,
+      message: 'Consecutive error freeze requires --disable-error-cooldown',
+    });
+  }
 
   if (errors.length > 0) {
     return { commands: [], errors };
@@ -350,13 +509,21 @@ export function toCreateProviderData(command: BulkCustomProviderCommand): Create
     logo: command.logo,
     maxConcurrency: command.maxConcurrency,
     config: {
+      quotaEnabled: command.quotaEnabled,
       disableErrorCooldown: command.disableErrorCooldown,
+      consecutiveErrorFreezeEnabled:
+        command.disableErrorCooldown && command.consecutiveErrorFreezeEnabled,
+      consecutiveErrorFreezeThreshold: command.consecutiveErrorFreezeThreshold,
       smartMappingRetryEnabled: command.disableErrorCooldown && command.smartMappingRetryEnabled,
       smartMappingRetryLimit: command.smartMappingRetryLimit ?? 1,
+      reasoning: command.reasoning,
       custom: {
         baseURL: command.baseURL,
         backend: command.backend,
         apiKey: command.apiKey,
+        clientBaseURL: command.clientBaseURL,
+        clientMultiplier: command.clientMultiplier,
+        disguise: command.disguise,
         modelMapping:
           Object.keys(command.modelMapping).length > 0 ? command.modelMapping : undefined,
         responseModelMapping:
@@ -364,10 +531,13 @@ export function toCreateProviderData(command: BulkCustomProviderCommand): Create
             ? command.responseModelMapping
             : undefined,
         responsesPassthrough: command.responsesPassthrough,
+        responsesWebSocket: command.responsesWebSocket,
       },
     },
     supportedClientTypes: command.clients,
     supportModels: command.supportModels,
+    exposedModelsEnabled: command.exposedModelsEnabled,
+    exposedModels: command.exposedModels,
     excludeFromExport: command.excludeFromExport,
   };
 }

@@ -36,6 +36,8 @@ describe('bulk custom provider import parser', () => {
       apiKey: 'sk-test',
       clients: ['claude', 'openai'],
       supportModels: ['claude-sonnet-4', 'gpt-5'],
+      exposedModelsEnabled: false,
+      exposedModels: [],
       modelMapping: {
         'claude-sonnet-4': 'upstream-sonnet',
         'gpt-5': 'upstream-gpt',
@@ -56,9 +58,9 @@ describe('bulk custom provider import parser', () => {
     expect(result.commands[0].modelMapping).toEqual({ '*': 'mimo-v2.5-pro' });
   });
 
-  it('builds provider config with persisted mappings', () => {
+  it('builds provider config with persisted mappings and exposed model allowlists', () => {
     const result = parseBulkCustomProviderCommands(
-      'provider add --name mimo --base-url https://api.example.com --api-key sk-test --clients claude --models claude-* --map "*=mimo-v2.5-pro" --response-map "mimo-v2.5-pro=claude-sonnet-4" --no-responses-passthrough',
+      'provider add --name mimo --base-url https://api.example.com --api-key sk-test --clients claude --models claude-* --exposed-models claude-sonnet-4 --map "*=mimo-v2.5-pro" --response-map "mimo-v2.5-pro=claude-sonnet-4" --no-responses-passthrough',
     );
 
     const data = toCreateProviderData(result.commands[0]);
@@ -68,6 +70,8 @@ describe('bulk custom provider import parser', () => {
       name: 'mimo',
       supportedClientTypes: ['claude'],
       supportModels: ['claude-*'],
+      exposedModelsEnabled: true,
+      exposedModels: ['claude-sonnet-4'],
       config: {
         custom: {
           baseURL: 'https://api.example.com',
@@ -77,6 +81,22 @@ describe('bulk custom provider import parser', () => {
           responsesPassthrough: false,
         },
       },
+    });
+  });
+
+  it('preserves an enabled empty exposed model allowlist', () => {
+    const result = parseBulkCustomProviderCommands(
+      'provider add --name mimo --base-url https://api.example.com --api-key sk-test --clients claude --enable-exposed-models',
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.commands[0]).toMatchObject({
+      exposedModelsEnabled: true,
+      exposedModels: [],
+    });
+    expect(toCreateProviderData(result.commands[0])).toMatchObject({
+      exposedModelsEnabled: true,
+      exposedModels: [],
     });
   });
 
