@@ -265,9 +265,14 @@ export function ProviderRow({
       return;
     }
 
-    await navigator.clipboard.writeText(shareCommand);
-    setShareCopied(true);
-    window.setTimeout(() => setShareCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(shareCommand);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy provider add command:', error);
+      setShareCopied(false);
+    }
   };
 
   const handleShareCommandKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {

@@ -114,6 +114,24 @@ describe('provider-add-command', () => {
     expect(data.config?.custom?.responsesWebSocket).toBe(true);
   });
 
+  it('does not export stale exposed models when the allowlist is disabled', () => {
+    const provider: Provider = {
+      ...baseProvider,
+      exposedModelsEnabled: false,
+      exposedModels: ['claude-sonnet-4'],
+    };
+
+    const command = buildProviderAddCommand(provider);
+    expect(command).not.toContain('--exposed-models');
+    expect(command).not.toContain('--enable-exposed-models');
+
+    const parsed = parseBulkCustomProviderCommands(command ?? '');
+    expect(parsed.errors).toEqual([]);
+    const data = toCreateProviderData(parsed.commands[0]);
+    expect(data.exposedModelsEnabled).toBe(false);
+    expect(data.exposedModels).toEqual([]);
+  });
+
   it('preserves an enabled empty exposed model allowlist', () => {
     const provider: Provider = {
       ...baseProvider,

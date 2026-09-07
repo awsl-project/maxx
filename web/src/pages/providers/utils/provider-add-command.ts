@@ -65,7 +65,7 @@ export function buildProviderAddCommand(provider: Provider): string | null {
   const models = joinList(provider.supportModels);
   if (models) parts.push('--models', quoteShell(models));
 
-  const exposedModels = joinList(provider.exposedModels);
+  const exposedModels = provider.exposedModelsEnabled ? joinList(provider.exposedModels) : '';
   if (exposedModels) {
     parts.push('--exposed-models', quoteShell(exposedModels));
   } else if (provider.exposedModelsEnabled) {
