@@ -588,6 +588,44 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     22,
+		Description: "Add tenant created_at index for dashboard first use time",
+		Up:          runProxyRequestFirstUseIndexMigration,
+		Down: func(db *gorm.DB) error {
+			if !db.Migrator().HasIndex(&ProxyRequest{}, proxyRequestFirstUseIndex) {
+				return nil
+			}
+			return db.Migrator().DropIndex(&ProxyRequest{}, proxyRequestFirstUseIndex)
+		},
+	},
+}
+
+const proxyRequestFirstUseIndex = "idx_proxy_requests_tenant_created_at"
+
+func runProxyRequestFirstUseIndexMigration(db *gorm.DB) error {
+	if db.Migrator().HasIndex(&ProxyRequest{}, proxyRequestFirstUseIndex) {
+		return nil
+	}
+	ddl := "CREATE INDEX IF NOT EXISTS " + proxyRequestFirstUseIndex + " ON proxy_requests(tenant_id, created_at)"
+	if db.Dialector.Name() == "mysql" {
+		ddl = "ALTER TABLE proxy_requests ADD INDEX " + proxyRequestFirstUseIndex + " (tenant_id, created_at), ALGORITHM=INPLACE, LOCK=NONE"
+	}
+	exceeds, err := tableExceedsRowThreshold(db, "proxy_requests", detailCleanupIndexRowThreshold)
+	if err != nil {
+		log.Printf("[Migration v22] could not probe proxy_requests row threshold (%v); skipping index build. Apply manually during a maintenance window: %s;", err, ddl)
+		return nil
+	}
+	if exceeds {
+		log.Printf("[Migration v22] SKIPPING %s: proxy_requests has more than %d rows. Apply manually during a maintenance window: %s;",
+			proxyRequestFirstUseIndex, detailCleanupIndexRowThreshold, ddl)
+		return nil
+	}
+	err = db.Exec(ddl).Error
+	if db.Dialector.Name() == "mysql" && isMySQLDuplicateIndexError(err) {
+		return nil
+	}
+	return err
 }
 
 func backfillRouteNativeFlags(db *gorm.DB) error {
