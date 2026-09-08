@@ -181,6 +181,7 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 
 	// Create models handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
+	modelsHandler.SetSettingsRepository(settingRepo)
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(cachedAPITokenRepo, settingRepo)
 	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 

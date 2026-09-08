@@ -501,6 +501,7 @@ func main() {
 
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo, r)
+	modelsHandler.SetSettingsRepository(settingRepo)
 	selfServiceHandler := handler.NewSelfServiceHandler(adminService, modelsHandler)
 	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, protectedModelsHandler, cachedProjectRepo, settingRepo)
