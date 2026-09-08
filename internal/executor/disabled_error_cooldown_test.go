@@ -261,7 +261,7 @@ func TestDispatchDisableErrorCooldownDoesNotFreezeOn500WhenConsecutiveFreezeEnab
 	}
 }
 
-func TestDispatchDisableErrorCooldownFreezesAfterConsecutive429AndFailsOver(t *testing.T) {
+func TestDispatchDisableErrorCooldownFreezesAfterConsecutive429WithoutSwitching(t *testing.T) {
 	cooldown.Default().ClearCooldown(31, "", "")
 	defer cooldown.Default().ClearCooldown(31, "", "")
 	cooldown.Default().ResetFailures(31, "", "")
@@ -302,20 +302,20 @@ func TestDispatchDisableErrorCooldownFreezesAfterConsecutive429AndFailsOver(t *t
 
 	e.dispatch(c)
 
-	if c.Err != nil {
-		t.Fatalf("dispatch returned error: %v", c.Err)
+	if c.Err == nil {
+		t.Fatal("expected dispatch to fail instead of switching providers")
 	}
 	if firstAdapter.calls != 2 {
 		t.Fatalf("first adapter calls = %d, want 2", firstAdapter.calls)
 	}
-	if secondAdapter.calls != 1 {
-		t.Fatalf("second adapter calls = %d, want 1", secondAdapter.calls)
+	if secondAdapter.calls != 0 {
+		t.Fatalf("second adapter calls = %d, want 0; disable switch must not fall through after consecutive freeze", secondAdapter.calls)
 	}
 	if !cooldown.Default().IsInCooldown(31, string(domain.ClientTypeOpenAI), "gpt-4o") {
 		t.Fatal("429 should freeze provider after consecutive threshold")
 	}
-	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
-		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "FAILED" {
+		t.Fatalf("expected failed proxy request update, got %#v", proxyRepo.updated)
 	}
 }
 

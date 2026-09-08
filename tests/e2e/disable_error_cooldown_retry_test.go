@@ -11,9 +11,10 @@ import (
 
 // TestDisableErrorCooldownRetriesBeyondRetryPolicy verifies the updated
 // contract: when disableErrorCooldown is enabled, retry-attempt limits are
-// still ignored, but only genuinely retryable classes keep retrying on the
-// same provider. Most 4xx errors must fail over immediately; 429 and 5xx may
-// continue retrying until success or context cancellation.
+// still ignored, but automatic cross-provider switching is disabled for errors
+// from this provider. Non-retryable errors fail the request in place; genuinely
+// retryable classes keep retrying on the same provider until success, cap, or
+// context cancellation.
 func TestDisableErrorCooldownRetriesBeyondRetryPolicy(t *testing.T) {
 	cases := []struct {
 		status               int
@@ -25,10 +26,10 @@ func TestDisableErrorCooldownRetriesBeyondRetryPolicy(t *testing.T) {
 		expectCooldownAbsent bool
 	}{
 		{status: http.StatusBadRequest, name: "400_request_error", expectStatus: http.StatusBadRequest, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
-		{status: http.StatusUnauthorized, name: "401_auth_error", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
-		{status: http.StatusForbidden, name: "403_auth_error", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
-		{status: http.StatusNotFound, name: "404_not_found", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
-		{status: http.StatusPaymentRequired, name: "402_quota_error", expectStatus: http.StatusOK, expectFailingHits: 1, expectFallbackHits: 1, expectProviderBody: "fallback-ok", expectCooldownAbsent: true},
+		{status: http.StatusUnauthorized, name: "401_auth_error", expectStatus: http.StatusUnauthorized, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
+		{status: http.StatusForbidden, name: "403_auth_error", expectStatus: http.StatusForbidden, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
+		{status: http.StatusNotFound, name: "404_not_found", expectStatus: http.StatusNotFound, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
+		{status: http.StatusPaymentRequired, name: "402_quota_error", expectStatus: http.StatusPaymentRequired, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
 		{status: http.StatusTeapot, name: "418_other_client_error", expectStatus: http.StatusTeapot, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
 		{status: http.StatusUnprocessableEntity, name: "422_request_error", expectStatus: http.StatusUnprocessableEntity, expectFailingHits: 1, expectFallbackHits: 0, expectProviderBody: "", expectCooldownAbsent: true},
 		{status: http.StatusTooManyRequests, name: "429_rate_limit", expectStatus: http.StatusOK, expectFailingHits: 5, expectFallbackHits: 0, expectProviderBody: "eventual-success", expectCooldownAbsent: true},
