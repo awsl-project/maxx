@@ -107,7 +107,10 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
         reuseCachedResults: true,
       });
       outcome = await json(route, { jobID: 'mock-grok-job-1' }, 202, 'benchmark job accepted');
-    } else if (path === '/api/admin/test-field/model-benchmark-jobs/mock-grok-job-1' && method === 'GET') {
+    } else if (
+      path === '/api/admin/test-field/model-benchmark-jobs/mock-grok-job-1' &&
+      method === 'GET'
+    ) {
       outcome = await json(
         route,
         {
@@ -167,7 +170,14 @@ async function installTestFieldMocks(page: Page, calls: Call[]) {
       outcome = await json(route, {}, 200, 'fallback empty mock');
     }
 
-    calls.push({ time: new Date().toISOString(), method, path, status: outcome.status, note: outcome.note, body });
+    calls.push({
+      time: new Date().toISOString(),
+      method,
+      path,
+      status: outcome.status,
+      note: outcome.note,
+      body,
+    });
   });
 }
 
@@ -199,7 +209,9 @@ async function attachMockEvidence(page: Page, calls: Call[]) {
 
 test.use({ viewport: { width: 1440, height: 1000 }, locale: 'zh-CN' });
 
-test('test field runs a Grok provider benchmark without blank-screening', async ({ page }, testInfo) => {
+test('test field runs a Grok provider benchmark without blank-screening', async ({
+  page,
+}, testInfo) => {
   const calls: Call[] = [];
   await installTestFieldMocks(page, calls);
 
@@ -220,11 +232,16 @@ test('test field runs a Grok provider benchmark without blank-screening', async 
   await page.getByLabel(/^每个提供商最少测试模型数$/).fill('200');
 
   await attachMockEvidence(page, calls);
-  await page.screenshot({ path: testInfo.outputPath('01-before-run-grok-provider-selected.png'), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath('01-before-run-grok-provider-selected.png'),
+    fullPage: true,
+  });
 
   await page.getByRole('button', { name: /Run|运行|开始测试|开始/ }).click();
 
-  await expect(page.getByText(/mock-grok-ok: client \/provider\/42\/v1\/chat\/completions -> xAI \/responses/)).toBeVisible({
+  await expect(
+    page.getByText(/mock-grok-ok: client \/provider\/42\/v1\/chat\/completions -> xAI \/responses/),
+  ).toBeVisible({
     timeout: 10_000,
   });
   await expect(page.getByRole('cell', { name: 'grok-4', exact: true })).toBeVisible();
@@ -232,9 +249,50 @@ test('test field runs a Grok provider benchmark without blank-screening', async 
   await expect(page.getByText(/102\/102|completed: 102|已完成/)).toBeVisible();
   await expect(page.getByText(/计划测试 102 \/ 发现 102 个模型/)).toBeVisible();
 
-  expect(calls.some((call) => call.path === '/api/admin/test-field/model-benchmark-jobs' && call.method === 'POST')).toBe(true);
-  expect(calls.some((call) => call.path === '/api/admin/test-field/model-benchmark-jobs/mock-grok-job-1' && call.method === 'GET')).toBe(true);
+  expect(
+    calls.some(
+      (call) =>
+        call.path === '/api/admin/test-field/model-benchmark-jobs' && call.method === 'POST',
+    ),
+  ).toBe(true);
+  expect(
+    calls.some(
+      (call) =>
+        call.path === '/api/admin/test-field/model-benchmark-jobs/mock-grok-job-1' &&
+        call.method === 'GET',
+    ),
+  ).toBe(true);
 
   await attachMockEvidence(page, calls);
-  await page.screenshot({ path: testInfo.outputPath('02-after-run-grok-results-and-mock-ledger.png'), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath('02-after-run-grok-results-and-mock-ledger.png'),
+    fullPage: true,
+  });
+});
+
+test('test field persists selected providers and supports deleting one restored record', async ({
+  page,
+}) => {
+  const calls: Call[] = [];
+  await installTestFieldMocks(page, calls);
+  await page.addInitScript(() => {
+    localStorage.setItem('maxx-test-field-selected-provider-ids', JSON.stringify([42, 99]));
+  });
+
+  await page.goto('/test-field');
+  await expect(page.getByRole('heading', { name: /测试场|Test Field/ })).toBeVisible();
+  await expect(page.getByText('Mock Grok OAuth Provider · grok · #42')).toBeVisible();
+  await expect(page.getByText('Unsupported Claude Provider · claude · #99')).toBeVisible();
+
+  await page
+    .getByRole('button', {
+      name: /移除提供商 Mock Grok OAuth Provider|Remove provider Mock Grok OAuth Provider/,
+    })
+    .click();
+
+  await expect(page.getByText('Mock Grok OAuth Provider · grok · #42')).toBeHidden();
+  await expect(page.getByText('Unsupported Claude Provider · claude · #99')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('maxx-test-field-selected-provider-ids')))
+    .toBe('[99]');
 });
