@@ -476,7 +476,8 @@
     "importProviders": "Import Providers",
     "exportProviders": "Export Providers",
     "shareProviderAddCommand": {
-      "copy": "Copy add command"
+      "copy": "Copy add command",
+      "copied": "Add command copied"
     },
     "readOnlyHint": "Read-only for members. Admin access required to edit providers.",
     "importProvidersAdminOnly": "Only admins can import providers.",

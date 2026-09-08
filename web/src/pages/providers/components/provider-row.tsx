@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Activity, Ban, Copy, Globe, Mail, Repeat2, Snowflake } from 'lucide-react';
+import { Activity, Ban, Check, Copy, Globe, Mail, Repeat2, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 import { ClientIcon } from '@/components/icons/client-icons';
@@ -540,14 +540,24 @@ export function ProviderRow({
           type="button"
           onClick={handleCopyProviderAddCommand}
           onKeyDown={handleShareCommandKeyDown}
-          className="relative z-10 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background/70 px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          title={t('providers.shareProviderAddCommand.copy')}
-          aria-label={t('providers.shareProviderAddCommand.copy')}
+          className={cn(
+            'relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-background/70 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            shareCopied
+              ? 'border-emerald-500/40 text-emerald-500'
+              : 'border-border hover:border-primary/40 hover:text-foreground',
+          )}
+          title={
+            shareCopied
+              ? t('providers.shareProviderAddCommand.copied')
+              : t('providers.shareProviderAddCommand.copy')
+          }
+          aria-label={
+            shareCopied
+              ? t('providers.shareProviderAddCommand.copied')
+              : t('providers.shareProviderAddCommand.copy')
+          }
         >
-          <Copy className="h-3.5 w-3.5" />
-          <span className="hidden md:inline">
-            {shareCopied ? t('common.copied') : t('providers.shareProviderAddCommand.copy')}
-          </span>
+          {shareCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
         </button>
       )}
 
