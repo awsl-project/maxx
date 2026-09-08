@@ -188,24 +188,22 @@ func TestDispatchCapsRetriesWhenErrorCooldownDisabled(t *testing.T) {
 	}
 }
 
-// TestDispatchHardCapsRunawayRetryableErrors is the backstop test: even a
-// genuinely-retryable error that (via a classification bug or misconfiguration)
-// never stops retrying must be bounded by the hard per-request ceiling, instead
-// of running for hours. Enough routes are matched that the per-provider cap
-// alone would allow more calls than the ceiling permits.
-func TestDispatchHardCapsRunawayRetryableErrors(t *testing.T) {
-	routeCount := maxUpstreamAttemptsPerRequest/maxAttemptsPerProviderWithoutErrorCooldown + 1
+// TestDispatchDisableErrorCooldownStopsAtProviderCapWithoutFailover pins the
+// no-switch semantics: disableErrorCooldown may retry the selected provider up
+// to the per-provider cap, but it must not fall through to later routes when the
+// cap is exhausted.
+func TestDispatchDisableErrorCooldownStopsAtProviderCapWithoutFailover(t *testing.T) {
 	adapter := newAlways500Adapter()
-	c, proxyRepo := newMultiRouteAmplificationDispatchCtx(routeCount, true, adapter)
+	c, proxyRepo := newMultiRouteAmplificationDispatchCtx(2, true, adapter)
 	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
 
 	e.dispatch(c)
 
 	if c.Err == nil {
-		t.Fatal("expected dispatch to fail once the hard cap is hit")
+		t.Fatal("expected dispatch to fail once the selected provider cap is hit")
 	}
-	if adapter.calls != maxUpstreamAttemptsPerRequest {
-		t.Fatalf("adapter calls = %d, want %d (hard ceiling)", adapter.calls, maxUpstreamAttemptsPerRequest)
+	if adapter.calls != maxAttemptsPerProviderWithoutErrorCooldown {
+		t.Fatalf("adapter calls = %d, want %d (single provider cap, no failover)", adapter.calls, maxAttemptsPerProviderWithoutErrorCooldown)
 	}
 	if last := lastProxyStatus(proxyRepo); last != "FAILED" {
 		t.Fatalf("final proxy status = %q, want FAILED", last)
