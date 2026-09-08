@@ -199,6 +199,34 @@ export function normalizeProxyRequestPage<T extends ProxyRequest>(
   };
 }
 
+export function normalizeProxyRequestPages<T extends ProxyRequest>(
+  pages: CursorPaginationResult<T>[],
+  items: T[],
+  limit: number,
+): CursorPaginationResult<T>[] {
+  if (pages.length === 0) {
+    return pages;
+  }
+
+  const orderedItems = prioritizeActiveRequests(items);
+  let offset = 0;
+
+  return pages.map((page, index) => {
+    const pageLimit = limit > 0 ? limit : page.items.length;
+    const nextItems = orderedItems.slice(offset, offset + pageLimit);
+    offset += pageLimit;
+
+    const droppedItems = index === pages.length - 1 && offset < orderedItems.length;
+    return {
+      ...page,
+      items: nextItems,
+      hasMore: page.hasMore || droppedItems,
+      firstId: nextItems[0]?.id,
+      lastId: nextItems[nextItems.length - 1]?.id,
+    };
+  });
+}
+
 /** Fetches proxy requests with cursor-based pagination. */
 export function useProxyRequests(params?: CursorPaginationParams) {
   return useQuery({
@@ -669,52 +697,40 @@ export function useProxyRequestUpdates() {
           }>(queryKey, (old) => {
             if (!old || !old.pages || old.pages.length === 0) return old;
 
-            let hasExisting = false;
+            const items = old.pages.flatMap((page) => page.items);
+            const index = items.findIndex((r) => r.id === requestId);
 
-            const updatedPages = old.pages.map((page) => {
-              const index = page.items.findIndex((r) => r.id === requestId);
-              if (index < 0) {
-                return page;
-              }
-
-              hasExisting = true;
-              previousRequest ??= page.items[index];
-
-              if (!matchesFilter(updatedRequest)) {
-                const newItems = page.items.filter((r) => r.id !== requestId);
-                return normalizeProxyRequestPage(page, newItems, REQUESTS_INFINITE_PAGE_LIMIT);
-              }
-
-              const newItems = [...page.items];
-              newItems[index] = updatedRequest;
-              return normalizeProxyRequestPage(page, newItems, REQUESTS_INFINITE_PAGE_LIMIT);
-            });
-
-            if (hasExisting) {
+            if (index >= 0) {
               isKnown = true;
-              return { ...old, pages: updatedPages };
+              previousRequest ??= items[index];
+
+              const nextItems = matchesFilter(updatedRequest)
+                ? [...items.slice(0, index), updatedRequest, ...items.slice(index + 1)]
+                : items.filter((r) => r.id !== requestId);
+
+              return {
+                ...old,
+                pages: normalizeProxyRequestPages(
+                  old.pages,
+                  nextItems,
+                  REQUESTS_INFINITE_PAGE_LIMIT,
+                ),
+              };
             }
 
             if (!matchesFilter(updatedRequest)) {
-              return { ...old, pages: updatedPages };
+              return old;
             }
 
-            // 仅在第一页插入“新请求”，避免重复插入导致列表膨胀
-            const firstPage = updatedPages[0];
-            if (!firstPage) {
-              return { ...old, pages: updatedPages };
-            }
-
+            // 仅在第一页插入“新请求”，但对已加载页做级联规范化，
+            // 避免第一页满载时把尾部记录直接丢掉造成分页空洞。
             return {
               ...old,
-              pages: [
-                normalizeProxyRequestPage(
-                  firstPage,
-                  [updatedRequest, ...firstPage.items],
-                  REQUESTS_INFINITE_PAGE_LIMIT,
-                ),
-                ...updatedPages.slice(1),
-              ],
+              pages: normalizeProxyRequestPages(
+                old.pages,
+                [updatedRequest, ...items],
+                REQUESTS_INFINITE_PAGE_LIMIT,
+              ),
             };
           });
         }

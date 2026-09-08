@@ -5,6 +5,7 @@ import {
   isProxyRequestError,
   mergeProxyRequestAttemptUpdate,
   normalizeProxyRequestPage,
+  normalizeProxyRequestPages,
   shouldRefetchCleanupFailedCount,
   type RequestsCountQueryKey,
 } from './use-requests';
@@ -272,5 +273,40 @@ describe('normalizeProxyRequestPage', () => {
     expect(normalized.hasMore).toBe(true);
     expect(normalized.firstId).toBe(4);
     expect(normalized.lastId).toBe(2);
+  });
+});
+
+describe('normalizeProxyRequestPages', () => {
+  it('cascades overflow into loaded pages when a new request enters a full first page', () => {
+    const pages = [
+      {
+        items: [request('COMPLETED', 200, { id: 4 }), request('COMPLETED', 200, { id: 3 })],
+        hasMore: true,
+        firstId: 4,
+        lastId: 3,
+      },
+      {
+        items: [request('COMPLETED', 200, { id: 2 }), request('COMPLETED', 200, { id: 1 })],
+        hasMore: false,
+        firstId: 2,
+        lastId: 1,
+      },
+    ];
+
+    const normalized = normalizeProxyRequestPages(
+      pages,
+      [request('PENDING', 200, { id: 5 }), ...pages.flatMap((page) => page.items)],
+      2,
+    );
+
+    expect(normalized.map((page) => page.items.map((item) => item.id))).toEqual([
+      [5, 4],
+      [3, 2],
+    ]);
+    expect(normalized[0].firstId).toBe(5);
+    expect(normalized[0].lastId).toBe(4);
+    expect(normalized[1].firstId).toBe(3);
+    expect(normalized[1].lastId).toBe(2);
+    expect(normalized[1].hasMore).toBe(true);
   });
 });
