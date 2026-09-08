@@ -1,17 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  Clock3,
-  Copy,
-  Eye,
-  EyeOff,
-  Gift,
-  KeyRound,
-  ListChecks,
-  LogOut,
-  Server,
-  Activity,
-  UserRound,
-} from 'lucide-react';
+import { Clock3, Copy, Eye, EyeOff, Gift, KeyRound, LogOut, Server, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Badge,
@@ -27,27 +15,19 @@ import {
   TabsTrigger,
 } from '@/components/ui';
 import { LanguageToggle } from '@/components/language-toggle';
-import { MarqueeBackground } from '@/components/ui/marquee-background';
-import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { useAuth } from '@/lib/auth-context';
 import {
   useCreateUserPanelAPIToken,
-  useProxyRequests,
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
   useUserPanelAvailableModels,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
-  useProxyRequestUpdates,
   usePublicSettings,
 } from '@/hooks/queries';
-import type { APIToken, ProxyRequest } from '@/lib/transport';
+import type { APIToken } from '@/lib/transport';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
-import {
-  buildUserPanelModelStatuses,
-  type UserPanelModelStatusSummary,
-} from '@/lib/user-panel-model-status';
 import {
   getUserPanelTabStorageKey,
   resolveUserPanelTab,
@@ -86,245 +66,16 @@ function formatDateTime(value?: string) {
   }).format(date);
 }
 
-function formatDuration(value?: number) {
-  if (!value || value <= 0) return '—';
-  const milliseconds = value / 1_000_000;
-  if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
-  return `${(milliseconds / 1000).toFixed(2)}s`;
-}
-
 function getTokenStatus(token: APIToken) {
   if (!token.isEnabled) return 'disabled';
   if (token.expiresAt && new Date(token.expiresAt).getTime() <= Date.now()) return 'expired';
   return 'active';
 }
 
-function isActiveUserPanelRequest(request: ProxyRequest) {
-  return request.status === 'PENDING' || request.status === 'IN_PROGRESS';
-}
-
-function getRequestStatusVariant(request: ProxyRequest) {
-  if (request.status === 'COMPLETED' && request.statusCode < 400) return 'success';
-  if (request.status === 'PENDING' || request.status === 'IN_PROGRESS') return 'warning';
-  if (request.status === 'FAILED' || request.status === 'REJECTED') {
-    return 'danger';
-  }
-  if (request.statusCode >= 400) return 'danger';
-  return 'secondary';
-}
-
-function getModelHealthVariant(health: UserPanelModelStatusSummary['health']) {
-  if (health === 'healthy') return 'success';
-  if (health === 'degraded') return 'warning';
-  if (health === 'unavailable') return 'danger';
-  return 'secondary';
-}
-
-function formatModelStatusDetail(
-  summary: UserPanelModelStatusSummary,
-  t: ReturnType<typeof useTranslation>['t'],
-) {
-  if (summary.health === 'no-data') return t('userPanel.modelStatusNoRecentData');
-  if (summary.health === 'healthy') {
-    return t('userPanel.modelStatusHealthyDetail', { count: summary.successfulRequests });
-  }
-  if (summary.health === 'unavailable') {
-    return t('userPanel.modelStatusUnavailableDetail', { count: summary.consecutiveFailures });
-  }
-  return t('userPanel.modelStatusDegradedDetail', {
-    failed: summary.failedRequests,
-    total: summary.totalRequests,
-  });
-}
-
-function UserPanelModelStatusTab({
-  availableModels,
-  requests,
-  isLoading,
-  isError,
-}: {
-  availableModels?: string[];
-  requests: ProxyRequest[];
-  isLoading: boolean;
-  isError: boolean;
-}) {
-  const { t } = useTranslation();
-  const summaries = buildUserPanelModelStatuses({ availableModels, requests });
-
-  return (
-    <Card className="min-h-[820px] border-border bg-card shadow-sm">
-      <CardHeader className="border-b border-border">
-        <CardTitle className="flex items-center gap-2 text-base font-medium">
-          <Activity className="size-4 text-muted-foreground" />
-          {t('userPanel.modelStatusTab')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex min-h-[744px] flex-col p-5">
-        {isLoading ? (
-          <div className="flex flex-1 items-center justify-center text-center text-sm text-muted-foreground">
-            {t('common.loading')}
-          </div>
-        ) : isError ? (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-              {t('userPanel.modelStatusLoadFailed')}
-            </div>
-          </div>
-        ) : summaries.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <Activity className="size-9 text-muted-foreground" />
-            <p className="mt-3 font-medium">{t('userPanel.noModelStatus')}</p>
-            <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              {t('userPanel.noModelStatusDescription')}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="rounded-xl border border-border bg-muted/25 p-4">
-              <p className="text-sm font-medium text-foreground">
-                {t('userPanel.modelStatusSummary')}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('userPanel.modelStatusSummaryDescription')}
-              </p>
-            </div>
-            <div className="divide-y divide-border rounded-xl border border-border">
-              {summaries.map((summary) => (
-                <div key={summary.model} className="space-y-3 p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate font-mono text-sm font-medium">{summary.model}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {formatModelStatusDetail(summary, t)}
-                      </p>
-                    </div>
-                    <Badge variant={getModelHealthVariant(summary.health)}>
-                      {t(`userPanel.modelHealth.${summary.health}`)}
-                    </Badge>
-                  </div>
-                  <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                    <div className="rounded-lg bg-muted/25 px-3 py-2">
-                      <span className="block">{t('userPanel.modelStatusRecentRequests')}</span>
-                      <span className="mt-1 block font-mono text-foreground">
-                        {formatNumber(summary.totalRequests)}
-                      </span>
-                    </div>
-                    <div className="rounded-lg bg-muted/25 px-3 py-2">
-                      <span className="block">{t('userPanel.modelStatusRecentFailures')}</span>
-                      <span className="mt-1 block font-mono text-foreground">
-                        {formatNumber(summary.failedRequests)}
-                      </span>
-                    </div>
-                    <div className="rounded-lg bg-muted/25 px-3 py-2">
-                      <span className="block">{t('userPanel.modelStatusLastSeen')}</span>
-                      <span className="mt-1 block font-mono text-foreground">
-                        {formatDateTime(summary.lastRequestedAt)}
-                      </span>
-                    </div>
-                  </div>
-                  {summary.lastError ? (
-                    <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                      {t('userPanel.modelStatusLastError')}: {summary.lastError}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function UserPanelRequestsTab() {
-  const { t } = useTranslation();
-  const { data, isLoading, isError } = useProxyRequests({ limit: 25 });
-  const requests = data?.items ?? [];
-
-  return (
-    <Card className="min-h-[820px] border-border bg-card shadow-sm">
-      <CardHeader className="border-b border-border">
-        <CardTitle className="flex items-center gap-2 text-base font-medium">
-          <ListChecks className="size-4 text-muted-foreground" />
-          {t('userPanel.requestsTab')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex min-h-[744px] flex-col p-5">
-        {isLoading ? (
-          <div className="flex flex-1 items-center justify-center text-center text-sm text-muted-foreground">
-            {t('common.loading')}
-          </div>
-        ) : isError ? (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-              {t('userPanel.requestsLoadFailed')}
-            </div>
-          </div>
-        ) : requests.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <ListChecks className="size-9 text-muted-foreground" />
-            <p className="mt-3 font-medium">{t('userPanel.noRequests')}</p>
-            <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              {t('userPanel.noRequestsDescription')}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-border rounded-xl border border-border">
-            {requests.map((request) => (
-              <div key={request.id} className="space-y-3 p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="truncate font-mono text-sm font-medium">
-                      {request.requestID || `#${request.id}`}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {formatDateTime(request.createdAt)} · {request.clientType || '—'} ·{' '}
-                      {request.requestModel || '—'}
-                    </p>
-                  </div>
-                  <Badge variant={getRequestStatusVariant(request)}>
-                    {request.statusCode || '—'} · {request.status || '—'}
-                  </Badge>
-                </div>
-                <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                  <div className="rounded-lg bg-muted/25 px-3 py-2">
-                    <span className="block">{t('userPanel.requestDuration')}</span>
-                    <span className="mt-1 block font-mono text-foreground">
-                      {formatDuration(request.duration)}
-                    </span>
-                  </div>
-                  <div className="rounded-lg bg-muted/25 px-3 py-2">
-                    <span className="block">{t('userPanel.requestInputTokens')}</span>
-                    <span className="mt-1 block font-mono text-foreground">
-                      {formatNumber(request.inputTokenCount)}
-                    </span>
-                  </div>
-                  <div className="rounded-lg bg-muted/25 px-3 py-2">
-                    <span className="block">{t('userPanel.requestOutputTokens')}</span>
-                    <span className="mt-1 block font-mono text-foreground">
-                      {formatNumber(request.outputTokenCount)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export function UserPanelPage() {
   const { t } = useTranslation();
   const { logout, user } = useAuth();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
-  const {
-    data: userPanelRequests,
-    isLoading: userPanelRequestsLoading,
-    isError: userPanelRequestsError,
-  } = useProxyRequests({ limit: 25 });
   const { data: publicSettings } = usePublicSettings();
   const {
     data: availableModels,
@@ -333,7 +84,6 @@ export function UserPanelPage() {
   } = useUserPanelAvailableModels(Boolean(user));
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
   const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(dailyCheckInEnabled);
-  useProxyRequestUpdates();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const revealUserPanelToken = useRevealUserPanelAPIToken();
@@ -350,8 +100,7 @@ export function UserPanelPage() {
     if (typeof window === 'undefined') return 'main';
     const params = new URLSearchParams(window.location.search);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     return resolveUserPanelTab({
       urlTab: params.get('tab'),
@@ -360,8 +109,6 @@ export function UserPanelPage() {
     });
   });
 
-  const activeRequestCount =
-    userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const hasCheckedInToday = dailyCheckInStatus?.alreadyCheckedIn || dailyCheckInDone;
   const dailyCheckInRewardAmount =
@@ -407,8 +154,7 @@ export function UserPanelPage() {
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     const storedTab = window.localStorage.getItem(tabStorageKey);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     setActiveTab(resolveUserPanelTab({ urlTab, storedTab, allowStoredTab }));
   }, [tabStorageKey]);
@@ -515,20 +261,8 @@ export function UserPanelPage() {
         </header>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          <TabsList className="grid w-full grid-cols-3 rounded-xl p-1">
+          <TabsList className="grid w-full grid-cols-1 rounded-xl p-1">
             <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
-            <TabsTrigger value="model-status">{t('userPanel.modelStatusTab')}</TabsTrigger>
-            <TabsTrigger value="requests" className="relative overflow-hidden">
-              <MarqueeBackground
-                show={activeRequestCount > 0}
-                color="var(--color-success)"
-                opacity={0.3}
-              />
-              <span className="relative z-10">{t('userPanel.requestsTab')}</span>
-              <span className="relative z-10">
-                <StreamingBadge count={activeRequestCount} color="var(--color-success)" />
-              </span>
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="main" className="space-y-5">
@@ -797,19 +531,6 @@ export function UserPanelPage() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-
-          <TabsContent value="model-status">
-            <UserPanelModelStatusTab
-              availableModels={availableModels}
-              requests={userPanelRequests?.items ?? []}
-              isLoading={availableModelsLoading || userPanelRequestsLoading}
-              isError={availableModelsError || userPanelRequestsError}
-            />
-          </TabsContent>
-
-          <TabsContent value="requests">
-            <UserPanelRequestsTab />
           </TabsContent>
         </Tabs>
 

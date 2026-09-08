@@ -71,6 +71,7 @@ const STRICT_SUPPORT_MODELS_ROUTING_SETTING_KEY = 'strict_support_models_routing
 const OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'openai_chat_stream_timeouts_enabled';
 const TEST_FIELD_TAB_SETTING_KEY = 'ui_test_field_tab_enabled';
 const MODEL_MAPPING_DEBUGGER_SETTING_KEY = 'ui_model_mapping_debugger_enabled';
+const EXTERNAL_MODEL_LIST_ENABLED_SETTING_KEY = 'external_model_list_enabled';
 const OPENAI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_SETTING_KEY =
   'openai_chat_stream_first_event_timeout_ms';
 const OPENAI_CHAT_STREAM_IDLE_TIMEOUT_SETTING_KEY = 'openai_chat_stream_idle_timeout_ms';
@@ -146,6 +147,7 @@ export function SettingsPage() {
               <OpenAIChatStreamTimeoutSection />
               <TestFieldTabSection />
               <ModelMappingDebuggerSection />
+              <ExternalModelListSection />
               <MultiTenantUISection />
               <TimezoneSection />
             </>
@@ -1148,6 +1150,65 @@ export function TestFieldTabSection() {
           {t('settings.testFieldTabLabel')}
         </Label>
         <p className="text-xs text-muted-foreground">{t('settings.testFieldTabHint')}</p>
+        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ExternalModelListSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+  const enabled = settings?.[EXTERNAL_MODEL_LIST_ENABLED_SETTING_KEY] === 'true';
+  const [localEnabled, setLocalEnabled] = useState(enabled);
+
+  useEffect(() => {
+    setLocalEnabled(enabled);
+  }, [enabled]);
+
+  const handleToggle = async (checked: boolean) => {
+    const previous = localEnabled;
+    setLocalEnabled(checked);
+    try {
+      await updateSetting.mutateAsync({
+        key: EXTERNAL_MODEL_LIST_ENABLED_SETTING_KEY,
+        value: checked ? 'true' : 'false',
+      });
+    } catch (error) {
+      setLocalEnabled(previous);
+      throw error;
+    }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Eye className="h-4 w-4 text-muted-foreground" />
+          {t('settings.externalModelList')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium text-foreground">
+              {t('settings.externalModelListLabel')}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.externalModelListDesc')}
+            </p>
+          </div>
+          <Switch
+            aria-label={t('settings.externalModelList')}
+            checked={localEnabled}
+            onCheckedChange={handleToggle}
+            disabled={updateSetting.isPending}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.externalModelListHint')}</p>
         <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
       </CardContent>
     </Card>

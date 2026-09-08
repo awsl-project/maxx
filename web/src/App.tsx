@@ -27,6 +27,7 @@ import { APITokenLimitsPage } from '@/pages/api-token-limits';
 import { StatsPage } from '@/pages/stats';
 import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
+import { ExternalModelsPage } from '@/pages/external-models';
 import { UsersPage } from '@/pages/users';
 import { UserPanelPage } from '@/pages/user-panel';
 import { AdminRoute } from '@/components/auth/admin-route';
@@ -47,6 +48,31 @@ function MultiTenantUIRoute({ children }: { children: ReactNode }) {
   }
 
   if (settings?.ui_multitenant_enabled !== 'true') {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function SettingEnabledRoute({
+  settingKey,
+  children,
+}: {
+  settingKey: string;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const { data: settings, isLoading } = usePublicSettings();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-muted-foreground">{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (settings?.[settingKey] !== 'true') {
     return <Navigate to="/" replace />;
   }
 
@@ -154,6 +180,16 @@ function AppRoutes() {
           />
           <Route path="model-mappings" element={<ModelMappingsPage />} />
           <Route path="model-prices" element={<ModelPricesPage />} />
+          <Route
+            path="external-models"
+            element={
+              <AdminRoute>
+                <SettingEnabledRoute settingKey="external_model_list_enabled">
+                  <ExternalModelsPage />
+                </SettingEnabledRoute>
+              </AdminRoute>
+            }
+          />
           <Route path="retry-configs" element={<RetryConfigsPage />} />
           <Route
             path="api-token-limits"
