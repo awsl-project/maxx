@@ -31,6 +31,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 	domain.SettingKeyModelMappingDebuggerEnabled:     {},
 	domain.SettingKeyUserPanelDailyCheckInEnabled:    {},
 	domain.SettingKeyUserPanelDailyCheckInAmount:     {},
+	domain.SettingKeyExternalModelListEnabled:        {},
 	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},
 	domain.SettingKeyProxyRouteOpenAIChatEnabled:     {},
 	domain.SettingKeyProxyRouteResponsesEnabled:      {},

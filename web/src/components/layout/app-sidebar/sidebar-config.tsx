@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Database,
   FlaskConical,
+  Eye,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -157,6 +158,14 @@ export const sidebarConfig: SidebarConfig = {
           to: '/model-prices',
           icon: DollarSign,
           labelKey: 'nav.modelPrices',
+        },
+        {
+          type: 'standard',
+          key: 'external-models',
+          to: '/external-models',
+          icon: Eye,
+          labelKey: 'nav.externalModels',
+          adminOnly: true,
         },
         {
           type: 'standard',

@@ -112,7 +112,8 @@
     "managePasskeys": "Manage Passkeys",
     "apiTokenLimits": "API Token Limits",
     "dataManagement": "Data Management",
-    "proxyAccess": "Proxy Access"
+    "proxyAccess": "Proxy Access",
+    "externalModels": "External Models"
   },
   "userPanel": {
     "title": "User Console",
@@ -1561,7 +1562,12 @@
     "modelMappingDebugger": "Model mapping debugger",
     "modelMappingDebuggerDesc": "Controls whether the abnormal mapping debugger is shown on the Model Mappings page. Disabled by default to keep the normal configuration page simple.",
     "modelMappingDebuggerLabel": "Show model mapping debugger",
-    "modelMappingDebuggerHint": "When enabled, the Model Mappings page can search mappings across all scopes by model, rule fragment, or ID and quickly delete abnormal rules."
+    "modelMappingDebuggerHint": "When enabled, the Model Mappings page can search mappings across all scopes by model, rule fragment, or ID and quickly delete abnormal rules.",
+    "externalModelList": "External model list",
+    "externalModelListLabel": "Use custom external model list",
+    "externalModelListDesc": "When enabled, model-list APIs and the user console available-models list use the models managed on the new External Models tab.",
+    "externalModelListHint": "Turn this on only when you want to hide auto-discovered/provider-derived models behind an explicit public list.",
+    "externalModelListSaveError": "Failed to save the external model list switch. Please try again."
   },
   "modelMappings": {
     "title": "Model Mappings",
@@ -2211,5 +2217,15 @@
   "proxyAccess": {
     "title": "Proxy Access",
     "description": "Control global proxy availability, project binding, visible proxy endpoints, and route-adjacent quota refresh behavior."
+  },
+  "externalModels": {
+    "title": "External Models",
+    "description": "Manage the model names exposed to external clients and the user console.",
+    "editorTitle": "Public model list",
+    "editorDesc": "Enter one model per line, or paste comma-separated model names. Duplicates are removed on save.",
+    "placeholder": "gpt-5\nclaude-sonnet-4\ngemini-2.5-pro",
+    "saveHint": "This list is used only while the External model list switch is enabled in Settings.",
+    "modelCount": "{{count}} models",
+    "empty": "No external models configured. With the switch enabled, model-list APIs will return an empty list."
   }
 }

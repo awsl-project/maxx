@@ -9,8 +9,8 @@ import {
 describe('user-panel-tabs', () => {
   it('validates only supported user panel tabs', () => {
     expect(isUserPanelTab('main')).toBe(true);
-    expect(isUserPanelTab('requests')).toBe(true);
-    expect(isUserPanelTab('model-status')).toBe(true);
+    expect(isUserPanelTab('requests')).toBe(false);
+    expect(isUserPanelTab('model-status')).toBe(false);
     expect(isUserPanelTab('usage')).toBe(false);
     expect(isUserPanelTab('')).toBe(false);
     expect(isUserPanelTab(null)).toBe(false);
@@ -23,17 +23,16 @@ describe('user-panel-tabs', () => {
   });
 
   it('prefers a valid URL tab over a stored tab', () => {
-    expect(resolveUserPanelTab({ urlTab: 'requests', storedTab: 'main' })).toBe('requests');
-    expect(resolveUserPanelTab({ urlTab: 'model-status', storedTab: 'main' })).toBe('model-status');
+    expect(resolveUserPanelTab({ urlTab: 'main', storedTab: 'requests' })).toBe('main');
   });
 
   it('does not let an invalid URL tab fall back to stored state by default', () => {
-    expect(resolveUserPanelTab({ urlTab: 'bad-tab', storedTab: 'requests' })).toBe('main');
+    expect(resolveUserPanelTab({ urlTab: 'bad-tab', storedTab: 'main' })).toBe('main');
   });
 
   it('restores a valid stored tab only when explicitly allowed', () => {
-    expect(resolveUserPanelTab({ urlTab: null, storedTab: 'requests', allowStoredTab: true })).toBe(
-      'requests',
+    expect(resolveUserPanelTab({ urlTab: null, storedTab: 'main', allowStoredTab: true })).toBe(
+      'main',
     );
   });
 
@@ -44,8 +43,6 @@ describe('user-panel-tabs', () => {
   });
 
   it('updates tab in search while preserving unrelated query params', () => {
-    expect(updateUserPanelTabSearch('?foo=bar&tab=main', 'model-status')).toBe(
-      '?foo=bar&tab=model-status',
-    );
+    expect(updateUserPanelTabSearch('?foo=bar&tab=requests', 'main')).toBe('?foo=bar&tab=main');
   });
 });

@@ -70,6 +70,7 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
   const isAdmin = !user || user.role === 'admin';
   const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
   const testFieldTabEnabled = publicSettings.data?.ui_test_field_tab_enabled === 'true';
+  const externalModelsTabEnabled = publicSettings.data?.external_model_list_enabled === 'true';
 
   return (
     <>
@@ -83,6 +84,13 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
             return false;
           }
           if (item.type === 'standard' && item.key === 'test-field' && !testFieldTabEnabled) {
+            return false;
+          }
+          if (
+            item.type === 'standard' &&
+            item.key === 'external-models' &&
+            !externalModelsTabEnabled
+          ) {
             return false;
           }
           if (item.type === 'standard' && item.adminOnly && !isAdmin) {

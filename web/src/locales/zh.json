@@ -112,7 +112,8 @@
     "managePasskeys": "管理 Passkey",
     "apiTokenLimits": "API Token 限流",
     "dataManagement": "数据管理",
-    "proxyAccess": "代理访问控制"
+    "proxyAccess": "代理访问控制",
+    "externalModels": "外部模型"
   },
   "userPanel": {
     "title": "用户控制台",
@@ -1558,7 +1559,12 @@
     "modelMappingDebugger": "模型映射调试器",
     "modelMappingDebuggerDesc": "控制模型映射页是否显示异常映射调试器。默认关闭，避免常规配置页变复杂。",
     "modelMappingDebuggerLabel": "显示模型映射调试器",
-    "modelMappingDebuggerHint": "开启后可在模型映射页按模型名、规则片段或 ID 搜索所有作用域的映射，并快速删除异常规则。"
+    "modelMappingDebuggerHint": "开启后可在模型映射页按模型名、规则片段或 ID 搜索所有作用域的映射，并快速删除异常规则。",
+    "externalModelList": "外部模型列表",
+    "externalModelListLabel": "使用自定义外部模型列表",
+    "externalModelListDesc": "开启后，模型列表接口和用户控制台的可用模型列表都使用「外部模型」tab 管理的模型。",
+    "externalModelListHint": "只在需要用显式公开列表隐藏自动发现/provider 派生模型时开启。",
+    "externalModelListSaveError": "外部模型列表开关保存失败，请重试。"
   },
   "modelMappings": {
     "title": "模型映射",
@@ -2207,5 +2213,15 @@
   "proxyAccess": {
     "title": "代理访问控制",
     "description": "管理全局代理可用性、强制项目绑定、可见代理入口和路由相关 quota 刷新行为。"
+  },
+  "externalModels": {
+    "title": "外部模型",
+    "description": "管理暴露给外部客户端和用户控制台的模型名。",
+    "editorTitle": "公开模型列表",
+    "editorDesc": "每行一个模型，也可以粘贴逗号分隔的模型名；保存时会去重。",
+    "placeholder": "gpt-5\nclaude-sonnet-4\ngemini-2.5-pro",
+    "saveHint": "仅当设置里的「外部模型列表」开关开启时，此列表才会生效。",
+    "modelCount": "{{count}} 个模型",
+    "empty": "还没有配置外部模型。开关开启时，模型列表接口会返回空列表。"
   }
 }

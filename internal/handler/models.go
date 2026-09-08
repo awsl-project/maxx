@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"sort"
 	"strconv"
@@ -18,6 +19,7 @@ type ModelsHandler struct {
 	responseModelRepo repository.ResponseModelRepository
 	providerRepo      repository.ProviderRepository
 	modelMappingRepo  repository.ModelMappingRepository
+	settingsRepo      repository.SystemSettingRepository
 	router            *router.Router
 }
 
@@ -38,6 +40,11 @@ func NewModelsHandler(
 		modelMappingRepo:  modelMappingRepo,
 		router:            r,
 	}
+}
+
+// SetSettingsRepository wires settings that can override the public model-list surface.
+func (h *ModelsHandler) SetSettingsRepository(settingsRepo repository.SystemSettingRepository) {
+	h.settingsRepo = settingsRepo
 }
 
 // ServeHTTP handles model-list requests.
@@ -119,6 +126,12 @@ func (h *ModelsHandler) collectAvailableModelNames(tenantID uint64, clientType d
 }
 
 func (h *ModelsHandler) collectCandidateModelNames(tenantID uint64, userAgent string) (map[string]struct{}, error) {
+	if models, enabled, err := h.collectConfiguredExternalModelList(); err != nil {
+		return nil, err
+	} else if enabled {
+		return models, nil
+	}
+
 	result := make(map[string]struct{})
 
 	if h.responseModelRepo != nil {
@@ -254,6 +267,61 @@ func isProviderModelExposed(provider *domain.Provider, model string) bool {
 		}
 	}
 	return false
+}
+
+func (h *ModelsHandler) collectConfiguredExternalModelList() (map[string]struct{}, bool, error) {
+	result := make(map[string]struct{})
+	if h == nil || h.settingsRepo == nil {
+		return result, false, nil
+	}
+	enabledValue, err := h.settingsRepo.Get(domain.SettingKeyExternalModelListEnabled)
+	if err != nil {
+		return nil, false, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(enabledValue), "true") {
+		return result, false, nil
+	}
+
+	value, err := h.settingsRepo.Get(domain.SettingKeyExternalModelList)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, name := range parseExternalModelListSetting(value) {
+		addModelName(result, name)
+	}
+	return result, true, nil
+}
+
+func parseExternalModelListSetting(value string) []string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	var parsed []string
+	if strings.HasPrefix(trimmed, "[") && json.Unmarshal([]byte(trimmed), &parsed) == nil {
+		return normalizeExternalModelList(parsed)
+	}
+	fields := strings.FieldsFunc(trimmed, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ','
+	})
+	return normalizeExternalModelList(fields)
+}
+
+func normalizeExternalModelList(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		model := strings.TrimSpace(value)
+		if model == "" {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		result = append(result, model)
+	}
+	return result
 }
 
 func sortedModelNames(result map[string]struct{}) []string {

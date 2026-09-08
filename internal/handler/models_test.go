@@ -326,3 +326,47 @@ func TestProviderModelExposureRequiresExplicitEnable(t *testing.T) {
 		t.Fatal("enabled empty exposure allowlist must expose no provider models")
 	}
 }
+
+func TestModelsHandlerUsesConfiguredExternalModelListWhenEnabled(t *testing.T) {
+	responseRepo := &fakeResponseModelRepo{names: []string{"gpt-history"}}
+	providerRepo := &fakeProviderRepo{providers: []*domain.Provider{{SupportModels: []string{"gpt-supported"}}}}
+	handler := NewModelsHandler(responseRepo, providerRepo, nil)
+	handler.SetSettingsRepository(&selfServiceSettingsRepo{values: map[string]string{
+		domain.SettingKeyExternalModelListEnabled: "true",
+		domain.SettingKeyExternalModelList:        " gpt-public\nclaude-public, gpt-public ",
+	}})
+
+	names, err := handler.collectModelNames(1)
+	if err != nil {
+		t.Fatalf("collectModelNames error: %v", err)
+	}
+	want := []string{"claude-public", "gpt-public"}
+	if len(names) != len(want) {
+		t.Fatalf("names = %#v, want %#v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("names = %#v, want %#v", names, want)
+		}
+	}
+}
+
+func TestModelsHandlerConfiguredExternalModelListDisabledKeepsExistingSources(t *testing.T) {
+	responseRepo := &fakeResponseModelRepo{names: []string{"gpt-history"}}
+	handler := NewModelsHandler(responseRepo, nil, nil)
+	handler.SetSettingsRepository(&selfServiceSettingsRepo{values: map[string]string{
+		domain.SettingKeyExternalModelListEnabled: "false",
+		domain.SettingKeyExternalModelList:        "gpt-public",
+	}})
+
+	names, err := handler.collectModelNames(1)
+	if err != nil {
+		t.Fatalf("collectModelNames error: %v", err)
+	}
+	if containsModel(names, "gpt-public") {
+		t.Fatalf("names = %#v, disabled custom list must not override existing sources", names)
+	}
+	if !containsModel(names, "gpt-history") {
+		t.Fatalf("names = %#v, want existing response model", names)
+	}
+}
