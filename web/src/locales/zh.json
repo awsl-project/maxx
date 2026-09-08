@@ -475,7 +475,8 @@
     "importProviders": "导入提供商",
     "exportProviders": "导出提供商",
     "shareProviderAddCommand": {
-      "copy": "复制添加命令"
+      "copy": "复制添加命令",
+      "copied": "添加命令已复制"
     },
     "readOnlyHint": "成员仅可查看，编辑提供商需要管理员权限。",
     "importProvidersAdminOnly": "只有管理员可以导入提供商。",

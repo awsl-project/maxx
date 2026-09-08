@@ -171,8 +171,28 @@ describe('provider-add-command', () => {
     expect(parsed.errors).toEqual([]);
   });
 
+  it('supports any provider type backed by custom config as an add command', () => {
+    for (const type of ['custom', 'claude', 'codex', 'newapi', 'ollama', 'fal']) {
+      const provider: Provider = {
+        ...baseProvider,
+        type,
+        config: {
+          custom: {
+            baseURL: 'https://api.example.com/v1',
+            apiKey: 'sk-custom-backed',
+          },
+        },
+      };
+
+      expect(canBuildProviderAddCommand(provider)).toBe(true);
+      expect(buildProviderAddCommand(provider)).toContain(
+        "--base-url 'https://api.example.com/v1'",
+      );
+    }
+  });
+
   it('refuses providers that cannot be safely shared as provider add commands', () => {
-    expect(canBuildProviderAddCommand({ ...baseProvider, type: 'claude' })).toBe(false);
+    expect(canBuildProviderAddCommand({ ...baseProvider, type: 'claude', config: {} })).toBe(false);
     expect(canBuildProviderAddCommand({ ...baseProvider, blackBox: true })).toBe(false);
     expect(canBuildProviderAddCommand({ ...baseProvider, excludeFromExport: true })).toBe(false);
     expect(buildProviderAddCommand({ ...baseProvider, blackBox: true })).toBeNull();

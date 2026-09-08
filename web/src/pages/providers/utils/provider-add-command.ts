@@ -44,7 +44,7 @@ function providerDisguise(provider: Provider): ProviderConfigCustomDisguise | un
 export function canBuildProviderAddCommand(provider: Provider): boolean {
   const custom = provider.config?.custom;
   if (provider.blackBox || provider.excludeFromExport) return false;
-  if (provider.type !== 'custom' || !custom) return false;
+  if (!custom) return false;
   if (!custom.baseURL?.trim()) return false;
   if (custom.backend !== 'ollama' && !custom.apiKey?.trim()) return false;
   return true;
