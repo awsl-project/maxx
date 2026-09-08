@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -699,7 +700,31 @@ func asProxyError(err error) (*domain.ProxyError, bool) {
 	if errors.As(err, &proxyErr) {
 		return proxyErr, true
 	}
+	if proxyErr := newRawUpstreamNetworkProxyError(err); proxyErr != nil {
+		return proxyErr, true
+	}
 	return nil, false
+}
+
+func newRawUpstreamNetworkProxyError(err error) *domain.ProxyError {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	if !errors.Is(err, io.ErrUnexpectedEOF) &&
+		!strings.Contains(msg, "unexpected eof") &&
+		!strings.Contains(msg, "premature eof") &&
+		!strings.Contains(msg, "connection reset by peer") &&
+		!strings.Contains(msg, "forcibly closed by the remote host") &&
+		!strings.Contains(msg, "wsarecv") &&
+		!strings.Contains(msg, "stream id") &&
+		!strings.Contains(msg, "internal_error") {
+		return nil
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(err, true, "upstream network error")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonNetworkError
+	return proxyErr
 }
 
 func normalizeUpstreamConnectionError(proxyErr *domain.ProxyError) {
