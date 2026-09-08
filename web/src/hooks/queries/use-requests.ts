@@ -14,6 +14,8 @@ import {
 } from '@/lib/transport';
 import { prioritizeActiveRequests } from '@/lib/request-order';
 
+const REQUESTS_INFINITE_PAGE_LIMIT = 100;
+
 /** Query key factory for proxy request related queries. */
 export const requestKeys = {
   all: ['requests'] as const,
@@ -133,6 +135,70 @@ function matchesProxyRequestParams(
   return true;
 }
 
+export type RequestsCountQueryKey = readonly [
+  'requestsCount',
+  number | undefined,
+  string | undefined,
+  number | undefined,
+  number | undefined,
+  string | undefined,
+  string | undefined,
+  ProxyRequestErrorMode | undefined,
+];
+
+export function matchesProxyRequestCountQuery(
+  request: ProxyRequest,
+  queryKey: RequestsCountQueryKey,
+): boolean {
+  return matchesProxyRequestParams(request, {
+    providerId: queryKey[1],
+    status: queryKey[2],
+    apiTokenId: queryKey[3],
+    projectId: queryKey[4],
+    startTime: queryKey[5],
+    endTime: queryKey[6],
+    errorMode: queryKey[7],
+  });
+}
+
+export function getProxyRequestCountDelta(
+  previousRequest: ProxyRequest | undefined,
+  updatedRequest: ProxyRequest,
+  queryKey: RequestsCountQueryKey,
+): number {
+  const matchedBefore = previousRequest
+    ? matchesProxyRequestCountQuery(previousRequest, queryKey)
+    : false;
+  const matchesAfter = matchesProxyRequestCountQuery(updatedRequest, queryKey);
+
+  if (matchedBefore === matchesAfter) {
+    return 0;
+  }
+  return matchesAfter ? 1 : -1;
+}
+
+export function normalizeProxyRequestPage<T extends ProxyRequest>(
+  page: CursorPaginationResult<T>,
+  items: T[],
+  limit?: number,
+): CursorPaginationResult<T> {
+  let nextItems = prioritizeActiveRequests(items);
+  let hasMore = page.hasMore;
+
+  if (typeof limit === 'number' && limit > 0 && nextItems.length > limit) {
+    nextItems = nextItems.slice(0, limit);
+    hasMore = true;
+  }
+
+  return {
+    ...page,
+    items: nextItems,
+    hasMore,
+    firstId: nextItems[0]?.id,
+    lastId: nextItems[nextItems.length - 1]?.id,
+  };
+}
+
 /** Fetches proxy requests with cursor-based pagination. */
 export function useProxyRequests(params?: CursorPaginationParams) {
   return useQuery({
@@ -167,7 +233,7 @@ export function useInfiniteProxyRequests(
     ),
     queryFn: ({ pageParam }) =>
       getTransport().getProxyRequests({
-        limit: 100,
+        limit: REQUESTS_INFINITE_PAGE_LIMIT,
         before: pageParam,
         providerId,
         status,
@@ -469,6 +535,7 @@ export function useProxyRequestUpdates() {
       for (const updatedRequest of updates) {
         const requestId = updatedRequest.id;
         let isKnown = knownRequestIds.has(requestId);
+        let previousRequest: ProxyRequest | undefined;
 
         // 仅当详情查询正在被观察时才更新详情缓存，避免列表页“写缓存造内存”
         const detailKey = requestKeys.detail(requestId);
@@ -480,6 +547,7 @@ export function useProxyRequestUpdates() {
             if (!old) {
               return updatedRequest;
             }
+            previousRequest ??= old;
             return {
               ...old,
               ...updatedRequest,
@@ -531,32 +599,13 @@ export function useProxyRequestUpdates() {
             if (!old || !old.items) return old;
             const limit = typeof params?.limit === 'number' ? params.limit : undefined;
 
-            const normalizePage = (items: ProxyRequest[]) => {
-              // 首屏列表和 WS 增量更新都统一走这里，避免同一页里出现
-              // “已完成/失败”仍停留在活跃请求前面的短暂错序。
-              let nextItems = prioritizeActiveRequests(items);
-              let hasMore = old.hasMore;
-
-              if (typeof limit === 'number' && limit > 0 && nextItems.length > limit) {
-                nextItems = nextItems.slice(0, limit);
-                hasMore = true;
-              }
-
-              const firstId = nextItems[0]?.id;
-              const lastId = nextItems[nextItems.length - 1]?.id;
-
-              return {
-                ...old,
-                items: nextItems,
-                hasMore,
-                firstId,
-                lastId,
-              };
-            };
+            const normalizePage = (items: ProxyRequest[]) =>
+              normalizeProxyRequestPage(old, items, limit);
 
             const index = old.items.findIndex((r) => r.id === requestId);
             if (index >= 0) {
               isKnown = true;
+              previousRequest ??= old.items[index];
               if (!matchesFilter(updatedRequest)) {
                 const newItems = old.items.filter((r) => r.id !== requestId);
                 return normalizePage(newItems);
@@ -629,15 +678,16 @@ export function useProxyRequestUpdates() {
               }
 
               hasExisting = true;
+              previousRequest ??= page.items[index];
 
               if (!matchesFilter(updatedRequest)) {
                 const newItems = page.items.filter((r) => r.id !== requestId);
-                return { ...page, items: prioritizeActiveRequests(newItems) };
+                return normalizeProxyRequestPage(page, newItems, REQUESTS_INFINITE_PAGE_LIMIT);
               }
 
               const newItems = [...page.items];
               newItems[index] = updatedRequest;
-              return { ...page, items: prioritizeActiveRequests(newItems) };
+              return normalizeProxyRequestPage(page, newItems, REQUESTS_INFINITE_PAGE_LIMIT);
             });
 
             if (hasExisting) {
@@ -658,62 +708,36 @@ export function useProxyRequestUpdates() {
             return {
               ...old,
               pages: [
-                {
-                  ...firstPage,
-                  items: prioritizeActiveRequests([updatedRequest, ...firstPage.items]),
-                },
+                normalizeProxyRequestPage(
+                  firstPage,
+                  [updatedRequest, ...firstPage.items],
+                  REQUESTS_INFINITE_PAGE_LIMIT,
+                ),
                 ...updatedPages.slice(1),
               ],
             };
           });
         }
 
-        // 新请求时乐观更新 count。重连后首个看到的增量可能已经是 COMPLETED，
-        // 不能只盯 PENDING，否则会把断线窗口内完成的新请求漏掉。
-        if (!isKnown) {
-          const startTimeMs = new Date(updatedRequest.startTime).getTime();
-          const looksLikeRecentRequest =
-            Number.isFinite(startTimeMs) && Date.now() - startTimeMs < 15_000;
-
-          if (looksLikeRecentRequest) {
-            for (const query of countQueries) {
-              const filterProviderId = query.queryKey[1] as number | undefined;
-              const filterStatus = query.queryKey[2] as string | undefined;
-              const filterAPITokenId = query.queryKey[3] as number | undefined;
-              const filterProjectId = query.queryKey[4] as number | undefined;
-              const filterStartTime = query.queryKey[5] as string | undefined;
-              const filterEndTime = query.queryKey[6] as string | undefined;
-              const filterErrorMode = query.queryKey[7] as ProxyRequestErrorMode | undefined;
-              if (
-                filterProviderId !== undefined &&
-                updatedRequest.providerID !== filterProviderId
-              ) {
-                continue;
-              }
-              if (filterStatus !== undefined && updatedRequest.status !== filterStatus) {
-                continue;
-              }
-              if (
-                filterAPITokenId !== undefined &&
-                updatedRequest.apiTokenID !== filterAPITokenId
-              ) {
-                continue;
-              }
-              if (filterProjectId !== undefined && updatedRequest.projectID !== filterProjectId) {
-                continue;
-              }
-              if (!matchesRequestTimeRange(updatedRequest, filterStartTime, filterEndTime)) {
-                continue;
-              }
-              if (filterErrorMode === 'only' && !isProxyRequestError(updatedRequest)) {
-                continue;
-              }
-              if (filterErrorMode === 'exclude' && isProxyRequestError(updatedRequest)) {
-                continue;
-              }
-              queryClient.setQueryData<number>(query.queryKey, (old) => (old ?? 0) + 1);
+        // 同步 count 查询：已知请求跨过滤器移动时要做 old -> new 差量；
+        // 新请求仍只对最近事件乐观 +1，避免重连后把历史广播重复计数。
+        const startTimeMs = new Date(updatedRequest.startTime).getTime();
+        const looksLikeRecentRequest =
+          Number.isFinite(startTimeMs) && Date.now() - startTimeMs < 15_000;
+        const shouldReconcileUnknownRequest = !isKnown && looksLikeRecentRequest;
+        if (previousRequest || shouldReconcileUnknownRequest) {
+          for (const query of countQueries) {
+            const queryKey = query.queryKey as RequestsCountQueryKey;
+            const delta = getProxyRequestCountDelta(previousRequest, updatedRequest, queryKey);
+            if (delta === 0) {
+              continue;
             }
+            queryClient.setQueryData<number>(queryKey, (old) => Math.max(0, (old ?? 0) + delta));
           }
+        } else if (isKnown) {
+          // 这个请求此前只被其他过滤器看见过；当前 count 查询没有旧行可对比，
+          // 直接补偿 refetch，避免“进入当前过滤器”的计数被永远漏掉。
+          void queryClient.refetchQueries({ queryKey: ['requestsCount'], type: 'active' });
         }
 
         knownRequestIds.add(requestId);

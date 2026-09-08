@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ProxyRequest } from '@/lib/transport';
 import {
+  getProxyRequestCountDelta,
   isProxyRequestError,
   mergeProxyRequestAttemptUpdate,
+  normalizeProxyRequestPage,
   shouldRefetchCleanupFailedCount,
+  type RequestsCountQueryKey,
 } from './use-requests';
 
 const baseRequest = {
@@ -44,8 +47,12 @@ const baseRequest = {
   apiTokenID: 0,
 } satisfies Omit<ProxyRequest, 'status'>;
 
-function request(status: ProxyRequest['status'], statusCode = 200): ProxyRequest {
-  return { ...baseRequest, status, statusCode };
+function request(
+  status: ProxyRequest['status'],
+  statusCode = 200,
+  overrides: Partial<ProxyRequest> = {},
+): ProxyRequest {
+  return { ...baseRequest, status, statusCode, ...overrides };
 }
 
 describe('isProxyRequestError', () => {
@@ -179,5 +186,91 @@ describe('mergeProxyRequestAttemptUpdate', () => {
     const merged = mergeProxyRequestAttemptUpdate(original, { ...attempt, proxyRequestID: 2 });
 
     expect(merged).toBe(original);
+  });
+});
+
+describe('getProxyRequestCountDelta', () => {
+  const allCountKey: RequestsCountQueryKey = [
+    'requestsCount',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ];
+  const pendingCountKey: RequestsCountQueryKey = [
+    'requestsCount',
+    undefined,
+    'PENDING',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ];
+  const completedCountKey: RequestsCountQueryKey = [
+    'requestsCount',
+    undefined,
+    'COMPLETED',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ];
+  const onlyErrorsCountKey: RequestsCountQueryKey = [
+    'requestsCount',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    'only',
+  ];
+
+  it('decrements and increments filtered counts when a known request settles', () => {
+    const previous = request('PENDING');
+    const updated = request('COMPLETED');
+
+    expect(getProxyRequestCountDelta(previous, updated, allCountKey)).toBe(0);
+    expect(getProxyRequestCountDelta(previous, updated, pendingCountKey)).toBe(-1);
+    expect(getProxyRequestCountDelta(previous, updated, completedCountKey)).toBe(1);
+  });
+
+  it('updates error-mode counts when status code changes classification', () => {
+    const previous = request('IN_PROGRESS', 200);
+    const updated = request('COMPLETED', 503);
+
+    expect(getProxyRequestCountDelta(previous, updated, onlyErrorsCountKey)).toBe(1);
+  });
+
+  it('only increments unknown requests when they match the active count query', () => {
+    expect(getProxyRequestCountDelta(undefined, request('PENDING'), pendingCountKey)).toBe(1);
+    expect(getProxyRequestCountDelta(undefined, request('COMPLETED'), pendingCountKey)).toBe(0);
+  });
+});
+
+describe('normalizeProxyRequestPage', () => {
+  it('keeps live-updated pages capped and refreshes cursor metadata', () => {
+    const page = {
+      items: [request('COMPLETED', 200, { id: 2 }), request('COMPLETED', 200, { id: 1 })],
+      hasMore: false,
+      firstId: 2,
+      lastId: 1,
+    };
+
+    const normalized = normalizeProxyRequestPage(
+      page,
+      [request('PENDING', 200, { id: 4 }), request('COMPLETED', 200, { id: 3 }), ...page.items],
+      3,
+    );
+
+    expect(normalized.items.map((item) => item.id)).toEqual([4, 3, 2]);
+    expect(normalized.hasMore).toBe(true);
+    expect(normalized.firstId).toBe(4);
+    expect(normalized.lastId).toBe(2);
   });
 });
