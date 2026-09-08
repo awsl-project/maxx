@@ -252,16 +252,8 @@ test('user panel key reveal uses a controlled endpoint and eye-toggle UI', async
       contentType: 'image/png',
     });
 
-    await page.getByRole('tab', { name: /Requests|请求记录/ }).click();
-    await expect(page.locator('body')).toContainText('gpt-4o-mini', { timeout: 15000 });
-    await expect(page.locator('body')).toContainText(/mock key reveal proxy ok|200/);
-
-    const requestListScreenshot = '/tmp/maxx-user-panel-key-request-list.png';
-    await page.screenshot({ path: requestListScreenshot, fullPage: true });
-    await testInfo.attach('user-panel-key-request-list', {
-      path: requestListScreenshot,
-      contentType: 'image/png',
-    });
+    await expect(page.getByRole('tab', { name: /Requests|请求记录/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /Model Status|模型状态/ })).toHaveCount(0);
   } finally {
     await adminAPI(
       'PUT',

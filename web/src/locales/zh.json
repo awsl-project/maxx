@@ -1563,7 +1563,8 @@
     "externalModelList": "外部模型列表",
     "externalModelListLabel": "使用自定义外部模型列表",
     "externalModelListDesc": "开启后，模型列表接口和用户控制台的可用模型列表都使用「外部模型」tab 管理的模型。",
-    "externalModelListHint": "只在需要用显式公开列表隐藏自动发现/provider 派生模型时开启。"
+    "externalModelListHint": "只在需要用显式公开列表隐藏自动发现/provider 派生模型时开启。",
+    "externalModelListSaveError": "外部模型列表开关保存失败，请重试。"
   },
   "modelMappings": {
     "title": "模型映射",

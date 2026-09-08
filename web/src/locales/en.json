@@ -1566,7 +1566,8 @@
     "externalModelList": "External model list",
     "externalModelListLabel": "Use custom external model list",
     "externalModelListDesc": "When enabled, model-list APIs and the user console available-models list use the models managed on the new External Models tab.",
-    "externalModelListHint": "Turn this on only when you want to hide auto-discovered/provider-derived models behind an explicit public list."
+    "externalModelListHint": "Turn this on only when you want to hide auto-discovered/provider-derived models behind an explicit public list.",
+    "externalModelListSaveError": "Failed to save the external model list switch. Please try again."
   },
   "modelMappings": {
     "title": "Model Mappings",

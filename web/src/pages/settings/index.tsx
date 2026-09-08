@@ -1162,6 +1162,7 @@ export function ExternalModelListSection() {
   const { t } = useTranslation();
   const enabled = settings?.[EXTERNAL_MODEL_LIST_ENABLED_SETTING_KEY] === 'true';
   const [localEnabled, setLocalEnabled] = useState(enabled);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalEnabled(enabled);
@@ -1170,14 +1171,15 @@ export function ExternalModelListSection() {
   const handleToggle = async (checked: boolean) => {
     const previous = localEnabled;
     setLocalEnabled(checked);
+    setError(null);
     try {
       await updateSetting.mutateAsync({
         key: EXTERNAL_MODEL_LIST_ENABLED_SETTING_KEY,
         value: checked ? 'true' : 'false',
       });
-    } catch (error) {
+    } catch {
       setLocalEnabled(previous);
-      throw error;
+      setError(t('settings.externalModelListSaveError'));
     }
   };
 
@@ -1208,6 +1210,11 @@ export function ExternalModelListSection() {
             disabled={updateSetting.isPending}
           />
         </div>
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">{t('settings.externalModelListHint')}</p>
         <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
       </CardContent>
