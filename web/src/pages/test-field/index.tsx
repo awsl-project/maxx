@@ -56,6 +56,33 @@ type TestFieldBenchmarkCache = {
 };
 
 const testFieldBenchmarkCacheKey = ['test-field', 'benchmark-state'] as const;
+const testFieldSelectedProvidersStorageKey = 'maxx-test-field-selected-provider-ids';
+
+function readStoredSelectedProviderIDs(): number[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(testFieldSelectedProvidersStorageKey) ?? '[]',
+    );
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is number => Number.isInteger(id) && id > 0);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredSelectedProviderIDs(ids: number[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (ids.length === 0) {
+      window.localStorage.removeItem(testFieldSelectedProvidersStorageKey);
+      return;
+    }
+    window.localStorage.setItem(testFieldSelectedProvidersStorageKey, JSON.stringify(ids));
+  } catch {
+    // localStorage may be unavailable in private mode; the in-memory state still works.
+  }
+}
 
 export function TestFieldPage() {
   const { t } = useTranslation();
@@ -69,8 +96,10 @@ export function TestFieldPage() {
     cachedBenchmarkState?.providerToAdd ?? '',
   );
   const [providerSearch, setProviderSearch] = useState('');
-  const [selectedProviderIDs, setSelectedProviderIDs] = useState<number[]>(
-    cachedBenchmarkState?.selectedProviderIDs ?? [],
+  const [selectedProviderIDs, setSelectedProviderIDs] = useState<number[]>(() =>
+    cachedBenchmarkState?.selectedProviderIDs?.length
+      ? cachedBenchmarkState.selectedProviderIDs
+      : readStoredSelectedProviderIDs(),
   );
   const [prompt, setPrompt] = useState(
     cachedBenchmarkState?.prompt ?? '请用一句话回答：你现在可用吗？',
@@ -93,12 +122,17 @@ export function TestFieldPage() {
   const activeJobIDRef = useRef<string | null>(activeJobID);
   const resultsCardRef = useRef<HTMLDivElement | null>(null);
 
-  const selectedProviders = useMemo(
+  const selectedProviderRecords = useMemo(
     () =>
-      selectedProviderIDs
-        .map((id) => providers.find((provider) => provider.id === id))
-        .filter(Boolean) as Provider[],
+      selectedProviderIDs.map((id) => ({
+        id,
+        provider: providers.find((candidate) => candidate.id === id),
+      })),
     [providers, selectedProviderIDs],
+  );
+  const selectedProviders = useMemo(
+    () => selectedProviderRecords.map((record) => record.provider).filter(Boolean) as Provider[],
+    [selectedProviderRecords],
   );
   const availableProviders = providers.filter(
     (provider) => !selectedProviderIDs.includes(provider.id),
@@ -116,7 +150,7 @@ export function TestFieldPage() {
           ({ id: Number(providerToAdd), name: `#${providerToAdd}`, type: '-' } as Provider),
       )
     : t('testField.benchmark.providerPlaceholder');
-  const canRun = selectedProviderIDs.length > 0 && prompt.trim().length > 0 && !isRunning;
+  const canRun = selectedProviders.length > 0 && prompt.trim().length > 0 && !isRunning;
 
   useEffect(() => {
     queryClient.setQueryData<TestFieldBenchmarkCache>(testFieldBenchmarkCacheKey, {
@@ -129,6 +163,7 @@ export function TestFieldPage() {
       result,
       activeJobID,
     });
+    writeStoredSelectedProviderIDs(selectedProviderIDs);
   }, [
     activeJobID,
     concurrency,
@@ -184,7 +219,7 @@ export function TestFieldPage() {
     });
     try {
       const response = await getTransport().startTestFieldModelBenchmark({
-        providerIDs: selectedProviderIDs,
+        providerIDs: selectedProviders.map((provider) => provider.id),
         prompt: prompt.trim(),
         concurrency,
         timeoutMs,
@@ -300,21 +335,29 @@ export function TestFieldPage() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {selectedProviders.length === 0 ? (
+                {selectedProviderRecords.length === 0 ? (
                   <span className="text-sm text-muted-foreground">
                     {t('testField.benchmark.noSelectedProviders')}
                   </span>
                 ) : (
-                  selectedProviders.map((provider) => {
-                    const supported = SUPPORTED_PROVIDER_TYPES.has(provider.type);
+                  selectedProviderRecords.map(({ id, provider }) => {
+                    const label = provider ? providerLabel(provider) : `#${id}`;
+                    const supported = provider
+                      ? SUPPORTED_PROVIDER_TYPES.has(provider.type)
+                      : false;
                     return (
                       <Badge
-                        key={provider.id}
+                        key={id}
                         variant={supported ? 'secondary' : 'outline'}
                         className="gap-2 py-1"
                       >
-                        <span>{providerLabel(provider)}</span>
-                        {!supported && (
+                        <span>{label}</span>
+                        {!provider && (
+                          <span className="text-muted-foreground">
+                            {t('testField.benchmark.providerMissingBadge')}
+                          </span>
+                        )}
+                        {provider && !supported && (
                           <span className="text-muted-foreground">
                             {t('testField.benchmark.unsupportedBadge')}
                           </span>
@@ -322,8 +365,8 @@ export function TestFieldPage() {
                         <button
                           type="button"
                           className="rounded-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
-                          aria-label={t('testField.benchmark.removeProvider')}
-                          onClick={() => removeProvider(provider.id)}
+                          aria-label={t('testField.benchmark.removeProvider', { provider: label })}
+                          onClick={() => removeProvider(id)}
                           disabled={isRunning}
                         >
                           <X className="h-3 w-3" />
