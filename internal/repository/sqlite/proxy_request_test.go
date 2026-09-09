@@ -1123,6 +1123,171 @@ func TestProxyRequestErrorModeFiltersStatusAndHTTPFailures(t *testing.T) {
 	}
 }
 
+func TestMarkStaleAsFailedCancelsDeadInstanceOrphansAndFailsHardStuckRequests(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	now := time.Now()
+
+	dead := buildTestProxyRequest("IN_PROGRESS", 201)
+	dead.InstanceID = "dead-instance"
+	dead.StartTime = now.Add(-90 * time.Second)
+	deadVeryOld := buildTestProxyRequest("IN_PROGRESS", 204)
+	deadVeryOld.InstanceID = "dead-instance"
+	deadVeryOld.StartTime = now.Add(-45 * time.Minute)
+	alive := buildTestProxyRequest("IN_PROGRESS", 202)
+	alive.InstanceID = "alive-instance"
+	alive.StartTime = now.Add(-90 * time.Second)
+	stuck := buildTestProxyRequest("IN_PROGRESS", 203)
+	stuck.InstanceID = "alive-instance"
+	stuck.StartTime = now.Add(-45 * time.Minute)
+
+	for _, req := range []*domain.ProxyRequest{dead, deadVeryOld, alive, stuck} {
+		if err := repo.Create(req); err != nil {
+			t.Fatalf("create request %s: %v", req.RequestID, err)
+		}
+		attempt := seedAttemptForRequest(t, attemptRepo, db, req.ID, req.StartTime)
+		if err := db.gorm.Model(&ProxyUpstreamAttempt{}).Where("id = ?", attempt.ID).Update("status", "IN_PROGRESS").Error; err != nil {
+			t.Fatalf("mark attempt in progress: %v", err)
+		}
+	}
+
+	changed, err := repo.MarkStaleAsFailed([]string{"alive-instance"})
+	if err != nil {
+		t.Fatalf("MarkStaleAsFailed: %v", err)
+	}
+	if changed != 3 {
+		t.Fatalf("changed requests = %d, want 3", changed)
+	}
+
+	attemptsChanged, err := attemptRepo.MarkStaleAttemptsFailed()
+	if err != nil {
+		t.Fatalf("MarkStaleAttemptsFailed: %v", err)
+	}
+	if attemptsChanged != 3 {
+		t.Fatalf("changed attempts = %d, want 3", attemptsChanged)
+	}
+
+	gotDead, err := repo.GetByID(1, dead.ID)
+	if err != nil {
+		t.Fatalf("read dead request: %v", err)
+	}
+	if gotDead.Status != "CANCELLED" || gotDead.Error != "Server restarted" {
+		t.Fatalf("dead request = status %s error %q, want CANCELLED Server restarted", gotDead.Status, gotDead.Error)
+	}
+
+	gotDeadVeryOld, err := repo.GetByID(1, deadVeryOld.ID)
+	if err != nil {
+		t.Fatalf("read very old dead request: %v", err)
+	}
+	if gotDeadVeryOld.Status != "CANCELLED" || gotDeadVeryOld.Error != "Server restarted" {
+		t.Fatalf("very old dead request = status %s error %q, want CANCELLED Server restarted", gotDeadVeryOld.Status, gotDeadVeryOld.Error)
+	}
+
+	gotAlive, err := repo.GetByID(1, alive.ID)
+	if err != nil {
+		t.Fatalf("read alive request: %v", err)
+	}
+	if gotAlive.Status != "IN_PROGRESS" {
+		t.Fatalf("alive request status = %s, want IN_PROGRESS", gotAlive.Status)
+	}
+
+	gotStuck, err := repo.GetByID(1, stuck.ID)
+	if err != nil {
+		t.Fatalf("read stuck request: %v", err)
+	}
+	if gotStuck.Status != "FAILED" || gotStuck.Error != "Request timed out (stuck in progress)" {
+		t.Fatalf("stuck request = status %s error %q, want FAILED timeout", gotStuck.Status, gotStuck.Error)
+	}
+
+	deadAttempts, err := attemptRepo.ListByProxyRequestID(dead.ID)
+	if err != nil {
+		t.Fatalf("list dead attempts: %v", err)
+	}
+	if len(deadAttempts) != 1 || deadAttempts[0].Status != "CANCELLED" {
+		t.Fatalf("dead attempt status = %+v, want CANCELLED", deadAttempts)
+	}
+
+	stuckAttempts, err := attemptRepo.ListByProxyRequestID(stuck.ID)
+	if err != nil {
+		t.Fatalf("list stuck attempts: %v", err)
+	}
+	if len(stuckAttempts) != 1 || stuckAttempts[0].Status != "FAILED" {
+		t.Fatalf("stuck attempt status = %+v, want FAILED", stuckAttempts)
+	}
+}
+
+func TestMarkStaleAsFailedCancelsDeadInstanceOrphansWhenNoInstancesAlive(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	now := time.Now()
+
+	fresh := buildTestProxyRequest("IN_PROGRESS", 301)
+	fresh.InstanceID = "dead-instance"
+	fresh.StartTime = now.Add(-30 * time.Second)
+	stale := buildTestProxyRequest("IN_PROGRESS", 302)
+	stale.InstanceID = "dead-instance"
+	stale.StartTime = now.Add(-90 * time.Second)
+
+	for _, req := range []*domain.ProxyRequest{fresh, stale} {
+		if err := repo.Create(req); err != nil {
+			t.Fatalf("create request %s: %v", req.RequestID, err)
+		}
+		attempt := seedAttemptForRequest(t, attemptRepo, db, req.ID, req.StartTime)
+		if err := db.gorm.Model(&ProxyUpstreamAttempt{}).Where("id = ?", attempt.ID).Update("status", "IN_PROGRESS").Error; err != nil {
+			t.Fatalf("mark attempt in progress: %v", err)
+		}
+	}
+
+	changed, err := repo.MarkStaleAsFailed([]string{})
+	if err != nil {
+		t.Fatalf("MarkStaleAsFailed: %v", err)
+	}
+	if changed != 1 {
+		t.Fatalf("changed requests = %d, want 1", changed)
+	}
+	attemptsChanged, err := attemptRepo.MarkStaleAttemptsFailed()
+	if err != nil {
+		t.Fatalf("MarkStaleAttemptsFailed: %v", err)
+	}
+	if attemptsChanged != 1 {
+		t.Fatalf("changed attempts = %d, want 1", attemptsChanged)
+	}
+
+	gotFresh, err := repo.GetByID(1, fresh.ID)
+	if err != nil {
+		t.Fatalf("read fresh request: %v", err)
+	}
+	if gotFresh.Status != "IN_PROGRESS" {
+		t.Fatalf("fresh request status = %s, want IN_PROGRESS", gotFresh.Status)
+	}
+	gotStale, err := repo.GetByID(1, stale.ID)
+	if err != nil {
+		t.Fatalf("read stale request: %v", err)
+	}
+	if gotStale.Status != "CANCELLED" || gotStale.Error != "Server restarted" {
+		t.Fatalf("stale request = status %s error %q, want CANCELLED Server restarted", gotStale.Status, gotStale.Error)
+	}
+	staleAttempts, err := attemptRepo.ListByProxyRequestID(stale.ID)
+	if err != nil {
+		t.Fatalf("list stale attempts: %v", err)
+	}
+	if len(staleAttempts) != 1 || staleAttempts[0].Status != "CANCELLED" {
+		t.Fatalf("stale attempt status = %+v, want CANCELLED", staleAttempts)
+	}
+}
+
 func TestProxyRequestErrorStatsAggregatesCurrentFilter(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

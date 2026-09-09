@@ -454,7 +454,7 @@ func (r *ProxyRequestRepository) GetErrorStats(tenantID uint64, filter *reposito
 }
 
 // 死实例孤儿请求的回收宽限期。当一个请求的 instance_id 不在活实例列表里时,
-// 等它的 start_time 早于 (now - DeadInstanceGracePeriod) 才标记为 FAILED。
+// 等它的 start_time 早于 (now - DeadInstanceGracePeriod) 才标记为 CANCELLED。
 // 这个宽限期覆盖以下场景:
 //   - 新启动的实例完成 RegisterInstance 之前可能已经下发了少量请求
 //   - 实例 ID 一时未来得及同步到 coordinator(网络抖动)
@@ -463,23 +463,32 @@ func (r *ProxyRequestRepository) GetErrorStats(tenantID uint64, filter *reposito
 // 远好于原行为(立刻杀)和过保守行为(等 30min)之间。
 const deadInstanceGraceMillis = int64(60 * 1000)
 
-// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their
-// owning instance is no longer alive, or when the request has been in flight
-// for more than 30 minutes (timeout).
+// MarkStaleAsFailed finalizes stale IN_PROGRESS/PENDING requests. Dead-instance
+// orphans become CANCELLED: the original client connection and executor stack
+// are gone, so treating them as provider/route failures is misleading and keeps
+// poisoning error-mode filtering/retry diagnosis. Hard-stuck requests on an
+// alive instance still become FAILED because that instance is wedged.
 //
 // 关键安全语义:
-//   - aliveInstanceIDs 为空 → 直接返回 0,不做任何回收。防止 coordinator
-//     异常导致全表误杀。调用方在 coordinator 健康时才该调用。
+//   - aliveInstanceIDs 为 nil → 直接返回 0,不做任何回收。防止 coordinator
+//     异常导致全表误杀。空但非 nil 的列表表示当前没有存活实例,允许
+//     终结超过 grace 的 dead-instance orphans。调用方在 coordinator 健康时才该调用。
 //   - 多实例环境下,只清理 (a) instance_id 不在活实例集合且过了 60s 宽限期,
 //     或 (b) 任意实例上 start_time 超过 30min 的卡死请求。
 func (r *ProxyRequestRepository) MarkStaleAsFailed(aliveInstanceIDs []string) (int64, error) {
-	if len(aliveInstanceIDs) == 0 {
+	if aliveInstanceIDs == nil {
 		return 0, nil
 	}
 
 	nowMs := time.Now().UnixMilli()
 	timeoutThreshold := nowMs - int64(30*time.Minute/time.Millisecond)
 	deadGraceThreshold := nowMs - deadInstanceGraceMillis
+	deadInstanceCondition := "1 = 1"
+	deadInstanceArgs := []interface{}{deadGraceThreshold}
+	if len(aliveInstanceIDs) > 0 {
+		deadInstanceCondition = "(instance_id IS NULL OR instance_id NOT IN (?))"
+		deadInstanceArgs = []interface{}{aliveInstanceIDs, deadGraceThreshold}
+	}
 
 	// 死实例分支用 COALESCE(NULLIF(start_time, 0), created_at):PENDING 状态
 	// 请求可能 start_time = 0(还没真正开始处理就被卡在队列),如果只看
@@ -488,12 +497,15 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(aliveInstanceIDs []string) (i
 	//
 	// 30min 硬超时分支仍只看 start_time > 0:超时本质上是"已开始但卡死太久",
 	// 还没开始的 PENDING 不算超时(它由死实例分支或 hourly cleanup 处理)。
-	result := r.db.gorm.Exec(`
+	query := fmt.Sprintf(`
 		UPDATE proxy_requests
-		SET status = 'FAILED',
+		SET status = CASE
+		        WHEN (%s AND COALESCE(NULLIF(start_time, 0), created_at) < ?) THEN 'CANCELLED'
+		        ELSE 'FAILED'
+		    END,
 		    error = CASE
-		        WHEN start_time > 0 AND start_time < ? THEN 'Request timed out (stuck in progress)'
-		        ELSE 'Instance no longer alive'
+		        WHEN (%s AND COALESCE(NULLIF(start_time, 0), created_at) < ?) THEN 'Server restarted'
+		        ELSE 'Request timed out (stuck in progress)'
 		    END,
 		    end_time = ?,
 		    duration_ms = CASE
@@ -503,15 +515,18 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(aliveInstanceIDs []string) (i
 		    updated_at = ?
 		WHERE status IN ('PENDING', 'IN_PROGRESS')
 		  AND (
-		      ((instance_id IS NULL OR instance_id NOT IN (?))
-		         AND COALESCE(NULLIF(start_time, 0), created_at) < ?)
+		      (%s AND COALESCE(NULLIF(start_time, 0), created_at) < ?)
 		      OR
 		      (start_time > 0 AND start_time < ?)
-		  )`,
-		timeoutThreshold, nowMs, nowMs, nowMs,
-		aliveInstanceIDs, deadGraceThreshold,
-		timeoutThreshold,
-	)
+		  )`, deadInstanceCondition, deadInstanceCondition, deadInstanceCondition)
+	args := make([]interface{}, 0, len(deadInstanceArgs)*3+4)
+	args = append(args, deadInstanceArgs...)
+	args = append(args, deadInstanceArgs...)
+	args = append(args, nowMs, nowMs, nowMs)
+	args = append(args, deadInstanceArgs...)
+	args = append(args, timeoutThreshold)
+
+	result := r.db.gorm.Exec(query, args...)
 	if result.Error != nil {
 		return 0, result.Error
 	}

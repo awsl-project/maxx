@@ -214,13 +214,16 @@ type ProxyRequestRepository interface {
 	DeleteFailedWithFilter(tenantID uint64, filter *ProxyRequestFilter) (deletedRequests int64, deletedAttempts int64, err error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error)
-	// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their
-	// owning instance is no longer alive, or when start_time is older than 30 minutes.
+	// MarkStaleAsFailed finalizes stale IN_PROGRESS/PENDING requests. Requests
+	// owned by a dead instance are marked CANCELLED because the client connection
+	// and original executor stack are gone; they must not be counted as upstream
+	// route/provider failures. Requests older than the hard timeout are still
+	// marked FAILED because the owning instance is alive but wedged.
 	//
 	// aliveInstanceIDs 必须由 coordinator.ListAliveInstances 提供。一个安全门:
-	// 当 aliveInstanceIDs 为空(说明 coordinator 异常或刚启动)时,实现应跳过
-	// 清理,绝不基于"没有活实例"的假设把所有 in-progress 请求都标记 FAILED。
-	// 这样多实例环境下后启动的实例不会误杀先启动实例的在飞请求。
+	// 当 aliveInstanceIDs 为 nil(说明 coordinator 异常或调用方未拿到权威列表)
+	// 时,实现应跳过清理。空但非 nil 的列表表示当前没有存活实例,允许
+	// 把超过 dead-instance grace 的 orphan 请求终结为 CANCELLED。
 	MarkStaleAsFailed(aliveInstanceIDs []string) (int64, error)
 	// FixFailedRequestsWithoutEndTime fixes FAILED requests that have no end_time set
 	FixFailedRequestsWithoutEndTime() (int64, error)
@@ -259,7 +262,7 @@ type ProxyUpstreamAttemptRepository interface {
 	// BatchUpdateCosts 批量更新 attempt 的 cost 和 model_price_id。
 	// model_price_id 跟随 cost 一起更新到当前匹配的价格记录,保证审计字段与金额一致。
 	BatchUpdateCosts(updates map[uint64]domain.AttemptCostUpdate) error
-	// MarkStaleAttemptsFailed marks stale attempts as failed with proper end_time and duration
+	// MarkStaleAttemptsFailed finalizes stale attempts with the parent request terminal status and proper end_time/duration.
 	MarkStaleAttemptsFailed() (int64, error)
 	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set
 	FixFailedAttemptsWithoutEndTime() (int64, error)

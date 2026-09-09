@@ -116,7 +116,7 @@ func TestSeamlessRollingUpdate(t *testing.T) {
 		t.Fatal("A still showing as alive after shutdown")
 	}
 
-	// ─── t3: B 周期 sweep,回收 A 留下的卡死请求 ──────────────────
+	// ─── t3: B 周期 sweep,终结 A 留下的死实例孤儿请求 ───────────────
 	alive, _ = b.Coord.ListAliveInstances(context.Background())
 	if _, err := b.Comp.ProxyRequest.MarkStaleAsFailed(alive); err != nil {
 		t.Fatalf("post-shutdown sweep: %v", err)
@@ -127,8 +127,8 @@ func TestSeamlessRollingUpdate(t *testing.T) {
 		t.Fatalf("completed request was tampered with; status=%s", status)
 	}
 
-	// 卡死的请求被回收成 FAILED
-	if status := b.requestStatus(t, wedged.ID); status != "FAILED" {
-		t.Fatalf("wedged orphan should be reaped after A shutdown; status=%s", status)
+	// 死实例孤儿请求被取消,不再作为 provider/route 失败污染重试诊断
+	if status := b.requestStatus(t, wedged.ID); status != "CANCELLED" {
+		t.Fatalf("wedged orphan should be cancelled after A shutdown; status=%s", status)
 	}
 }
