@@ -2448,9 +2448,26 @@ func (h *AdminHandler) handlePricing(w http.ResponseWriter, r *http.Request) {
 // handleModelPrices handles CRUD for /admin/model-prices
 func (h *AdminHandler) handleModelPrices(w http.ResponseWriter, r *http.Request, id uint64) {
 	// Check for special endpoints
-	path := r.URL.Path
-	if strings.HasSuffix(path, "/reset") && r.Method == http.MethodPost {
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	parts := strings.Split(path, "/")
+	modelPricesIndex := -1
+	for i, part := range parts {
+		if part == "model-prices" {
+			modelPricesIndex = i
+			break
+		}
+	}
+	if modelPricesIndex < 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	tail := parts[modelPricesIndex+1:]
+	if len(tail) == 1 && tail[0] == "reset" && r.Method == http.MethodPost {
 		h.handleModelPricesReset(w, r)
+		return
+	}
+	if len(tail) > 1 || (len(tail) == 1 && id == 0) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
 	switch r.Method {
