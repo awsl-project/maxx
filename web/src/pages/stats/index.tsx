@@ -9,6 +9,8 @@ import {
   Cpu,
   Coins,
   CheckCircle,
+  Plus,
+  Check,
   X,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
@@ -22,6 +24,12 @@ import {
   TabsTrigger,
   Button,
   Progress,
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  Input,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import {
@@ -778,17 +786,7 @@ export function StatsPage() {
 
             {/* Model */}
             {responseModels && responseModels.length > 0 && (
-              <FilterSection
-                label={t('stats.model')}
-                showClear={model !== 'all'}
-                onClear={() => setModel('all')}
-              >
-                {responseModels.map((m) => (
-                  <FilterChip key={m} selected={model === m} onClick={() => setModel(m)} title={m}>
-                    {m}
-                  </FilterChip>
-                ))}
-              </FilterSection>
+              <ModelFilter models={responseModels} value={model} onChange={setModel} />
             )}
 
             {/* 重置按钮 */}
@@ -800,8 +798,11 @@ export function StatsPage() {
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 min-h-0 flex flex-col p-4 md:p-6 md:overflow-y-auto">
-          <div className="max-w-7xl mx-auto w-full flex flex-col gap-6 flex-1 min-h-0">
+        <div
+          data-testid="stats-results-region"
+          className="flex-none min-w-0 flex flex-col p-4 md:flex-1 md:min-h-0 md:p-6 md:overflow-y-auto"
+        >
+          <div className="max-w-7xl mx-auto w-full flex shrink-0 flex-col gap-6">
             {/* 当前筛选条件摘要 */}
             <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
               <span className="font-medium text-foreground">{t('stats.filterSummary')}:</span>
@@ -834,7 +835,7 @@ export function StatsPage() {
                 </span>
               )}
               {model !== 'all' && (
-                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs break-all">
                   {t('stats.model')}: {model}
                 </span>
               )}
@@ -1071,6 +1072,97 @@ function StatCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ModelFilter({
+  models,
+  value,
+  onChange,
+}: {
+  models: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const collapsed = models.length > 5;
+  const visibleModels = collapsed ? (value === 'all' ? [] : [value]) : models;
+  const matchingModels = models.filter((model) =>
+    model.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  return (
+    <FilterSection
+      label={t('stats.model')}
+      showClear={value !== 'all'}
+      onClear={() => onChange('all')}
+    >
+      {visibleModels.map((model) => (
+        <FilterChip
+          key={model}
+          selected={value === model}
+          onClick={() => onChange(model)}
+          title={model}
+        >
+          {model}
+        </FilterChip>
+      ))}
+      {collapsed && (
+        <Dialog
+          open={open}
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen);
+            setSearch('');
+          }}
+        >
+          <DialogTrigger
+            render={<Button variant="outline" size="sm" className="rounded-full" />}
+            aria-label={t('modelInput.selectModel')}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t('stats.model')}
+            <span className="text-muted-foreground tabular-nums">{models.length}</span>
+          </DialogTrigger>
+          <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-4">
+            <DialogHeader>
+              <DialogTitle>{t('modelInput.selectModel')}</DialogTitle>
+            </DialogHeader>
+            <Input
+              aria-label={t('common.search')}
+              placeholder={t('common.search')}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="shrink-0"
+            />
+            <div className="min-h-0 overflow-y-auto max-h-80 space-y-1">
+              {matchingModels.length === 0 && (
+                <p className="py-8 text-center text-muted-foreground">
+                  {t('modelInput.noMatchingModels')}
+                </p>
+              )}
+              {matchingModels.map((model) => (
+                <Button
+                  key={model}
+                  variant={value === model ? 'secondary' : 'ghost'}
+                  className="w-full justify-start"
+                  aria-pressed={value === model}
+                  title={model}
+                  onClick={() => {
+                    onChange(model);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="truncate">{model}</span>
+                  {value === model && <Check className="ml-auto h-4 w-4 shrink-0" />}
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </FilterSection>
   );
 }
 
