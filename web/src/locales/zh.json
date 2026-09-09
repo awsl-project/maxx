@@ -1565,7 +1565,16 @@
     "externalModelListLabel": "使用自定义外部模型列表",
     "externalModelListDesc": "开启后，模型列表接口和用户控制台的可用模型列表都使用「外部模型」tab 管理的模型。",
     "externalModelListHint": "只在需要用显式公开列表隐藏自动发现/provider 派生模型时开启。",
-    "externalModelListSaveError": "外部模型列表开关保存失败，请重试。"
+    "externalModelListSaveError": "外部模型列表开关保存失败，请重试。",
+    "providerCloneName": "提供商克隆命名",
+    "providerCloneNameStrategy": "克隆命名策略",
+    "providerCloneNameStrategyDesc": "默认保持旧的副本后缀；数字自增会递增名称末尾数字；模板模式按自定义模板生成，并在冲突时自动避让。",
+    "providerCloneNameStrategySuffix": "副本后缀（默认）",
+    "providerCloneNameStrategyIncrementNumber": "名称末尾数字自增",
+    "providerCloneNameStrategyTemplate": "自定义模板",
+    "providerCloneNameTemplate": "克隆名称模板",
+    "providerCloneNameTemplateDesc": "支持 {{name}}、{{base}}、{{suffix}}、{{n}}。模板为空时使用 {{name}}{{suffix}}。",
+    "providerCloneNameSaveError": "保存提供商克隆命名设置失败。"
   },
   "modelMappings": {
     "title": "模型映射",

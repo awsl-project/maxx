@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/dialog';
 import {
   useCreateProvider,
+  useProviders,
+  useSettings,
   useUpdateProvider,
   useDeleteProvider,
   useModelMappings,
@@ -71,6 +73,7 @@ import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { normalizeProviderArrayField } from '../utils/provider-normalize';
+import { buildProviderCloneName } from '../utils/provider-clone-name';
 
 function ProviderEditSection({
   id,
@@ -537,6 +540,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const deleteProvider = useDeleteProvider();
   const createModelMapping = useCreateModelMapping();
   const { data: allMappings } = useModelMappings();
+  const { data: providers } = useProviders();
+  const { data: settings } = useSettings();
 
   const initClients = (): ClientConfig[] => {
     const supportedTypes = normalizeProviderArrayField(provider.supportedClientTypes);
@@ -665,7 +670,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return hasEnabledClient && (providerConfigIsWriteOnly || !!hasVisibleURL());
   };
 
+  const isCloneNameContextReady = providers !== undefined && settings !== undefined;
+
   const isCloneValid = () => {
+    if (!isCloneNameContextReady) return false;
     if (!formData.name.trim()) return false;
     const hasEnabledClient = formData.clients.some((c) => c.enabled);
     return hasEnabledClient && !!hasVisibleURL();
@@ -770,9 +778,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         }
       });
 
-      const baseName = formData.name.trim() || provider.name;
-      const suffix = t('provider.cloneSuffix');
-      const cloneName = baseName.endsWith(suffix) ? baseName : `${baseName}${suffix}`;
+      const cloneName = buildProviderCloneName({
+        provider,
+        formName: formData.name,
+        providers,
+        settings,
+        localizedSuffix: t('provider.cloneSuffix'),
+      });
 
       const data: CreateProviderData = {
         type: provider.type || 'custom',
