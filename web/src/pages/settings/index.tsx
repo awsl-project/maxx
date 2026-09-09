@@ -15,6 +15,7 @@ import {
   Activity,
   Eye,
   EyeOff,
+  Copy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
@@ -47,6 +48,10 @@ import { useTransport } from '@/lib/transport/context';
 import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes, isLuxuryTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import {
+  PROVIDER_CLONE_NAME_STRATEGY_SETTING_KEY,
+  PROVIDER_CLONE_NAME_TEMPLATE_SETTING_KEY,
+} from '@/pages/providers/utils/provider-clone-name';
 
 function parseRetentionInteger(value: string): number | null {
   const trimmed = value.trim();
@@ -81,6 +86,7 @@ const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
 const USER_PANEL_DAILY_CHECKIN_SETTING_KEY = 'user_panel_daily_checkin_enabled';
 const USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY = 'user_panel_daily_checkin_amount';
 const INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY = 'invite_registration_auto_approve_enabled';
+const DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE = '{{name}}{{suffix}}';
 const DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT = '10';
 type MultiTenantUILayout = 'current' | 'user_panel';
 
@@ -148,6 +154,7 @@ export function SettingsPage() {
               <TestFieldTabSection />
               <ModelMappingDebuggerSection />
               <ExternalModelListSection />
+              <ProviderCloneNameSection />
               <MultiTenantUISection />
               <TimezoneSection />
             </>
@@ -1217,6 +1224,115 @@ export function ExternalModelListSection() {
         )}
         <p className="text-xs text-muted-foreground">{t('settings.externalModelListHint')}</p>
         <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ProviderCloneNameSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+  const strategy = settings?.[PROVIDER_CLONE_NAME_STRATEGY_SETTING_KEY] || 'suffix';
+  const template =
+    settings?.[PROVIDER_CLONE_NAME_TEMPLATE_SETTING_KEY] || DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE;
+  const [localTemplate, setLocalTemplate] = useState(template);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalTemplate(template);
+  }, [template]);
+
+  const handleStrategyChange = async (value: string | null) => {
+    if (!value) return;
+    setError(null);
+    try {
+      await updateSetting.mutateAsync({
+        key: PROVIDER_CLONE_NAME_STRATEGY_SETTING_KEY,
+        value,
+      });
+    } catch {
+      setError(t('settings.providerCloneNameSaveError'));
+    }
+  };
+
+  const handleTemplateBlur = async () => {
+    const nextTemplate = localTemplate.trim() || DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE;
+    setLocalTemplate(nextTemplate);
+    if (nextTemplate === template) return;
+    setError(null);
+    try {
+      await updateSetting.mutateAsync({
+        key: PROVIDER_CLONE_NAME_TEMPLATE_SETTING_KEY,
+        value: nextTemplate,
+      });
+    } catch {
+      setError(t('settings.providerCloneNameSaveError'));
+    }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Copy className="h-4 w-4 text-muted-foreground" />
+          {t('settings.providerCloneName')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label className="text-sm font-medium text-foreground">
+            {t('settings.providerCloneNameStrategy')}
+          </Label>
+          <Select
+            value={strategy}
+            onValueChange={handleStrategyChange}
+            disabled={updateSetting.isPending}
+          >
+            <SelectTrigger aria-label={t('settings.providerCloneNameStrategy')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="suffix">
+                {t('settings.providerCloneNameStrategySuffix')}
+              </SelectItem>
+              <SelectItem value="increment-number">
+                {t('settings.providerCloneNameStrategyIncrementNumber')}
+              </SelectItem>
+              <SelectItem value="template">
+                {t('settings.providerCloneNameStrategyTemplate')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.providerCloneNameStrategyDesc')}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="provider-clone-name-template" className="text-sm font-medium">
+            {t('settings.providerCloneNameTemplate')}
+          </Label>
+          <Input
+            id="provider-clone-name-template"
+            value={localTemplate}
+            onChange={(event) => setLocalTemplate(event.target.value)}
+            onBlur={handleTemplateBlur}
+            disabled={updateSetting.isPending}
+            placeholder={DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE}
+          />
+          <p className="text-xs text-muted-foreground">
+            {t('settings.providerCloneNameTemplateDesc')}
+          </p>
+        </div>
+
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

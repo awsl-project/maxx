@@ -1570,7 +1570,16 @@
     "externalModelListLabel": "Use custom external model list",
     "externalModelListDesc": "When enabled, model-list APIs and the user console available-models list use the models managed on the new External Models tab.",
     "externalModelListHint": "Turn this on only when you want to hide auto-discovered/provider-derived models behind an explicit public list.",
-    "externalModelListSaveError": "Failed to save the external model list switch. Please try again."
+    "externalModelListSaveError": "Failed to save the external model list switch. Please try again.",
+    "providerCloneName": "Provider clone naming",
+    "providerCloneNameStrategy": "Clone naming strategy",
+    "providerCloneNameStrategyDesc": "The default keeps the existing copy suffix. Number increment advances a trailing number. Template mode uses the custom template and avoids conflicts automatically.",
+    "providerCloneNameStrategySuffix": "Copy suffix (default)",
+    "providerCloneNameStrategyIncrementNumber": "Increment trailing number",
+    "providerCloneNameStrategyTemplate": "Custom template",
+    "providerCloneNameTemplate": "Clone name template",
+    "providerCloneNameTemplateDesc": "Supports {{name}}, {{base}}, {{suffix}}, and {{n}}. Empty templates fall back to {{name}}{{suffix}}.",
+    "providerCloneNameSaveError": "Failed to save provider clone naming settings."
   },
   "modelMappings": {
     "title": "Model Mappings",
