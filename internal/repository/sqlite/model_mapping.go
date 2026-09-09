@@ -27,6 +27,7 @@ func (r *ModelMappingRepository) Create(mapping *domain.ModelMapping) error {
 		return err
 	}
 	mapping.ID = model.ID
+	mapping.IsEnabled = model.IsEnabled != 0
 	return nil
 }
 

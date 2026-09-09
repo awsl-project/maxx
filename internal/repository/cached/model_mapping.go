@@ -150,7 +150,18 @@ func (r *ModelMappingRepository) List(tenantID uint64) ([]*domain.ModelMapping, 
 }
 
 func (r *ModelMappingRepository) ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error) {
-	return r.List(tenantID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]*domain.ModelMapping, 0, len(r.cache))
+	for _, m := range r.cache {
+		if !m.IsEnabled {
+			continue
+		}
+		if tenantID == domain.TenantIDAll || m.TenantID == tenantID {
+			result = append(result, m)
+		}
+	}
+	return result, nil
 }
 
 func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType domain.ClientType) ([]*domain.ModelMapping, error) {
@@ -158,6 +169,9 @@ func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType do
 	defer r.mu.RUnlock()
 	result := make([]*domain.ModelMapping, 0)
 	for _, m := range r.cache {
+		if !m.IsEnabled {
+			continue
+		}
 		if tenantID != domain.TenantIDAll && m.TenantID != tenantID {
 			continue
 		}
@@ -168,12 +182,15 @@ func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType do
 	return result, nil
 }
 
-// ListByQuery returns all mappings matching the query conditions
+// ListByQuery returns all enabled mappings matching the query conditions
 func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make([]*domain.ModelMapping, 0)
 	for _, m := range r.cache {
+		if !m.IsEnabled {
+			continue
+		}
 		if tenantID != domain.TenantIDAll && m.TenantID != tenantID {
 			continue
 		}
