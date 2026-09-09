@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BarChart3,
@@ -9,7 +9,6 @@ import {
   Cpu,
   Coins,
   CheckCircle,
-  Plus,
   Check,
   X,
 } from 'lucide-react';
@@ -1087,8 +1086,61 @@ function ModelFilter({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const collapsed = models.length > 5;
-  const visibleModels = collapsed ? (value === 'all' ? [] : [value]) : models;
+  const rowRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(models.length);
+  const orderedModels = useMemo(
+    () =>
+      value === 'all' || visibleCount >= models.length
+        ? models
+        : [value, ...models.filter((model) => model !== value)],
+    [models, value, visibleCount],
+  );
+  const overflowDigits = String(orderedModels.length).length;
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const measure = measureRef.current;
+    if (!row || !measure) return;
+
+    const update = () => {
+      const widths = Array.from(
+        measure.children[0].children,
+        (chip) => chip.getBoundingClientRect().width,
+      );
+      const overflowWidths = Array.from(
+        measure.children[1].children,
+        (button) => button.getBoundingClientRect().width,
+      );
+      const available = row.clientWidth;
+      const gap = parseFloat(getComputedStyle(row).columnGap);
+      const total = widths.reduce((sum, width) => sum + width, 0) + gap * (widths.length - 1);
+      if (total <= available) {
+        setVisibleCount(widths.length);
+        return;
+      }
+
+      let used = 0;
+      let count = 0;
+      for (let index = 0; index < widths.length - 1; index++) {
+        used += widths[index] + (index === 0 ? 0 : gap);
+        const remaining = widths.length - index - 1;
+        const overflowWidth = overflowWidths[String(remaining).length - 1];
+        if (used + gap + overflowWidth > available) break;
+        count = index + 1;
+      }
+      setVisibleCount(Math.max(1, count));
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(row);
+    observer.observe(measure);
+    return () => observer.disconnect();
+  }, [orderedModels]);
+
+  const visibleModels = orderedModels.slice(0, visibleCount);
+  const hiddenCount = orderedModels.length - visibleModels.length;
   const matchingModels = models.filter((model) =>
     model.toLowerCase().includes(search.trim().toLowerCase()),
   );
@@ -1099,69 +1151,103 @@ function ModelFilter({
       showClear={value !== 'all'}
       onClear={() => onChange('all')}
     >
-      {visibleModels.map((model) => (
-        <FilterChip
-          key={model}
-          selected={value === model}
-          onClick={() => onChange(model)}
-          title={model}
+      <div className="relative min-w-0 w-full overflow-hidden">
+        <div
+          ref={measureRef}
+          className="absolute invisible pointer-events-none w-max"
+          aria-hidden="true"
+          inert
         >
-          {model}
-        </FilterChip>
-      ))}
-      {collapsed && (
-        <Dialog
-          open={open}
-          onOpenChange={(nextOpen) => {
-            setOpen(nextOpen);
-            setSearch('');
-          }}
-        >
-          <DialogTrigger
-            render={<Button variant="outline" size="sm" className="rounded-full" />}
-            aria-label={t('modelInput.selectModel')}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {t('stats.model')}
-            <span className="text-muted-foreground tabular-nums">{models.length}</span>
-          </DialogTrigger>
-          <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-4">
-            <DialogHeader>
-              <DialogTitle>{t('modelInput.selectModel')}</DialogTitle>
-            </DialogHeader>
-            <Input
-              aria-label={t('common.search')}
-              placeholder={t('common.search')}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="shrink-0"
-            />
-            <div className="min-h-0 overflow-y-auto max-h-80 space-y-1">
-              {matchingModels.length === 0 && (
-                <p className="py-8 text-center text-muted-foreground">
-                  {t('modelInput.noMatchingModels')}
-                </p>
-              )}
-              {matchingModels.map((model) => (
-                <Button
-                  key={model}
-                  variant={value === model ? 'secondary' : 'ghost'}
-                  className="w-full justify-start"
-                  aria-pressed={value === model}
-                  title={model}
-                  onClick={() => {
-                    onChange(model);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="truncate">{model}</span>
-                  {value === model && <Check className="ml-auto h-4 w-4 shrink-0" />}
-                </Button>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+          <div className="flex gap-2">
+            {orderedModels.map((model) => (
+              <FilterChip key={model} selected={value === model} onClick={() => {}}>
+                {model}
+              </FilterChip>
+            ))}
+          </div>
+          <div className="flex">
+            {Array.from({ length: overflowDigits }, (_, index) => (
+              <Button
+                key={index}
+                variant="outline"
+                size="sm"
+                className="rounded-full tabular-nums shrink-0"
+              >
+                +{'9'.repeat(index + 1)}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div ref={rowRef} data-testid="stats-model-filter-row" className="flex min-w-0 gap-2">
+          {visibleModels.map((model) => (
+            <FilterChip
+              key={model}
+              selected={value === model}
+              onClick={() => onChange(model)}
+              title={model}
+            >
+              <span className="truncate">{model}</span>
+            </FilterChip>
+          ))}
+          {hiddenCount > 0 && (
+            <Dialog
+              open={open}
+              onOpenChange={(nextOpen) => {
+                setOpen(nextOpen);
+                setSearch('');
+              }}
+            >
+              <DialogTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full tabular-nums shrink-0"
+                  />
+                }
+                aria-label={t('modelInput.selectModel')}
+              >
+                +{hiddenCount}
+              </DialogTrigger>
+              <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-4">
+                <DialogHeader>
+                  <DialogTitle>{t('modelInput.selectModel')}</DialogTitle>
+                </DialogHeader>
+                <Input
+                  aria-label={t('common.search')}
+                  placeholder={t('common.search')}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="shrink-0"
+                />
+                <div className="min-h-0 overflow-y-auto max-h-80 space-y-1">
+                  {matchingModels.length === 0 && (
+                    <p className="py-8 text-center text-muted-foreground">
+                      {t('modelInput.noMatchingModels')}
+                    </p>
+                  )}
+                  {matchingModels.map((model) => (
+                    <Button
+                      key={model}
+                      variant={value === model ? 'secondary' : 'ghost'}
+                      className="w-full justify-start"
+                      aria-pressed={value === model}
+                      title={model}
+                      onClick={() => {
+                        onChange(model);
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="truncate">{model}</span>
+                      {value === model && <Check className="ml-auto h-4 w-4 shrink-0" />}
+                    </Button>
+                  ))}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+      </div>
     </FilterSection>
   );
 }

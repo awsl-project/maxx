@@ -135,8 +135,11 @@ test('desktop stats page renders summary and chart content', async ({ page }) =>
 });
 
 for (const viewport of [
+  { width: 320, height: 568 },
   { width: 390, height: 844 },
   { width: 739, height: 500 },
+  { width: 739, height: 300 },
+  { width: 768, height: 400 },
   { width: 1024, height: 500 },
 ]) {
   test(`stats chart bottom is reachable at ${viewport.width}x${viewport.height}`, async ({
@@ -182,26 +185,42 @@ for (const viewport of [
   });
 }
 
-for (const count of [5, 6]) {
-  test(`model picker collapses only above five models (${count})`, async ({ page }) => {
-    await page.route('**/api/response-models', (route) =>
-      route.fulfill({
-        json: Array.from({ length: count }, (_, index) => `example-model-${index + 1}`),
-      }),
-    );
-    await page.goto('/stats');
-    await expect(page.getByTestId('stats-chart-card')).toBeVisible();
+test('model chips collapse by available width and only promote the selection when collapsed', async ({
+  page,
+}) => {
+  await page.route('**/api/response-models', (route) =>
+    route.fulfill({
+      json: ['model-a', 'model-b', 'model-c', 'model-d', 'model-e', 'model-f'],
+    }),
+  );
+  await page.setViewportSize({ width: 739, height: 500 });
+  await page.goto('/stats');
+  const row = page.getByTestId('stats-model-filter-row');
+  const picker = row.getByRole('button', { name: 'Select Model', exact: true });
+  await expect(row.getByRole('button')).toHaveCount(6);
+  await expect(picker).toHaveCount(0);
+  await row.getByRole('button', { name: 'model-f', exact: true }).click();
+  await expect(row.getByRole('button').first()).toHaveText('model-a');
 
-    const picker = page.getByRole('button', {
-      name: 'Select Model',
-      exact: true,
-    });
-    await expect(picker).toHaveCount(count > 5 ? 1 : 0);
-    await expect(page.getByRole('button', { name: 'example-model-1', exact: true })).toHaveCount(
-      count > 5 ? 0 : 1,
-    );
-  });
-}
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expect(picker).toBeVisible();
+  await expect(row.getByRole('button').first()).toHaveText('model-f');
+  const visibleCount = (await row.getByRole('button').count()) - 1;
+  expect(visibleCount).toBeGreaterThan(0);
+  await expect(picker).toHaveText(`+${6 - visibleCount}`);
+  const bounds = await row.evaluate((element) => ({
+    width: element.clientWidth,
+    contentWidth: element.scrollWidth,
+    tops: Array.from(element.children, (child) => child.getBoundingClientRect().top),
+  }));
+  expect(bounds.contentWidth).toBeLessThanOrEqual(bounds.width);
+  expect(new Set(bounds.tops).size).toBe(1);
+
+  await page.setViewportSize({ width: 739, height: 500 });
+  await expect(picker).toHaveCount(0);
+  await expect(row.getByRole('button')).toHaveCount(6);
+  await expect(row.getByRole('button').first()).toHaveText('model-a');
+});
 
 test('model picker searches, selects, clears and supports keyboard dismissal', async ({
   page,
@@ -241,6 +260,13 @@ test('model picker searches, selects, clears and supports keyboard dismissal', a
   await expect(dialog).not.toBeVisible();
   await expect(picker).toBeFocused();
 
-  await picker.locator('../..').getByTitle('Clear', { exact: true }).click();
+  await expect(page.getByTestId('stats-model-filter-row').getByRole('button').first()).toHaveText(
+    'example-model-40',
+  );
+  await page
+    .getByTestId('stats-model-filter-row')
+    .locator('../../..')
+    .getByTitle('Clear', { exact: true })
+    .click();
   await expect(page.getByRole('button', { name: 'example-model-40', exact: true })).toHaveCount(0);
 });
