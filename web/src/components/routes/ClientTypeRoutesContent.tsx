@@ -110,6 +110,13 @@ import {
   type ProviderTypeKey,
 } from '@/pages/providers/types';
 import { invertVisibleProviderSelection } from '@/pages/providers/utils/selection';
+import {
+  ROUTE_PROVIDER_TYPE_FILTERS,
+  ROUTE_PROVIDER_TYPE_FILTER_LABELS,
+  countRouteProvidersByType,
+  filterRouteProvidersByType,
+  type RouteProviderTypeFilter,
+} from './route-provider-type-filter';
 
 function isSameProviderStats(a: ProviderStats, b: ProviderStats): boolean {
   return (
@@ -492,6 +499,8 @@ function ClientTypeRoutesContentInner({
   const [selectedAvailableProviderIds, setSelectedAvailableProviderIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [routeProviderTypeFilter, setRouteProviderTypeFilter] =
+    useState<RouteProviderTypeFilter>('all');
   const [bulkAddError, setBulkAddError] = useState<string | null>(null);
   const [bulkAddFailures, setBulkAddFailures] = useState<BulkAddRouteFailure[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -571,41 +580,56 @@ function ClientTypeRoutesContentInner({
   }, [clientRoutes]);
 
   // Build provider config items
-  const items = useMemo((): ProviderConfigItem[] => {
-    const allItems: ProviderConfigItem[] = [];
-
-    for (const route of clientRoutes) {
+  const allRouteItems = useMemo((): ProviderConfigItem[] => {
+    return clientRoutes.flatMap((route) => {
       const provider = providerById.get(Number(route.providerID));
-      if (!provider) continue;
+      if (!provider) return [];
       // Existing routes: trust server-derived route.isNative only.
       const isNative = route.isNative;
-      allItems.push({
-        id: `${clientType}-provider-${provider.id}`,
-        provider,
-        route,
-        enabled: route.isEnabled ?? false,
-        isNative,
-      });
-    }
+      return [
+        {
+          id: `${clientType}-provider-${provider.id}`,
+          provider,
+          route,
+          enabled: route.isEnabled ?? false,
+          isNative,
+        },
+      ];
+    });
+  }, [clientRoutes, clientType, providerById]);
 
-    let filteredItems = allItems;
+  const searchFilteredRouteItems = useMemo((): ProviderConfigItem[] => {
+    if (!normalizedQuery) return allRouteItems;
 
-    // Apply search filter
-    if (normalizedQuery) {
-      filteredItems = filteredItems.filter(
-        (item) =>
-          item.provider.name.toLowerCase().includes(normalizedQuery) ||
-          item.provider.type.toLowerCase().includes(normalizedQuery),
-      );
-    }
+    return allRouteItems.filter(
+      (item) =>
+        item.provider.name.toLowerCase().includes(normalizedQuery) ||
+        item.provider.type.toLowerCase().includes(normalizedQuery),
+    );
+  }, [allRouteItems, normalizedQuery]);
 
-    return filteredItems.sort((a, b) => {
+  const routeProviderTypeCounts = useMemo(
+    () => countRouteProvidersByType(searchFilteredRouteItems),
+    [searchFilteredRouteItems],
+  );
+
+  const availableRouteProviderTypeFilters = ROUTE_PROVIDER_TYPE_FILTERS;
+
+  const items = useMemo((): ProviderConfigItem[] => {
+    const filteredItems = filterRouteProvidersByType(
+      searchFilteredRouteItems,
+      routeProviderTypeFilter,
+    );
+
+    return filteredItems.slice().sort((a, b) => {
       const posDiff = (a.route?.position ?? 0) - (b.route?.position ?? 0);
       if (posDiff !== 0) return posDiff;
       if (a.isNative !== b.isNative) return a.isNative ? -1 : 1;
       return a.provider.name.localeCompare(b.provider.name);
     });
-  }, [clientRoutes, clientType, normalizedQuery, providerById]);
+  }, [routeProviderTypeFilter, searchFilteredRouteItems]);
+
+  const routeListFiltersActive = normalizedQuery.length > 0 || routeProviderTypeFilter !== 'all';
 
   const streamingThrottleMs = items.length > 200 ? 1000 : 0;
   const { countsByProviderAndClient } = useStreamingRequests({ throttleMs: streamingThrottleMs });
@@ -653,6 +677,13 @@ function ClientTypeRoutesContentInner({
   const allVisibleSelected =
     visibleRouteIds.length > 0 && selectedRouteIds.size === visibleRouteIds.length;
   const someVisibleSelected = selectedRouteIds.size > 0 && !allVisibleSelected;
+  const routeProviderTypeFilterActive = routeProviderTypeFilter !== 'all';
+  const routeProviderTypeFilterLabel =
+    routeProviderTypeFilter === 'all'
+      ? t('routes.providerTypeFilterAll')
+      : ROUTE_PROVIDER_TYPE_FILTER_LABELS[routeProviderTypeFilter];
+  const routeProviderTypeMatchCount = items.length;
+  const routeProviderTypeTotalCount = searchFilteredRouteItems.length;
 
   const availableProviders = useMemo(() => {
     return providers.filter((p) => !routeByProviderId.has(Number(p.id)));
@@ -808,7 +839,7 @@ function ClientTypeRoutesContentInner({
 
     setBulkAddError(null);
     setBulkAddFailures([]);
-    const startingPosition = items.length + 1;
+    const startingPosition = allRouteItems.length + 1;
     const targetProviders = selectedAvailableProviders;
     const results = await Promise.allSettled(
       targetProviders.map((provider, index) =>
@@ -896,6 +927,7 @@ function ClientTypeRoutesContentInner({
     setActiveId(null);
     document.body.classList.remove('is-dragging');
 
+    if (routeListFiltersActive) return;
     if (!over || active.id === over.id) return;
 
     const oldIndex = itemIndexById.get(active.id as string);
@@ -980,7 +1012,7 @@ function ClientTypeRoutesContentInner({
             </div>
           </div>
 
-          {items.length > 0 && (
+          {allRouteItems.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">
               <label className="flex items-center gap-3 text-sm text-muted-foreground">
                 <input
@@ -992,14 +1024,43 @@ function ClientTypeRoutesContentInner({
                 />
                 <span>
                   {t('routes.bulkSelectVisible', { count: visibleRouteIds.length })}
-                  {normalizedQuery && (
+                  {(normalizedQuery || routeProviderTypeFilterActive) && (
                     <span className="ml-1 text-muted-foreground/70">
                       {t('routes.bulkFilteredSelection')}
                     </span>
                   )}
                 </span>
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('routes.providerTypeFilterCount', {
+                    type: routeProviderTypeFilterLabel,
+                    count: routeProviderTypeMatchCount,
+                    total: routeProviderTypeTotalCount,
+                  })}
+                </span>
+                <Select
+                  value={routeProviderTypeFilter}
+                  onValueChange={(value) =>
+                    setRouteProviderTypeFilter(value as RouteProviderTypeFilter)
+                  }
+                >
+                  <SelectTrigger
+                    className="h-8 w-[150px] text-xs"
+                    aria-label={t('routes.providerTypeFilterLabel')}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableRouteProviderTypeFilters.map((filter) => (
+                      <SelectItem key={filter} value={filter}>
+                        {filter === 'all'
+                          ? t('routes.providerTypeFilterAll')
+                          : `${ROUTE_PROVIDER_TYPE_FILTER_LABELS[filter]} (${routeProviderTypeCounts.get(filter) ?? 0})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {selectedRouteIds.size > 0 && (
                   <span className="text-xs text-muted-foreground">
                     {t('routes.bulkSelectedCount', { count: selectedRouteIds.size })}
@@ -1021,9 +1082,9 @@ function ClientTypeRoutesContentInner({
           {/* Routes List */}
           {items.length > 0 ? (
             <DndContext
-              sensors={sensors}
+              sensors={routeListFiltersActive ? [] : sensors}
               collisionDetection={closestCenter}
-              onDragStart={handleDragStart}
+              onDragStart={routeListFiltersActive ? undefined : handleDragStart}
               onDragEnd={handleDragEnd}
             >
               <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
@@ -1084,10 +1145,16 @@ function ClientTypeRoutesContentInner({
             </DndContext>
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <p className="text-body">
-                {t('routes.noRoutesForClient', { client: getClientName(clientType) })}
-              </p>
-              <p className="text-caption mt-sm">{t('routes.addRouteToGetStarted')}</p>
+              {allRouteItems.length > 0 ? (
+                <p className="text-body">{t('routes.noRoutesMatchFilters')}</p>
+              ) : (
+                <>
+                  <p className="text-body">
+                    {t('routes.noRoutesForClient', { client: getClientName(clientType) })}
+                  </p>
+                  <p className="text-caption mt-sm">{t('routes.addRouteToGetStarted')}</p>
+                </>
+              )}
             </div>
           )}
 
