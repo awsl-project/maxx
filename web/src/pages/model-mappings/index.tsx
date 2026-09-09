@@ -194,7 +194,7 @@ function SortableRuleItem({
         {rule.projectID || '-'}
       </span>
 
-      <div className="w-[72px] h-7 shrink-0 flex items-center gap-2">
+      <div className="w-[72px] h-7 shrink-0 flex items-center">
         <Switch
           checked={isMappingEnabled(rule)}
           onCheckedChange={(checked) => onUpdate({ isEnabled: checked })}
@@ -203,12 +203,8 @@ function SortableRuleItem({
             pattern: rule.pattern || '*',
             target: rule.target || '-',
           })}
+          title={isMappingEnabled(rule) ? t('common.enabled') : t('common.disabled')}
         />
-        <span
-          className={`text-[11px] ${isMappingEnabled(rule) ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
-        >
-          {isMappingEnabled(rule) ? t('common.enabled') : t('common.disabled')}
-        </span>
       </div>
 
       <Button variant="ghost" size="sm" onClick={onRemove} disabled={disabled} className="shrink-0">

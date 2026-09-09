@@ -18,7 +18,7 @@ describe('client route provider active indicator', () => {
 
   it('uses active streaming as the row border and glow priority', () => {
     expect(source).toContain("hasActiveStreaming && 'ring-2 ring-offset-1 ring-offset-background'");
-    expect(source).toContain('hasActiveStreaming\n            ? `${color}80`');
+    expect(source).toMatch(/borderColor:\s*hasActiveStreaming\s*\? `\$\{color\}80`/);
     expect(source).toContain('boxShadow: hasActiveStreaming ? `0 0 20px ${color}25` : undefined');
   });
 });
