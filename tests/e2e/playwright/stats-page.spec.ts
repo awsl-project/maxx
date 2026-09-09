@@ -101,7 +101,7 @@ async function mockStatsPageApis(page: Page) {
     }
 
     if (pathname === '/api/admin/response-models' || pathname === '/api/response-models') {
-      return json(['gpt-5', 'claude-sonnet-4', 'gemini-2.5-pro']);
+      return json(Array.from({ length: 40 }, (_, index) => `example-model-${index + 1}`));
     }
 
     if (pathname === '/api/admin/usage-stats') {
@@ -134,42 +134,143 @@ test('desktop stats page renders summary and chart content', async ({ page }) =>
   await expect(cards).toHaveCount(4);
 });
 
-test('stats page scroll region supports vertical scrolling', async ({ page }, testInfo) => {
-  test.skip(
-    testInfo.project.name !== 'mobile-chromium',
-    'scroll overflow is exercised in the mobile layout targeted by this regression test',
-  );
+for (const viewport of [
+  { width: 320, height: 568 },
+  { width: 390, height: 844 },
+  { width: 739, height: 500 },
+  { width: 739, height: 300 },
+  { width: 768, height: 400 },
+  { width: 1024, height: 500 },
+]) {
+  test(`stats chart bottom is reachable at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/stats');
 
-  await page.goto('/stats');
+    const chartCard = page.getByTestId('stats-chart-card');
+    const results = page.getByTestId('stats-results-region');
+    const independentResultsScroll = await results.evaluate(
+      (element) => getComputedStyle(element).overflowY === 'auto',
+    );
+    const scrollRegion = independentResultsScroll
+      ? results
+      : page.getByTestId('stats-scroll-region');
 
-  const scrollRegion = page.getByTestId('stats-scroll-region');
-  const chartCard = page.getByTestId('stats-chart-card');
+    await expect(chartCard.getByRole('application')).toBeVisible();
+    await expect
+      .poll(() => chartCard.evaluate((element) => element.clientHeight))
+      .toBeGreaterThan(400);
+    await expect
+      .poll(() => scrollRegion.evaluate((element) => element.scrollHeight - element.clientHeight))
+      .toBeGreaterThan(0);
 
-  await expect(scrollRegion).toBeVisible();
+    await scrollRegion.hover();
+    await page.mouse.wheel(0, 10000);
 
-  const before = await scrollRegion.evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    scrollHeight: element.scrollHeight,
-    scrollTop: element.scrollTop,
-  }));
+    await expect
+      .poll(() => scrollRegion.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() =>
+        chartCard.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.bottom > 0 && rect.bottom <= window.innerHeight;
+        }),
+      )
+      .toBe(true);
 
-  expect(before.scrollTop).toBe(0);
-  expect(before.scrollHeight).toBeGreaterThan(before.clientHeight);
-
-  await scrollRegion.hover();
-  await page.mouse.wheel(0, 1800);
-
-  await expect
-    .poll(() => scrollRegion.evaluate((element) => element.scrollTop), { timeout: 2000 })
-    .toBeGreaterThan(0);
-
-  const afterScrollTop = await scrollRegion.evaluate((element) => element.scrollTop);
-  expect(afterScrollTop).toBeGreaterThan(0);
-
-  await expect(chartCard).toBeInViewport();
-
-  await testInfo.attach('stats-scroll-report-screenshot', {
-    body: await page.screenshot({ fullPage: true }),
-    contentType: 'image/png',
+    const dimensions = await chartCard.evaluate((element) => ({
+      height: element.clientHeight,
+      contentHeight: element.scrollHeight,
+    }));
+    expect(dimensions.contentHeight).toBeLessThanOrEqual(dimensions.height + 1);
+    await page.screenshot({ path: testInfo.outputPath('stats-bottom.png') });
   });
+}
+
+test('model chips collapse by available width and only promote the selection when collapsed', async ({
+  page,
+}) => {
+  await page.route('**/api/response-models', (route) =>
+    route.fulfill({
+      json: ['model-a', 'model-b', 'model-c', 'model-d', 'model-e', 'model-f'],
+    }),
+  );
+  await page.setViewportSize({ width: 739, height: 500 });
+  await page.goto('/stats');
+  const row = page.getByTestId('stats-model-filter-row');
+  const picker = row.getByRole('button', { name: 'Select Model', exact: true });
+  await expect(row.getByRole('button')).toHaveCount(6);
+  await expect(picker).toHaveCount(0);
+  await row.getByRole('button', { name: 'model-f', exact: true }).click();
+  await expect(row.getByRole('button').first()).toHaveText('model-a');
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expect(picker).toBeVisible();
+  await expect(row.getByRole('button').first()).toHaveText('model-f');
+  const visibleCount = (await row.getByRole('button').count()) - 1;
+  expect(visibleCount).toBeGreaterThan(0);
+  await expect(picker).toHaveText(`+${6 - visibleCount}`);
+  const bounds = await row.evaluate((element) => ({
+    width: element.clientWidth,
+    contentWidth: element.scrollWidth,
+    tops: Array.from(element.children, (child) => child.getBoundingClientRect().top),
+  }));
+  expect(bounds.contentWidth).toBeLessThanOrEqual(bounds.width);
+  expect(new Set(bounds.tops).size).toBe(1);
+
+  await page.setViewportSize({ width: 739, height: 500 });
+  await expect(picker).toHaveCount(0);
+  await expect(row.getByRole('button')).toHaveCount(6);
+  await expect(row.getByRole('button').first()).toHaveText('model-a');
+});
+
+test('model picker searches, selects, clears and supports keyboard dismissal', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/stats');
+  const picker = page.getByRole('button', {
+    name: 'Select Model',
+    exact: true,
+  });
+  await picker.click();
+  const dialog = page.getByRole('dialog', { name: 'Select Model' });
+  const search = dialog.getByRole('textbox', { name: 'Search', exact: true });
+  await expect(search).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath('model-picker.png') });
+  await search.fill('no-such-model');
+  await expect(dialog.getByText('No matching models found.')).toBeVisible();
+  await search.fill('EXAMPLE-MODEL-40');
+
+  const filteredRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return (
+      url.pathname === '/api/admin/usage-stats' &&
+      url.searchParams.get('model') === 'example-model-40'
+    );
+  });
+  await dialog.getByRole('button', { name: 'example-model-40', exact: true }).click();
+  await filteredRequest;
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'example-model-40', exact: true })).toBeVisible();
+
+  await picker.click();
+  await expect(search).toHaveValue('');
+  await expect(
+    dialog.getByRole('button', { name: 'example-model-40', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(picker).toBeFocused();
+
+  await expect(page.getByTestId('stats-model-filter-row').getByRole('button').first()).toHaveText(
+    'example-model-40',
+  );
+  await page
+    .getByTestId('stats-model-filter-row')
+    .locator('../../..')
+    .getByTitle('Clear', { exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'example-model-40', exact: true })).toHaveCount(0);
 });

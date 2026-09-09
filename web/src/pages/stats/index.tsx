@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BarChart3,
@@ -9,6 +9,7 @@ import {
   Cpu,
   Coins,
   CheckCircle,
+  Check,
   X,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
@@ -22,6 +23,12 @@ import {
   TabsTrigger,
   Button,
   Progress,
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  Input,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import {
@@ -622,11 +629,11 @@ export function StatsPage() {
 
       <div
         data-testid="stats-scroll-region"
-        className="flex-1 min-h-0 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden"
+        className="flex-1 min-h-0 flex flex-col @3xl/main:flex-row overflow-y-auto @3xl/main:overflow-hidden"
       >
         {/* 左侧筛选栏 */}
-        <div className="md:w-72 border-b md:border-b-0 md:border-r border-border/40 flex-shrink-0 overflow-visible md:overflow-y-auto">
-          <div className="p-4 space-y-6 md:h-full md:overflow-y-auto">
+        <div className="@3xl/main:w-72 border-b @3xl/main:border-b-0 @3xl/main:border-r border-border/40 flex-shrink-0 overflow-visible @3xl/main:overflow-y-auto">
+          <div className="p-4 space-y-6 @3xl/main:h-full @3xl/main:overflow-y-auto">
             {/* 标题 */}
             <div className="flex items-center pb-2 border-b border-border/40">
               <span className="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
@@ -778,17 +785,7 @@ export function StatsPage() {
 
             {/* Model */}
             {responseModels && responseModels.length > 0 && (
-              <FilterSection
-                label={t('stats.model')}
-                showClear={model !== 'all'}
-                onClear={() => setModel('all')}
-              >
-                {responseModels.map((m) => (
-                  <FilterChip key={m} selected={model === m} onClick={() => setModel(m)} title={m}>
-                    {m}
-                  </FilterChip>
-                ))}
-              </FilterSection>
+              <ModelFilter models={responseModels} value={model} onChange={setModel} />
             )}
 
             {/* 重置按钮 */}
@@ -800,8 +797,11 @@ export function StatsPage() {
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 min-h-0 flex flex-col p-4 md:p-6 md:overflow-y-auto">
-          <div className="max-w-7xl mx-auto w-full flex flex-col gap-6 flex-1 min-h-0">
+        <div
+          data-testid="stats-results-region"
+          className="flex-none min-w-0 flex flex-col p-4 @3xl/main:flex-1 @3xl/main:min-h-0 @3xl/main:p-6 @3xl/main:overflow-y-auto"
+        >
+          <div className="max-w-7xl mx-auto w-full flex shrink-0 flex-col gap-6">
             {/* 当前筛选条件摘要 */}
             <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
               <span className="font-medium text-foreground">{t('stats.filterSummary')}:</span>
@@ -834,7 +834,7 @@ export function StatsPage() {
                 </span>
               )}
               {model !== 'all' && (
-                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs break-all">
                   {t('stats.model')}: {model}
                 </span>
               )}
@@ -885,7 +885,7 @@ export function StatsPage() {
                 data-testid="stats-chart-card"
                 className="border-border/50 bg-card/50 backdrop-blur-sm"
               >
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-emerald-500" />
                     {t('stats.chart')}
@@ -1071,6 +1071,184 @@ function StatCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ModelFilter({
+  models,
+  value,
+  onChange,
+}: {
+  models: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const rowRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(models.length);
+  const orderedModels = useMemo(
+    () =>
+      value === 'all' || visibleCount >= models.length
+        ? models
+        : [value, ...models.filter((model) => model !== value)],
+    [models, value, visibleCount],
+  );
+  const overflowDigits = String(orderedModels.length).length;
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const measure = measureRef.current;
+    if (!row || !measure) return;
+
+    const update = () => {
+      const widths = Array.from(
+        measure.children[0].children,
+        (chip) => chip.getBoundingClientRect().width,
+      );
+      const overflowWidths = Array.from(
+        measure.children[1].children,
+        (button) => button.getBoundingClientRect().width,
+      );
+      const available = row.clientWidth;
+      const gap = parseFloat(getComputedStyle(row).columnGap);
+      const total = widths.reduce((sum, width) => sum + width, 0) + gap * (widths.length - 1);
+      if (total <= available) {
+        setVisibleCount(widths.length);
+        return;
+      }
+
+      let used = 0;
+      let count = 0;
+      for (let index = 0; index < widths.length - 1; index++) {
+        used += widths[index] + (index === 0 ? 0 : gap);
+        const remaining = widths.length - index - 1;
+        const overflowWidth = overflowWidths[String(remaining).length - 1];
+        if (used + gap + overflowWidth > available) break;
+        count = index + 1;
+      }
+      setVisibleCount(Math.max(1, count));
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(row);
+    observer.observe(measure);
+    return () => observer.disconnect();
+  }, [orderedModels]);
+
+  const visibleModels = orderedModels.slice(0, visibleCount);
+  const hiddenCount = orderedModels.length - visibleModels.length;
+  const matchingModels = models.filter((model) =>
+    model.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  return (
+    <FilterSection
+      label={t('stats.model')}
+      showClear={value !== 'all'}
+      onClear={() => onChange('all')}
+    >
+      <div className="relative min-w-0 w-full overflow-hidden">
+        <div
+          ref={measureRef}
+          className="absolute invisible pointer-events-none w-max"
+          aria-hidden="true"
+          inert
+        >
+          <div className="flex gap-2">
+            {orderedModels.map((model) => (
+              <FilterChip key={model} selected={value === model} onClick={() => {}}>
+                {model}
+              </FilterChip>
+            ))}
+          </div>
+          <div className="flex">
+            {Array.from({ length: overflowDigits }, (_, index) => (
+              <Button
+                key={index}
+                variant="outline"
+                size="sm"
+                className="rounded-full tabular-nums shrink-0"
+              >
+                +{'9'.repeat(index + 1)}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div ref={rowRef} data-testid="stats-model-filter-row" className="flex min-w-0 gap-2">
+          {visibleModels.map((model) => (
+            <FilterChip
+              key={model}
+              selected={value === model}
+              onClick={() => onChange(model)}
+              title={model}
+            >
+              <span className="truncate">{model}</span>
+            </FilterChip>
+          ))}
+          {hiddenCount > 0 && (
+            <Dialog
+              open={open}
+              onOpenChange={(nextOpen) => {
+                setOpen(nextOpen);
+                setSearch('');
+              }}
+            >
+              <DialogTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full tabular-nums shrink-0"
+                  />
+                }
+                aria-label={t('modelInput.selectModel')}
+              >
+                +{hiddenCount}
+              </DialogTrigger>
+              <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-4">
+                <DialogHeader>
+                  <DialogTitle>{t('modelInput.selectModel')}</DialogTitle>
+                </DialogHeader>
+                <Input
+                  aria-label={t('common.search')}
+                  placeholder={t('common.search')}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="shrink-0"
+                />
+                <div className="min-h-0 overflow-y-auto max-h-80 space-y-1">
+                  {matchingModels.length === 0 && (
+                    <p className="py-8 text-center text-muted-foreground">
+                      {t('modelInput.noMatchingModels')}
+                    </p>
+                  )}
+                  {matchingModels.map((model) => (
+                    <Button
+                      key={model}
+                      variant={value === model ? 'secondary' : 'ghost'}
+                      className="w-full justify-start"
+                      aria-pressed={value === model}
+                      title={model}
+                      onClick={() => {
+                        onChange(model);
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="truncate">{model}</span>
+                      {value === model && <Check className="ml-auto h-4 w-4 shrink-0" />}
+                    </Button>
+                  ))}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+      </div>
+    </FilterSection>
   );
 }
 
