@@ -136,8 +136,8 @@ func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
 			v21Count++
 		}
 	}
-	if lastVersion != 21 {
-		t.Fatalf("latest migration = v%d, want v21", lastVersion)
+	if lastVersion != 22 {
+		t.Fatalf("latest migration = v%d, want v22", lastVersion)
 	}
 	if v18Count != 1 {
 		t.Fatalf("migration v18 registered %d times, want once", v18Count)
