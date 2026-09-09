@@ -1,5 +1,5 @@
-import { useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Activity, Ban, Check, Copy, Globe, Mail, Repeat2, Snowflake } from 'lucide-react';
+import { type KeyboardEvent } from 'react';
+import { Activity, Ban, Globe, Mail, Repeat2, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 import { ClientIcon } from '@/components/icons/client-icons';
@@ -23,7 +23,6 @@ import {
   getAntigravityAvailabilityBadgeClass,
   getAntigravityAvailabilityInfo,
 } from '@/lib/antigravity-availability';
-import { buildProviderAddCommand, canBuildProviderAddCommand } from '../utils/provider-add-command';
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -254,31 +253,7 @@ export function ProviderRow({
   const worstCooldown = providerCooldowns[0];
   const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
 
-  const [shareCopied, setShareCopied] = useState(false);
-  const shareCommand = canBuildProviderAddCommand(provider)
-    ? buildProviderAddCommand(provider)
-    : null;
   const isInteractive = !!onClick;
-  const handleCopyProviderAddCommand = async (event: MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    if (!shareCommand || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(shareCommand);
-      setShareCopied(true);
-      window.setTimeout(() => setShareCopied(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy provider add command:', error);
-      setShareCopied(false);
-    }
-  };
-
-  const handleShareCommandKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-  };
-
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!onClick) return;
     if ((event.target as HTMLElement | null)?.closest('button, input, textarea, select, a')) return;
@@ -535,32 +510,6 @@ export function ProviderRow({
           )}
         </div>
       </div>
-      {shareCommand && (
-        <button
-          type="button"
-          onClick={handleCopyProviderAddCommand}
-          onKeyDown={handleShareCommandKeyDown}
-          className={cn(
-            'relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-background/70 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            shareCopied
-              ? 'border-emerald-500/40 text-emerald-500'
-              : 'border-border hover:border-primary/40 hover:text-foreground',
-          )}
-          title={
-            shareCopied
-              ? t('providers.shareProviderAddCommand.copied')
-              : t('providers.shareProviderAddCommand.copy')
-          }
-          aria-label={
-            shareCopied
-              ? t('providers.shareProviderAddCommand.copied')
-              : t('providers.shareProviderAddCommand.copy')
-          }
-        >
-          {shareCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        </button>
-      )}
-
       {(provider.config?.disableErrorCooldown || provider.config?.smartMappingRetryEnabled) && (
         <div className="relative z-10 flex shrink-0 items-center self-stretch gap-1">
           {provider.config?.disableErrorCooldown && (

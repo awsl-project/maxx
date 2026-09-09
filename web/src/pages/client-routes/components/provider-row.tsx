@@ -396,16 +396,15 @@ function ProviderRowContentBase({
         hasActiveStreaming && 'ring-2 ring-offset-1 ring-offset-background',
       )}
       style={{
-        borderColor:
-          hasActiveStreaming
-            ? `${color}80`
-            : healthLevel === 'frozen'
-              ? 'rgb(6 182 212 / 0.3)'
-              : healthLevel === 'limited'
-                ? 'rgb(234 179 8 / 0.3)'
-                : healthLevel === 'degraded'
-                  ? 'rgb(249 115 22 / 0.2)'
-                  : undefined,
+        borderColor: hasActiveStreaming
+          ? `${color}80`
+          : healthLevel === 'frozen'
+            ? 'rgb(6 182 212 / 0.3)'
+            : healthLevel === 'limited'
+              ? 'rgb(234 179 8 / 0.3)'
+              : healthLevel === 'degraded'
+                ? 'rgb(249 115 22 / 0.2)'
+                : undefined,
         boxShadow: hasActiveStreaming ? `0 0 20px ${color}25` : undefined,
       }}
       title={hasActiveStreaming ? activeStreamingLabel : undefined}
@@ -517,11 +516,11 @@ function ProviderRowContentBase({
               )}
               {hasActiveStreaming && (
                 <span
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 animate-pulse-soft"
+                  className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 animate-pulse-soft"
                   title={activeStreamingLabel}
+                  aria-label={activeStreamingLabel}
                 >
                   <Activity size={10} />
-                  {t('routes.providerActive')}
                 </span>
               )}
             </div>
