@@ -121,6 +121,49 @@ func TestDispatchDoesNotAmplify404ToolUseError(t *testing.T) {
 	}
 }
 
+func TestDispatchHardCeilingPreservesOneAttemptForLaterRoutes(t *testing.T) {
+	adapter := newAlways500Adapter()
+	// 25 routes with MaxRetries=39 would allow 1,000 upstream attempts without the
+	// global hard ceiling. The ceiling must cap amplification, but it must not let
+	// the early routes spend the entire budget before later healthy routes get even
+	// one chance.
+	c, proxyRepo := newMultiRouteAmplificationDispatchCtx(25, false, adapter)
+	storedState, ok := c.Get(flow.KeyExecutorState)
+	if !ok {
+		t.Fatal("executor state missing")
+	}
+	state := storedState.(*execState)
+	for _, matched := range state.routes {
+		matched.RetryConfig = &domain.RetryConfig{MaxRetries: 39, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0}
+	}
+	// If dispatch reaches the 25th route, it succeeds. Before the fix, the first
+	// five routes consumed all 200 attempts and the 25th route was never called.
+	adapter.build = func() *domain.ProxyError {
+		if adapter.calls >= maxUpstreamAttemptsPerRequest {
+			return nil
+		}
+		pe := domain.NewUpstreamConnectionError("failed to connect to upstream")
+		pe.HTTPStatusCode = http.StatusServiceUnavailable
+		return pe
+	}
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch error = %v", c.Err)
+	}
+	if adapter.calls != maxUpstreamAttemptsPerRequest {
+		t.Fatalf("adapter calls = %d, want %d", adapter.calls, maxUpstreamAttemptsPerRequest)
+	}
+	if got := state.proxyReq.ProviderID; got != 44 {
+		t.Fatalf("final provider ID = %d, want 44 (last route got a chance)", got)
+	}
+	if last := lastProxyStatus(proxyRepo); last != "COMPLETED" {
+		t.Fatalf("final proxy status = %q, want COMPLETED", last)
+	}
+}
+
 // TestDispatchDoesNotAmplifyInvalidImageError reproduces the 400 "invalid
 // image" case (11 requests → 4,321 calls before the fix).
 func TestDispatchDoesNotAmplifyInvalidImageError(t *testing.T) {

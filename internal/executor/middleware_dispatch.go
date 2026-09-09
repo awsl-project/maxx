@@ -89,7 +89,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	totalUpstreamAttempts := 0
 
 routeLoop:
-	for _, matchedRoute := range state.routes {
+	for routeIndex, matchedRoute := range state.routes {
 		if ctx.Err() != nil {
 			state.lastErr = ctx.Err()
 			c.Err = state.lastErr
@@ -116,6 +116,14 @@ routeLoop:
 		for attempt := 0; ; {
 			if attempt > retryConfig.MaxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) {
 				break
+			}
+			if !shouldSkipErrorCooldown(matchedRoute.Provider) {
+				remainingRoutes := len(state.routes) - routeIndex - 1
+				if totalUpstreamAttempts >= maxUpstreamAttemptsPerRequest-remainingRoutes {
+					log.Printf("[Executor] Upstream attempt ceiling budget reached after %d attempts; reserving first attempts for %d remaining route(s) after provider %d",
+						totalUpstreamAttempts, remainingRoutes, matchedRoute.Provider.ID)
+					break
+				}
 			}
 			if shouldSkipErrorCooldown(matchedRoute.Provider) && providerAttempts >= maxAttemptsPerProviderWithoutErrorCooldown {
 				log.Printf("[Executor] Provider %d reached the disableErrorCooldown attempt cap (%d) for this request; stopping without switching providers. lastErr=%v",
