@@ -1082,9 +1082,9 @@ function ClientTypeRoutesContentInner({
           {/* Routes List */}
           {items.length > 0 ? (
             <DndContext
-              sensors={routeListFiltersActive ? [] : sensors}
+              sensors={sensors}
               collisionDetection={closestCenter}
-              onDragStart={routeListFiltersActive ? undefined : handleDragStart}
+              onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
               <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
