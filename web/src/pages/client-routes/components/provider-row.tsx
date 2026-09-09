@@ -372,6 +372,8 @@ function ProviderRowContentBase({
   const antigravityAvailability = isAntigravity
     ? getAntigravityAvailabilityInfo(quota, healthLevel)
     : null;
+  const hasActiveStreaming = enabled && streamingCount > 0;
+  const activeStreamingLabel = t('routes.providerActiveRequests', { count: streamingCount });
 
   const handleContentClick = (e: React.MouseEvent) => {
     // 所有状态都打开详情弹窗
@@ -387,33 +389,32 @@ function ProviderRowContentBase({
         healthLevel === 'frozen' || healthLevel === 'limited'
           ? 'bg-transparent border-slate-400/50 dark:border-slate-500/40 hover:bg-slate-200/50 dark:hover:bg-slate-700/30 hover:border-slate-500 dark:hover:border-slate-400 hover:shadow-md'
           : enabled
-            ? streamingCount > 0
+            ? hasActiveStreaming
               ? 'bg-accent/5 border-transparent ring-1 ring-black/5 dark:ring-white/10'
               : 'bg-card/60 border-border hover:border-emerald-500/30 hover:bg-card shadow-sm'
             : 'bg-muted/40 border-dashed border-border opacity-70 grayscale-[0.5] hover:opacity-100 hover:grayscale-0',
+        hasActiveStreaming && 'ring-2 ring-offset-1 ring-offset-background',
       )}
       style={{
         borderColor:
-          healthLevel === 'frozen'
-            ? 'rgb(6 182 212 / 0.3)'
-            : healthLevel === 'limited'
-              ? 'rgb(234 179 8 / 0.3)'
-              : healthLevel === 'degraded'
-                ? 'rgb(249 115 22 / 0.2)'
-                : !effectiveIsInCooldown && enabled && streamingCount > 0
-                  ? `${color}40`
+          hasActiveStreaming
+            ? `${color}80`
+            : healthLevel === 'frozen'
+              ? 'rgb(6 182 212 / 0.3)'
+              : healthLevel === 'limited'
+                ? 'rgb(234 179 8 / 0.3)'
+                : healthLevel === 'degraded'
+                  ? 'rgb(249 115 22 / 0.2)'
                   : undefined,
-        boxShadow:
-          !effectiveIsInCooldown && enabled && streamingCount > 0
-            ? `0 0 20px ${color}15`
-            : undefined,
+        boxShadow: hasActiveStreaming ? `0 0 20px ${color}25` : undefined,
       }}
+      title={hasActiveStreaming ? activeStreamingLabel : undefined}
       {...dragHandleListeners}
     >
       <MarqueeBackground
-        show={streamingCount > 0 && enabled && !effectiveIsInCooldown}
+        show={hasActiveStreaming}
         color={`${color}15`}
-        opacity={0.4}
+        opacity={effectiveIsInCooldown ? 0.25 : 0.4}
       />
 
       {/* Cooldown 冰冻效果 - 落雪 (only for frozen/limited, NOT degraded) */}
@@ -472,7 +473,7 @@ function ProviderRowContentBase({
               className="absolute text-slate-500/70 dark:text-white/70 animate-pulse drop-shadow-[0_0_8px_rgba(100,116,139,0.4)] dark:drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]"
             />
           )}
-          {enabled && streamingCount > 0 && healthLevel === 'healthy' && (
+          {hasActiveStreaming && (healthLevel === 'healthy' || healthLevel === 'degraded') && (
             <div className="absolute inset-0 bg-black/5 dark:bg-white/5 animate-pulse" />
           )}
         </div>
@@ -512,6 +513,15 @@ function ProviderRowContentBase({
                   title={t(antigravityAvailability.descriptionKey)}
                 >
                   {t(antigravityAvailability.labelKey)}
+                </span>
+              )}
+              {hasActiveStreaming && (
+                <span
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 animate-pulse-soft"
+                  title={activeStreamingLabel}
+                >
+                  <Activity size={10} />
+                  {t('routes.providerActive')}
                 </span>
               )}
             </div>
@@ -655,8 +665,8 @@ function ProviderRowContentBase({
         )}
       </div>
       {/* Streaming Indicator */}
-      {enabled && streamingCount > 0 && !effectiveIsInCooldown && (
-        <div className="relative z-10 flex items-center shrink-0">
+      {hasActiveStreaming && (
+        <div className="relative z-10 flex items-center shrink-0" title={activeStreamingLabel}>
           <StreamingBadge count={streamingCount} color={color} />
         </div>
       )}

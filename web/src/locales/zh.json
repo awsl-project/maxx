@@ -953,6 +953,8 @@
     "strategyWeightedHint": "按权重随机排序——可调整每条路由的权重。",
     "weight": "权重",
     "weightTooltip": "权重越大被选中的概率越高（加权随机策略）。",
+    "providerActive": "请求中",
+    "providerActiveRequests": "当前有 {{count}} 个活跃请求正在使用此提供商。",
     "affinityOn": "已开启亲和",
     "affinityOff": "亲和关闭",
     "affinityScopeToken": "按 token",

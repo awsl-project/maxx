@@ -956,6 +956,8 @@
     "strategyWeightedHint": "Order is weighted-random — adjust each route's weight.",
     "weight": "Weight",
     "weightTooltip": "Higher weight = higher chance of being picked (weighted_random strategy).",
+    "providerActive": "Active",
+    "providerActiveRequests": "{{count}} active request(s) are currently using this provider.",
     "affinityOn": "Affinity on",
     "affinityOff": "Affinity off",
     "affinityScopeToken": "by token",
