@@ -149,9 +149,13 @@ for (const viewport of [
     await page.goto('/stats');
 
     const chartCard = page.getByTestId('stats-chart-card');
-    const scrollRegion = page.getByTestId(
-      viewport.width < 768 ? 'stats-scroll-region' : 'stats-results-region',
+    const results = page.getByTestId('stats-results-region');
+    const independentResultsScroll = await results.evaluate(
+      (element) => getComputedStyle(element).overflowY === 'auto',
     );
+    const scrollRegion = independentResultsScroll
+      ? results
+      : page.getByTestId('stats-scroll-region');
 
     await expect(chartCard.getByRole('application')).toBeVisible();
     await expect

@@ -629,11 +629,11 @@ export function StatsPage() {
 
       <div
         data-testid="stats-scroll-region"
-        className="flex-1 min-h-0 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden"
+        className="flex-1 min-h-0 flex flex-col @3xl/main:flex-row overflow-y-auto @3xl/main:overflow-hidden"
       >
         {/* 左侧筛选栏 */}
-        <div className="md:w-72 border-b md:border-b-0 md:border-r border-border/40 flex-shrink-0 overflow-visible md:overflow-y-auto">
-          <div className="p-4 space-y-6 md:h-full md:overflow-y-auto">
+        <div className="@3xl/main:w-72 border-b @3xl/main:border-b-0 @3xl/main:border-r border-border/40 flex-shrink-0 overflow-visible @3xl/main:overflow-y-auto">
+          <div className="p-4 space-y-6 @3xl/main:h-full @3xl/main:overflow-y-auto">
             {/* 标题 */}
             <div className="flex items-center pb-2 border-b border-border/40">
               <span className="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
@@ -799,7 +799,7 @@ export function StatsPage() {
         {/* 右侧内容区 */}
         <div
           data-testid="stats-results-region"
-          className="flex-none min-w-0 flex flex-col p-4 md:flex-1 md:min-h-0 md:p-6 md:overflow-y-auto"
+          className="flex-none min-w-0 flex flex-col p-4 @3xl/main:flex-1 @3xl/main:min-h-0 @3xl/main:p-6 @3xl/main:overflow-y-auto"
         >
           <div className="max-w-7xl mx-auto w-full flex shrink-0 flex-col gap-6">
             {/* 当前筛选条件摘要 */}
@@ -885,7 +885,7 @@ export function StatsPage() {
                 data-testid="stats-chart-card"
                 className="border-border/50 bg-card/50 backdrop-blur-sm"
               >
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-emerald-500" />
                     {t('stats.chart')}
