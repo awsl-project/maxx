@@ -2453,11 +2453,6 @@ func (h *AdminHandler) handleModelPrices(w http.ResponseWriter, r *http.Request,
 		h.handleModelPricesReset(w, r)
 		return
 	}
-	if strings.HasSuffix(path, "/upstream/prices") && r.Method == http.MethodPost {
-		h.handleModelPricesUpstreamPrices(w, r)
-		return
-	}
-
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {

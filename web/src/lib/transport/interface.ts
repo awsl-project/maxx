@@ -104,7 +104,6 @@ import type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
-  UpstreamModelPricesResult,
 } from './types';
 
 /**
@@ -373,7 +372,6 @@ export interface Transport {
   updateModelPrice(id: number, data: ModelPriceInput): Promise<ModelPrice>;
   deleteModelPrice(id: number): Promise<void>;
   resetModelPricesToDefaults(): Promise<ModelPrice[]>;
-  fetchExternalModelPrices(source?: string): Promise<UpstreamModelPricesResult>;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;
