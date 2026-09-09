@@ -185,6 +185,25 @@ func TestCreateModelPrice_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestAdminModelPricesRejectsRemovedUpstreamPath(t *testing.T) {
+	env := NewTestEnv(t)
+
+	resp := env.AdminPost("/api/admin/model-prices/upstream/prices", map[string]any{"source": "litellm"})
+	AssertStatus(t, resp, http.StatusNotFound)
+	resp.Body.Close()
+
+	resp = env.AdminGet("/api/admin/model-prices")
+	AssertStatus(t, resp, http.StatusOK)
+
+	var prices []map[string]any
+	DecodeJSON(t, resp, &prices)
+	for _, price := range prices {
+		if price["modelId"] == "" {
+			t.Fatalf("removed upstream path must not create an empty model price: %+v", price)
+		}
+	}
+}
+
 func TestModelPricesReset(t *testing.T) {
 	env := NewTestEnv(t)
 

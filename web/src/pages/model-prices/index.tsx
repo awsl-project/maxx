@@ -32,7 +32,6 @@ import {
 } from '@/hooks/queries';
 import type { ModelPrice, ModelPriceInput } from '@/lib/transport/types';
 import { DollarSign, Plus, Trash2, Pencil, RotateCcw } from 'lucide-react';
-import { UpstreamPricesImport } from './upstream-prices-import';
 
 // Helper to format micro USD price to display format (e.g., $3.00 / M tokens)
 function formatMicroPrice(microUsd: number): string {
@@ -196,7 +195,6 @@ export function ModelPricesPage() {
         actions={
           canManagePrices ? (
             <div className="flex items-center gap-2">
-              <UpstreamPricesImport currentPrices={prices || []} disabled={isPending} />
               <Button
                 variant="outline"
                 size="sm"

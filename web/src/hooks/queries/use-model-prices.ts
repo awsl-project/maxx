@@ -89,10 +89,3 @@ export function useResetModelPricesToDefaults() {
     },
   });
 }
-
-// 预览外部模型价格同步
-export function useFetchExternalModelPrices() {
-  return useMutation({
-    mutationFn: (source?: string) => getTransport().fetchExternalModelPrices(source),
-  });
-}
