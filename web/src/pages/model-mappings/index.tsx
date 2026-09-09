@@ -157,16 +157,6 @@ function SortableRuleItem({
         <GripVertical className="h-4 w-4 text-muted-foreground" />
       </button>
       <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
-      <Switch
-        checked={isMappingEnabled(rule)}
-        onCheckedChange={(checked) => onUpdate({ isEnabled: checked })}
-        disabled={disabled}
-        aria-label={t('modelMappings.toggleRule', {
-          pattern: rule.pattern || '*',
-          target: rule.target || '-',
-        })}
-      />
-
       {/* Pattern -> Target */}
       <ModelInput
         value={rule.pattern}
@@ -204,11 +194,22 @@ function SortableRuleItem({
         {rule.projectID || '-'}
       </span>
 
-      <span
-        className={`w-[72px] h-7 text-[11px] shrink-0 flex items-center ${isMappingEnabled(rule) ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
-      >
-        {isMappingEnabled(rule) ? t('common.enabled') : t('common.disabled')}
-      </span>
+      <div className="w-[72px] h-7 shrink-0 flex items-center gap-2">
+        <Switch
+          checked={isMappingEnabled(rule)}
+          onCheckedChange={(checked) => onUpdate({ isEnabled: checked })}
+          disabled={disabled}
+          aria-label={t('modelMappings.toggleRule', {
+            pattern: rule.pattern || '*',
+            target: rule.target || '-',
+          })}
+        />
+        <span
+          className={`text-[11px] ${isMappingEnabled(rule) ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
+        >
+          {isMappingEnabled(rule) ? t('common.enabled') : t('common.disabled')}
+        </span>
+      </div>
 
       <Button variant="ghost" size="sm" onClick={onRemove} disabled={disabled} className="shrink-0">
         <Trash2 className="h-4 w-4 text-destructive" />
@@ -269,8 +270,8 @@ export function ModelMappingsPage() {
         return a.id - b.id;
       });
   }, [debugQuery, mappings]);
-  const effectiveDebugMatches = debugMatches.filter((rule) =>
-    isMappingEnabled(rule) && matchWildcard(rule.pattern, debugQuery),
+  const effectiveDebugMatches = debugMatches.filter(
+    (rule) => isMappingEnabled(rule) && matchWildcard(rule.pattern, debugQuery),
   );
 
   const sensors = useSensors(
@@ -357,18 +358,18 @@ export function ModelMappingsPage() {
   const handleUpdateRule = async (rule: ModelMapping, data: Partial<ModelMappingInput>) => {
     await updateMapping.mutateAsync({
       id: rule.id,
-        data: {
-          pattern: data.pattern ?? rule.pattern,
-          target: data.target ?? rule.target,
-          scope: 'global',
-          clientType: data.clientType ?? rule.clientType,
-          providerType: data.providerType ?? rule.providerType,
-          providerID: data.providerID ?? rule.providerID,
-          projectID: data.projectID ?? rule.projectID,
-          priority: rule.priority,
-          isEnabled: data.isEnabled ?? rule.isEnabled,
-        },
-      });
+      data: {
+        pattern: data.pattern ?? rule.pattern,
+        target: data.target ?? rule.target,
+        scope: 'global',
+        clientType: data.clientType ?? rule.clientType,
+        providerType: data.providerType ?? rule.providerType,
+        providerID: data.providerID ?? rule.providerID,
+        projectID: data.projectID ?? rule.projectID,
+        priority: rule.priority,
+        isEnabled: data.isEnabled ?? rule.isEnabled,
+      },
+    });
   };
 
   const handleReset = async () => {
@@ -551,7 +552,6 @@ export function ModelMappingsPage() {
               <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium border-b pb-2">
                 <div className="w-6 shrink-0"></div>
                 <div className="w-6 shrink-0">#</div>
-                <div className="w-11 shrink-0">{t('common.enabled')}</div>
                 <div className="flex-1 min-w-0">{t('modelMappings.matchPattern')}</div>
                 <div className="w-3"></div>
                 <div className="flex-1 min-w-0">{t('modelMappings.targetModel')}</div>
