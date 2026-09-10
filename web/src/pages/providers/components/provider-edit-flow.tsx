@@ -59,6 +59,7 @@ import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
+import { ProviderOutboundProxyField } from './provider-outbound-proxy-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
@@ -518,6 +519,7 @@ type EditFormData = {
   smartMappingRetryLimit?: number;
   reasoning?: NonNullable<Provider['config']>['reasoning'];
   maxConcurrency: number;
+  proxyURL?: string;
   excludeFromExport: boolean;
   blackBox: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
@@ -601,6 +603,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
       reasoning: provider.config?.reasoning,
       maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
+      proxyURL: provider.config?.proxyURL || '',
       excludeFromExport: !!provider.excludeFromExport || !!provider.blackBox,
       blackBox: !!provider.blackBox,
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
@@ -719,6 +722,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           reasoning: formData.reasoning,
+          proxyURL: formData.proxyURL?.trim() || undefined,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -797,6 +801,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           reasoning: formData.reasoning,
+          proxyURL: formData.proxyURL?.trim() || undefined,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -1416,6 +1421,11 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   onChange={(maxConcurrency) =>
                     setFormData((prev) => ({ ...prev, maxConcurrency }))
                   }
+                />
+
+                <ProviderOutboundProxyField
+                  value={formData.proxyURL}
+                  onChange={(proxyURL) => setFormData((prev) => ({ ...prev, proxyURL }))}
                 />
 
                 <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">

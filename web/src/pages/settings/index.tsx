@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Copy,
+  Network,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
@@ -52,6 +53,7 @@ import {
   PROVIDER_CLONE_NAME_STRATEGY_SETTING_KEY,
   PROVIDER_CLONE_NAME_TEMPLATE_SETTING_KEY,
 } from '@/pages/providers/utils/provider-clone-name';
+import { PROXY_MANAGEMENT_ENABLED_SETTING_KEY } from '@/pages/proxies/utils/proxy-settings';
 
 function parseRetentionInteger(value: string): number | null {
   const trimmed = value.trim();
@@ -151,6 +153,7 @@ export function SettingsPage() {
             <>
               <SupportModelRoutingSection />
               <OpenAIChatStreamTimeoutSection />
+              <ProxyManagementTabSection />
               <TestFieldTabSection />
               <ModelMappingDebuggerSection />
               <ExternalModelListSection />
@@ -1117,7 +1120,42 @@ export function SupportModelRoutingSection() {
   );
 }
 
-export function TestFieldTabSection() {
+export function ProxyManagementTabSection() {
+  const { t } = useTranslation();
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const enabled = settings?.[PROXY_MANAGEMENT_ENABLED_SETTING_KEY] === 'true';
+
+  const handleToggle = async (checked: boolean) => {
+    await updateSetting.mutateAsync({
+      key: PROXY_MANAGEMENT_ENABLED_SETTING_KEY,
+      value: checked ? 'true' : 'false',
+    });
+  };
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Network className="h-4 w-4 text-muted-foreground" />
+          {t('settings.proxyManagement')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <Label className="text-sm font-medium">{t('settings.proxyManagementLabel')}</Label>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.proxyManagementDesc')}</p>
+          </div>
+          <Switch checked={enabled} onCheckedChange={handleToggle} disabled={isLoading || updateSetting.isPending} aria-label={t('settings.proxyManagementLabel')} />
+        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TestFieldTabSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();

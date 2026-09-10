@@ -44,6 +44,7 @@ import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
+import { ProviderOutboundProxyField } from './provider-outbound-proxy-field';
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -147,6 +148,7 @@ export function CustomConfigStep() {
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           reasoning: formData.reasoning,
+          proxyURL: formData.proxyURL?.trim() || undefined,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -234,6 +236,11 @@ export function CustomConfigStep() {
               <ProviderMaxConcurrencyField
                 value={formData.maxConcurrency ?? 0}
                 onChange={(maxConcurrency) => updateFormData({ maxConcurrency })}
+              />
+
+              <ProviderOutboundProxyField
+                value={formData.proxyURL}
+                onChange={(proxyURL) => updateFormData({ proxyURL })}
               />
 
               <div>

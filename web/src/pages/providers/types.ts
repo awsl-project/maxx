@@ -389,6 +389,7 @@ export type ProviderFormData = {
   smartMappingRetryLimit?: number;
   reasoning?: ReasoningPolicy;
   maxConcurrency?: number;
+  proxyURL?: string;
   excludeFromExport?: boolean;
   blackBox?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。

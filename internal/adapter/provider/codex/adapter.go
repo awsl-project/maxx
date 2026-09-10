@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -103,7 +102,7 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 	adapter := &CodexAdapter{
 		provider:   p,
 		tokenCache: &TokenCache{},
-		httpClient: newUpstreamHTTPClient(),
+		httpClient: newUpstreamHTTPClient(p),
 	}
 
 	// Initialize token cache from persisted config if available
@@ -833,26 +832,16 @@ func applyCodexRequestTuning(c *flow.Ctx, body []byte) (string, []byte) {
 	return cacheID, body
 }
 
-func newUpstreamHTTPClient() *http.Client {
-	dialer := &net.Dialer{
-		Timeout:   20 * time.Second,
-		KeepAlive: 60 * time.Second,
+func newUpstreamHTTPClient(providers ...*domain.Provider) *http.Client {
+	var p *domain.Provider
+	if len(providers) > 0 {
+		p = providers[0]
 	}
-
-	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           dialer.DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConnsPerHost:   16,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   20 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+	client, err := provider.NewHTTPClient(p, 600*time.Second, true)
+	if err != nil {
+		return &http.Client{Timeout: 600 * time.Second}
 	}
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   600 * time.Second,
-	}
+	return client
 }
 
 func flattenHeaders(h http.Header) map[string]string {

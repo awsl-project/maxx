@@ -28,6 +28,7 @@ import { StatsPage } from '@/pages/stats';
 import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
 import { ExternalModelsPage } from '@/pages/external-models';
+import { ProxiesPage } from '@/pages/proxies';
 import { UsersPage } from '@/pages/users';
 import { UserPanelPage } from '@/pages/user-panel';
 import { AdminRoute } from '@/components/auth/admin-route';
@@ -186,6 +187,16 @@ function AppRoutes() {
               <AdminRoute>
                 <SettingEnabledRoute settingKey="external_model_list_enabled">
                   <ExternalModelsPage />
+                </SettingEnabledRoute>
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="proxies"
+            element={
+              <AdminRoute>
+                <SettingEnabledRoute settingKey="ui_proxy_management_enabled">
+                  <ProxiesPage />
                 </SettingEnabledRoute>
               </AdminRoute>
             }

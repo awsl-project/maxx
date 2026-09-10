@@ -71,6 +71,7 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
   const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
   const testFieldTabEnabled = publicSettings.data?.ui_test_field_tab_enabled === 'true';
   const externalModelsTabEnabled = publicSettings.data?.external_model_list_enabled === 'true';
+  const proxyManagementTabEnabled = publicSettings.data?.ui_proxy_management_enabled === 'true';
 
   return (
     <>
@@ -91,6 +92,9 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
             item.key === 'external-models' &&
             !externalModelsTabEnabled
           ) {
+            return false;
+          }
+          if (item.type === 'standard' && item.key === 'proxies' && !proxyManagementTabEnabled) {
             return false;
           }
           if (item.type === 'standard' && item.adminOnly && !isAdmin) {

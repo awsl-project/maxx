@@ -257,6 +257,7 @@ export interface ProviderModelCheckResponse {
 
 export interface ProviderConfig {
   quotaEnabled?: boolean;
+  proxyURL?: string;
   disableErrorCooldown?: boolean;
   consecutiveErrorFreezeEnabled?: boolean;
   consecutiveErrorFreezeThreshold?: number;
