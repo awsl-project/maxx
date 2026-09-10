@@ -55,6 +55,13 @@ func Classify(err error, model, msg string, fallbackScope domain.ErrorScope, fal
 	body := err.Error()
 	proxyErr.HTTPStatusCode = statusCodeOf(err)
 	applyRetryHint(proxyErr, err)
+	if isIncompleteUpstreamStreamError(body) {
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		proxyErr.Retryable = true
+		proxyErr.HTTPStatusCode = 0
+		return proxyErr
+	}
 
 	// The body is the more specific signal and wins: the SDK rewrites a
 	// usage-limit rejection to HTTP 429, which the status rules alone would
@@ -157,6 +164,13 @@ func classifyBody(proxyErr *domain.ProxyError, body string) bool {
 // classifyStatus maps the upstream HTTP status onto scope/reason/retryable,
 // mirroring the native codex adapter's classifyCodexHTTPError. A zero status
 // means the SDK gave us nothing to go on, so the caller's fallback stands.
+func isIncompleteUpstreamStreamError(msg string) bool {
+	lowerMsg := strings.ToLower(msg)
+	return strings.Contains(lowerMsg, "upstream response stream ended before completion") ||
+		strings.Contains(lowerMsg, "response stream ended before completion") ||
+		strings.Contains(lowerMsg, "stream ended before completion")
+}
+
 func classifyStatus(proxyErr *domain.ProxyError, body string) {
 	switch status := proxyErr.HTTPStatusCode; {
 	case status == 0:
