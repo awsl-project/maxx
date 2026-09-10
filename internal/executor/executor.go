@@ -426,7 +426,7 @@ func (e *Executor) rateLimitDefaultCooldownUntil() *time.Time {
 	if e != nil && e.settingsRepo != nil {
 		value, err := e.settingsRepo.Get(domain.SettingKeyRateLimitCooldownDefaultSeconds)
 		if err == nil && strings.TrimSpace(value) != "" {
-			if seconds, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && seconds >= 1 && seconds <= 86400 {
+			if seconds, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && seconds >= 1 && seconds <= 604800 {
 				duration = time.Duration(seconds) * time.Second
 			}
 		}

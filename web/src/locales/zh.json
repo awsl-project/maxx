@@ -1502,7 +1502,7 @@
     "apiTokenConcurrencyHint": "超过限制时，同一 Token 的新请求会返回标准 429 限流响应，直到已有请求完成。",
     "rateLimitCooldownDefaultSeconds": "自动冻结默认时长",
     "rateLimitCooldownDefaultSecondsHint": "当上游 429 / 并发限制没有返回 Retry-After，或上游连接错误在重试耗尽后需要自动冻结时，使用此秒数作为冻结时长；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
-    "rateLimitCooldownDefaultSecondsInvalid": "自动冻结默认时长必须是 1 到 86400 之间的整数。",
+    "rateLimitCooldownDefaultSecondsInvalid": "自动冻结默认时长必须是 1 到 604800 之间的整数。",
     "concurrentRequestsUnit": "个请求",
     "defaultValue": "默认 {{value}}",
     "minutes": "分钟",
@@ -2204,10 +2204,22 @@
     "concurrencyHint": "超过限制时，同一 Token 的新请求会返回标准 429 限流响应，直到已有请求完成。",
     "concurrentLimitInvalid": "并发请求上限必须是不小于 1 的整数。",
     "autoCooldownTitle": "自动冻结默认时长",
-    "autoCooldownDesc": "配置没有显式上游冻结时间时使用的默认冻结秒数。",
+    "autoCooldownDesc": "选择默认冷却时长，可使用快捷选项或自定义单位；保存到底层时仍统一写入秒数。",
     "autoCooldownSeconds": "默认冻结时长",
-    "autoCooldownHint": "当上游 429 / 并发限制没有返回 Retry-After，或上游连接错误在重试耗尽后需要自动冻结时，使用此秒数作为冻结时长；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
-    "autoCooldownInvalid": "自动冻结默认时长必须是 1 到 86400 之间的整数。"
+    "autoCooldownHint": "后端只接收秒数；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
+    "autoCooldownInvalid": "自动冻结默认时长换算后必须是 1 到 604800 秒之间的整数。",
+    "autoCooldownInputLabel": "时长",
+    "autoCooldownPlaceholder": "输入数值",
+    "autoCooldownShortcuts": "时长快捷选项",
+    "autoCooldownPreview": "将保存为 {{seconds}} 秒",
+    "autoCooldownPreviewPending": "输入时长后会显示最终提交的秒数。",
+    "autoCooldownPresetSeconds": "{{seconds}} 秒",
+    "autoCooldownUnits": {
+      "seconds": "秒",
+      "minutes": "分钟",
+      "hours": "小时",
+      "days": "天"
+    }
   },
   "dataManagement": {
     "title": "数据管理",

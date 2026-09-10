@@ -53,8 +53,8 @@ func validateRateLimitCooldownDefaultSeconds(value string) error {
 		return fmt.Errorf("%w: %s cannot be empty", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
 	}
 	seconds, err := strconv.Atoi(trimmed)
-	if err != nil || seconds < 1 || seconds > 86400 {
-		return fmt.Errorf("%w: %s must be an integer between 1 and 86400", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
+	if err != nil || seconds < 1 || seconds > 604800 {
+		return fmt.Errorf("%w: %s must be an integer between 1 and 604800", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
 	}
 	return nil
 }

@@ -1505,7 +1505,7 @@
     "apiTokenConcurrencyHint": "When the limit is exceeded, new requests for the same token return a standard 429 rate limit response until an active request completes.",
     "rateLimitCooldownDefaultSeconds": "Default auto-cooldown duration",
     "rateLimitCooldownDefaultSecondsHint": "When upstream 429 / concurrency limits do not return Retry-After, or upstream connection errors exhaust retries and need automatic cooldown, use this value as the cooldown duration. Upstream Retry-After or explicit CooldownUntil still takes priority.",
-    "rateLimitCooldownDefaultSecondsInvalid": "Default auto-cooldown duration must be an integer between 1 and 86400.",
+    "rateLimitCooldownDefaultSecondsInvalid": "Default auto-cooldown duration must be an integer between 1 and 604800.",
     "concurrentRequestsUnit": "requests",
     "defaultValue": "default {{value}}",
     "minutes": "minutes",
@@ -2207,11 +2207,23 @@
     "concurrentRequestsUnit": "requests",
     "concurrencyHint": "When the limit is exceeded, new requests for the same token return a standard 429 rate limit response until an active request completes.",
     "concurrentLimitInvalid": "Concurrent request limit must be an integer of at least 1.",
-    "autoCooldownTitle": "Default auto-cooldown duration",
-    "autoCooldownDesc": "Configure the default cooldown duration used when upstreams do not provide an explicit cooldown time.",
+    "autoCooldownTitle": "Auto-freeze default duration",
+    "autoCooldownDesc": "Choose a default cooldown duration with readable presets or a custom unit. The value is still saved as seconds.",
     "autoCooldownSeconds": "Default cooldown duration",
-    "autoCooldownHint": "When upstream 429 / concurrency limits do not return Retry-After, or upstream connection errors exhaust retries and need automatic cooldown, use this value as the cooldown duration. Upstream Retry-After or explicit CooldownUntil still takes priority.",
-    "autoCooldownInvalid": "Default auto-cooldown duration must be an integer between 1 and 86400."
+    "autoCooldownHint": "The backend receives seconds only. Upstream Retry-After or an explicit CooldownUntil still takes priority over this default.",
+    "autoCooldownInvalid": "Auto-freeze default duration must resolve to an integer between 1 and 604800 seconds.",
+    "autoCooldownInputLabel": "Duration",
+    "autoCooldownPlaceholder": "Enter value",
+    "autoCooldownShortcuts": "Duration shortcuts",
+    "autoCooldownPreview": "{{seconds}} seconds will be saved",
+    "autoCooldownPreviewPending": "Enter a duration to preview the saved seconds value.",
+    "autoCooldownPresetSeconds": "{{seconds}} seconds",
+    "autoCooldownUnits": {
+      "seconds": "Seconds",
+      "minutes": "Minutes",
+      "hours": "Hours",
+      "days": "Days"
+    }
   },
   "dataManagement": {
     "title": "Data Management",
