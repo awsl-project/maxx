@@ -211,6 +211,26 @@ func TestCustomAdapterStreamClassifiesUnexpectedEOFAfterResponseStarted(t *testi
 	}
 }
 
+func TestCustomAdapterClassifiesIncompleteSSEStreamAsCommittedRetryableNetworkError(t *testing.T) {
+	proxyErr := proxyErrorFromErrObj(map[string]interface{}{
+		"message": "Upstream response stream ended before completion",
+		"code":    float64(0),
+	}, "SSE error")
+
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Fatalf("scope = %s, want %s", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Fatalf("reason = %s, want %s", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+	if proxyErr.HTTPStatusCode != 0 {
+		t.Fatalf("http status = %d, want 0", proxyErr.HTTPStatusCode)
+	}
+	if !proxyErr.Retryable {
+		t.Fatal("incomplete upstream stream SSE error should be retryable")
+	}
+}
+
 func newTestCustomAdapter() *CustomAdapter {
 	return &CustomAdapter{provider: &domain.Provider{
 		Type: "custom",

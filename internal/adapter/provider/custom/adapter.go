@@ -1354,7 +1354,19 @@ func proxyErrorFromErrObj(errObj map[string]interface{}, label string) *domain.P
 	)
 	proxyErr.Scope = domain.ScopeProvider
 	proxyErr.Reason = domain.CooldownReasonServerError
+	if isIncompleteUpstreamStreamSSEError(msg) {
+		proxyErr.Retryable = true
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		proxyErr.HTTPStatusCode = 0
+	}
 	return proxyErr
+}
+
+func isIncompleteUpstreamStreamSSEError(msg string) bool {
+	lowerMsg := strings.ToLower(msg)
+	return strings.Contains(lowerMsg, "upstream response stream ended before completion") ||
+		strings.Contains(lowerMsg, "response stream ended before completion") ||
+		strings.Contains(lowerMsg, "stream ended before completion")
 }
 
 // classifyHTTPError creates a structured ProxyError from an HTTP error response.

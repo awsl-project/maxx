@@ -939,6 +939,11 @@ func TestCommittedStreamReadRetryClassifierMatchesRemoteResetVariants(t *testing
 			msg:  "upstream response stream was interrupted",
 			err:  errors.New("unexpected EOF"),
 		},
+		{
+			name: "incomplete upstream sse stream",
+			msg:  "Upstream response stream ended before completion",
+			err:  errors.New("SSE error (code=0): Upstream response stream ended before completion"),
+		},
 	}
 
 	for _, tc := range cases {

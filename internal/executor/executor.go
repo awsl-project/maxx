@@ -558,6 +558,7 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 	msg = strings.ToLower(msg)
 	return strings.Contains(msg, "upstream stream read error after response started") ||
 		strings.Contains(msg, "upstream response stream was interrupted") ||
+		strings.Contains(msg, "stream ended before completion") ||
 		strings.Contains(msg, "stream transport reset") ||
 		strings.Contains(msg, "wsarecv") ||
 		strings.Contains(msg, "forcibly closed by the remote host") ||
