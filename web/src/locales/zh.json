@@ -2203,22 +2203,22 @@
     "concurrentRequestsUnit": "个请求",
     "concurrencyHint": "超过限制时，同一 Token 的新请求会返回标准 429 限流响应，直到已有请求完成。",
     "concurrentLimitInvalid": "并发请求上限必须是不小于 1 的整数。",
-    "autoCooldownTitle": "Auto-freezeDefaultDuration",
-    "autoCooldownDesc": "用符合直觉的单位选择时长，不需要手动换算秒数；保存时仍按秒提交到底层设置。",
+    "autoCooldownTitle": "自动冻结默认时长",
+    "autoCooldownDesc": "选择默认冷却时长，可使用快捷选项或自定义单位；保存到底层时仍统一写入秒数。",
     "autoCooldownSeconds": "默认冻结时长",
-    "autoCooldownHint": "底层逻辑只接收秒数；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
+    "autoCooldownHint": "后端只接收秒数；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
     "autoCooldownInvalid": "自动冻结默认时长换算后必须是 1 到 604800 秒之间的整数。",
-    "autoCooldownInputLabel": "Duration",
-    "autoCooldownPlaceholder": "Entervalue",
+    "autoCooldownInputLabel": "时长",
+    "autoCooldownPlaceholder": "输入数值",
     "autoCooldownShortcuts": "时长快捷选项",
-    "autoCooldownPreview": "={{seconds}} Seconds",
+    "autoCooldownPreview": "将保存为 {{seconds}} 秒",
     "autoCooldownPreviewPending": "输入时长后会显示最终提交的秒数。",
-    "autoCooldownPresetSeconds": "{{seconds}} seconds",
+    "autoCooldownPresetSeconds": "{{seconds}} 秒",
     "autoCooldownUnits": {
-      "seconds": "Seconds",
-      "minutes": "Minutes",
-      "hours": "Hours",
-      "days": "Days"
+      "seconds": "秒",
+      "minutes": "分钟",
+      "hours": "小时",
+      "days": "天"
     }
   },
   "dataManagement": {
