@@ -134,6 +134,15 @@ func TestAdminServiceDeleteSettingInvalidatesProxyBooleanCache(t *testing.T) {
 	}
 }
 
+func TestValidateRateLimitCooldownDefaultSecondsAllowsSevenDays(t *testing.T) {
+	if err := validateSystemSettingValue(domain.SettingKeyRateLimitCooldownDefaultSeconds, "604800"); err != nil {
+		t.Fatalf("validateSystemSettingValue() error = %v", err)
+	}
+	if err := validateSystemSettingValue(domain.SettingKeyRateLimitCooldownDefaultSeconds, "604801"); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("validateSystemSettingValue() error = %v, want invalid input", err)
+	}
+}
+
 func TestValidateStreamTimeoutMilliseconds(t *testing.T) {
 	validKeys := []string{
 		domain.SettingKeyOpenAIChatStreamFirstEventTimeoutMS,
