@@ -152,6 +152,24 @@ func TestClassifyRateLimitBodyWithoutStatus(t *testing.T) {
 	}
 }
 
+func TestClassifyIncompleteUpstreamStreamErrorIsNetworkRetryable(t *testing.T) {
+	proxyErr := Classify(errors.New("Error: Upstream response stream ended before completion"), "gpt-5.6-sol", "executor stream request failed",
+		domain.ScopeProvider, domain.CooldownReasonServerError)
+
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Errorf("scope = %q, want %q", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Errorf("reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+	if !proxyErr.Retryable {
+		t.Error("incomplete upstream stream error should be retryable")
+	}
+	if proxyErr.HTTPStatusCode != 0 {
+		t.Errorf("status = %d, want 0", proxyErr.HTTPStatusCode)
+	}
+}
+
 func TestClassifyStatusCodes(t *testing.T) {
 	tests := []struct {
 		name      string
