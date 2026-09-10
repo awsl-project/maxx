@@ -2217,6 +2217,7 @@
     "autoCooldownShortcuts": "Duration shortcuts",
     "autoCooldownPreview": "={{seconds}} Seconds",
     "autoCooldownPreviewPending": "Enter a duration to see the value in seconds.",
+    "autoCooldownPresetSeconds": "{{seconds}} seconds",
     "autoCooldownUnits": {
       "seconds": "Seconds",
       "minutes": "Minutes",

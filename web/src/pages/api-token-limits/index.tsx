@@ -172,25 +172,64 @@ export function APITokenLimitsPage() {
                 {t('apiTokenLimits.autoCooldownTitle')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-6 space-y-4">
-              <p className="max-w-2xl text-sm text-muted-foreground">
+            <CardContent className="p-6 space-y-5">
+              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
                 {t('apiTokenLimits.autoCooldownDesc')}
               </p>
 
-              <div className="space-y-2">
+              <div
+                className="grid max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4"
+                aria-label={t('apiTokenLimits.autoCooldownShortcuts')}
+              >
+                {AUTO_COOLDOWN_SHORTCUTS.map((shortcut) => {
+                  const shortcutSeconds = parseAutoCooldownSeconds(shortcut.amount, shortcut.unit);
+                  const isSelected =
+                    autoCooldownDraft.trim() === shortcut.amount &&
+                    autoCooldownUnit === shortcut.unit;
+
+                  return (
+                    <Button
+                      key={shortcut.label}
+                      type="button"
+                      variant="outline"
+                      className={`h-auto justify-start rounded-xl px-4 py-3 text-left transition-colors ${
+                        isSelected
+                          ? 'border-primary/70 bg-primary/10 text-primary shadow-sm'
+                          : 'border-border bg-background/60 hover:bg-muted/70'
+                      }`}
+                      onClick={() => {
+                        setAutoCooldownDraft(shortcut.amount);
+                        setAutoCooldownUnit(shortcut.unit);
+                      }}
+                      disabled={updateSetting.isPending || isLoading || !initialized}
+                    >
+                      <span className="flex flex-col items-start gap-1">
+                        <span className="font-mono text-sm font-semibold">{shortcut.label}</span>
+                        <span className="text-[11px] font-normal text-muted-foreground">
+                          {t('apiTokenLimits.autoCooldownPresetSeconds', {
+                            seconds: shortcutSeconds,
+                          })}
+                        </span>
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
+
+              <div className="max-w-2xl rounded-xl border border-border bg-muted/20 p-4">
                 <Label
                   htmlFor="auto-cooldown-duration"
-                  className="text-sm font-medium text-muted-foreground"
+                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
                 >
                   {t('apiTokenLimits.autoCooldownInputLabel')}
                 </Label>
-                <div className="grid max-w-xl grid-cols-[minmax(0,1fr)_10rem] overflow-hidden rounded-xl border border-input bg-background focus-within:ring-2 focus-within:ring-ring/30">
+                <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
                   <Input
                     id="auto-cooldown-duration"
                     type="number"
                     value={autoCooldownDraft}
                     onChange={(e) => setAutoCooldownDraft(e.target.value)}
-                    className="h-11 rounded-none border-0 bg-transparent focus-visible:ring-0"
+                    className="h-10 bg-background"
                     min={1}
                     max={AUTO_COOLDOWN_MAX_SECONDS}
                     step={1}
@@ -202,7 +241,7 @@ export function APITokenLimitsPage() {
                     onValueChange={(value) => setAutoCooldownUnit(value as AutoCooldownUnit)}
                     disabled={updateSetting.isPending || isLoading || !initialized}
                   >
-                    <SelectTrigger className="h-11 rounded-none border-y-0 border-r-0 bg-muted/30">
+                    <SelectTrigger className="h-10 bg-background">
                       <SelectValue>
                         {t(`apiTokenLimits.autoCooldownUnits.${autoCooldownUnit}`)}
                       </SelectValue>
@@ -218,35 +257,13 @@ export function APITokenLimitsPage() {
                 </div>
               </div>
 
-              <div
-                className="flex flex-wrap gap-2"
-                aria-label={t('apiTokenLimits.autoCooldownShortcuts')}
-              >
-                {AUTO_COOLDOWN_SHORTCUTS.map((shortcut) => (
-                  <Button
-                    key={shortcut.label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 rounded-full px-3 font-mono text-xs"
-                    onClick={() => {
-                      setAutoCooldownDraft(shortcut.amount);
-                      setAutoCooldownUnit(shortcut.unit);
-                    }}
-                    disabled={updateSetting.isPending || isLoading || !initialized}
-                  >
-                    {shortcut.label}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="space-y-1.5">
+              <div className="max-w-2xl rounded-xl border border-dashed border-border px-4 py-3">
                 <p className="text-sm font-medium text-foreground">
                   {isAutoCooldownValid
                     ? t('apiTokenLimits.autoCooldownPreview', { seconds: autoCooldownPreview })
                     : t('apiTokenLimits.autoCooldownPreviewPending')}
                 </p>
-                <p className="max-w-2xl text-xs leading-5 text-muted-foreground">
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   {t('apiTokenLimits.autoCooldownHint')}
                 </p>
               </div>

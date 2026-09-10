@@ -2213,6 +2213,7 @@
     "autoCooldownShortcuts": "时长快捷选项",
     "autoCooldownPreview": "={{seconds}} Seconds",
     "autoCooldownPreviewPending": "输入时长后会显示最终提交的秒数。",
+    "autoCooldownPresetSeconds": "{{seconds}} seconds",
     "autoCooldownUnits": {
       "seconds": "Seconds",
       "minutes": "Minutes",
