@@ -593,12 +593,21 @@ export function ProvidersPage() {
   };
 
   const handleBulkProxyUpdate = async () => {
+    const selectedProxy = bulkProxyURL
+      ? enabledOutboundProxies.find((proxy) => proxy.url === bulkProxyURL)
+      : undefined;
+
     if (
       !canManageProviderSettings ||
       !proxyManagementEnabled ||
       bulkProxyUpdateTargets.length === 0 ||
       isBulkProxyUpdating
     ) {
+      return;
+    }
+
+    if (bulkProxyURL && !selectedProxy) {
+      setBulkProxyURL('');
       return;
     }
 
@@ -613,7 +622,7 @@ export function ProvidersPage() {
           data: {
             config: {
               ...(provider.config ?? {}),
-              proxyURL: bulkProxyURL || undefined,
+              proxyURL: selectedProxy?.url,
             },
           },
         });
@@ -1196,7 +1205,7 @@ export function ProvidersPage() {
 
       <Dialog open={isBulkProxyUpdateOpen} onOpenChange={handleBulkProxyUpdateOpenChange}>
         <DialogContent
-          className="grid max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          className="grid max-h-[calc(100dvh-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-2xl"
           showCloseButton={!isBulkProxyUpdating}
         >
           <DialogHeader className="px-6 pt-6 pr-12 pb-4">
@@ -1236,6 +1245,7 @@ export function ProvidersPage() {
               </div>
               <Select
                 value={bulkProxyURL || '__direct__'}
+                disabled={isBulkProxyUpdating}
                 onValueChange={(value) =>
                   setBulkProxyURL(value === '__direct__' ? '' : (value ?? ''))
                 }
