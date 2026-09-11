@@ -704,55 +704,56 @@ export function ProvidersPage() {
           canManage={canManageProviderSettings}
           blockedReason={t('providers.importProvidersAdminOnly')}
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2"
+          className="flex h-9 w-9 items-center justify-center p-0"
           title={canManageProviderSettings ? t('providers.importProviders') : undefined}
+          aria-label={t('providers.importProviders')}
           variant="outline"
         >
           <Upload size={14} />
-          <span>{t('common.import')}</span>
         </ManageProvidersButton>
         {canManageProviderSettings ? (
           <Button
             onClick={handleExport}
-            className="flex items-center gap-2"
+            className="flex h-9 w-9 items-center justify-center p-0"
             disabled={providers.length === 0}
             title={t('providers.exportProviders')}
+            aria-label={t('providers.exportProviders')}
             variant="outline"
           >
             <Download size={14} />
-            <span>{t('common.export')}</span>
           </Button>
         ) : (
           <ManageProvidersButton
             canManage={false}
             blockedReason={providerReadOnlyHint}
-            className="flex items-center gap-2"
+            className="flex h-9 w-9 items-center justify-center p-0"
             title={t('providers.exportProviders')}
+            aria-label={t('providers.exportProviders')}
             variant="outline"
           >
             <Download size={14} />
-            <span>{t('common.export')}</span>
           </ManageProvidersButton>
         )}
         <ManageProvidersButton
           canManage={canManageProviderSettings}
           blockedReason={t('providers.addProviderAdminOnly')}
           onClick={() => setIsBulkImportOpen(true)}
-          className="flex items-center gap-2"
+          className="flex h-9 w-9 items-center justify-center p-0"
           title={canManageProviderSettings ? t('providers.bulkImport.open') : undefined}
+          aria-label={t('providers.bulkImport.open')}
           variant="outline"
         >
           <Terminal size={14} />
-          <span>{t('providers.bulkImport.open')}</span>
         </ManageProvidersButton>
         <ManageProvidersButton
           canManage={canManageProviderSettings}
           blockedReason={t('providers.addProviderAdminOnly')}
           onClick={() => navigate('/providers/create')}
           title={canManageProviderSettings ? t('providers.addProvider') : undefined}
+          aria-label={t('providers.addProvider')}
+          className="flex h-9 w-9 items-center justify-center p-0"
         >
           <Plus size={14} />
-          <span>{t('providers.addProvider')}</span>
         </ManageProvidersButton>
       </PageHeader>
 
