@@ -82,6 +82,7 @@ import type {
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
   UserPanelDailyCheckInResult,
+  UserPanelConsumptionLeaderboardResult,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -1199,6 +1200,16 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult> {
+    const { data } = await this.client.get<UserPanelConsumptionLeaderboardResult>(
+      '/user-panel/consumption-leaderboard',
+    );
+    return this.expectObject<UserPanelConsumptionLeaderboardResult>(
+      data,
+      '/user-panel/consumption-leaderboard',
+    );
+  }
+
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {
     const { data } = await this.adminClient.post<APITokenCreateResult>('/api-tokens', payload);
     return data;
@@ -1263,7 +1274,7 @@ export class HttpTransport implements Transport {
 
   // ===== Usage Stats API =====
 
-  async getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]> {
+  private usageStatsPath(filter?: UsageStatsFilter): string {
     const params = new URLSearchParams();
     if (filter?.granularity) params.set('granularity', filter.granularity);
     if (filter?.start) params.set('start', filter.start);
@@ -1276,8 +1287,18 @@ export class HttpTransport implements Transport {
     if (filter?.model) params.set('model', filter.model);
 
     const query = params.toString();
-    const url = query ? `/usage-stats?${query}` : '/usage-stats';
+    return query ? `/usage-stats?${query}` : '/usage-stats';
+  }
+
+  async getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]> {
+    const url = this.usageStatsPath(filter);
     const { data } = await this.adminClient.get<UsageStats[]>(url);
+    return this.expectArray<UsageStats>(data, '/usage-stats');
+  }
+
+  async getUserPanelUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]> {
+    const url = this.usageStatsPath(filter);
+    const { data } = await this.client.get<UsageStats[]>(url);
     return this.expectArray<UsageStats>(data, '/usage-stats');
   }
 

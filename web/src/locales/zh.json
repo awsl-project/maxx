@@ -110,7 +110,7 @@
     "users": "用户管理",
     "changePassword": "修改密码",
     "managePasskeys": "管理 Passkey",
-    "apiTokenLimits": "API Token 限流",
+    "apiTokenLimits": "请求限制",
     "dataManagement": "数据管理",
     "proxyAccess": "代理访问控制",
     "externalModels": "外部模型",
@@ -142,6 +142,8 @@
     "unnamedKey": "未命名 Key",
     "useCount": "调用",
     "quotaBalance": "余额",
+    "todayTokenUsage": "今日 Token",
+    "totalTokenUsage": "总 Token",
     "lastUsed": "最近",
     "apiAccess": "接口接入",
     "baseURL": "基础地址",
@@ -167,8 +169,7 @@
     "expiresAt": "过期",
     "noDedicatedKey": "暂无 Key",
     "dailyCheckInTitle": "每日签到",
-    "dailyCheckInReward": "每日领取 {{amount}} 额度",
-    "dailyCheckInAction": "签到领取",
+    "dailyCheckInReward": "每日自动领取 {{amount}} 额度",
     "dailyCheckInDone": "今日已领取",
     "dailyCheckInSuccess": "签到成功，已增加 {{amount}} 额度。",
     "dailyCheckInAlreadyDone": "今日已签到。",
@@ -223,7 +224,14 @@
       "degraded": "波动",
       "no-data": "暂无数据",
       "unavailable": "不可用"
-    }
+    },
+    "consumptionTab": "消耗榜",
+    "todayConsumptionLeaderboard": "今日消耗榜",
+    "allConsumptionLeaderboard": "全部消耗榜",
+    "amount": "金额",
+    "consumptionLeaderboardLoadFailed": "消耗榜加载失败",
+    "dailyCheckInAutoPending": "等待自动签到",
+    "dailyCheckInAutoRunning": "自动签到中…"
   },
   "testField": {
     "title": "测试场",

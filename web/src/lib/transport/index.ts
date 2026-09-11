@@ -139,6 +139,8 @@ export type {
   APITokenQuotaRechargeData,
   APITokenQuotaRechargeResult,
   UserPanelAPITokenResponse,
+  UserPanelConsumptionLeaderboardRow,
+  UserPanelConsumptionLeaderboardResult,
   // Usage Stats
   UsageStats,
   UsageStatsFilter,

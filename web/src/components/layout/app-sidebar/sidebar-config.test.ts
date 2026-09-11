@@ -53,4 +53,21 @@ describe('sidebarConfig', () => {
       labelKey: 'nav.testField',
     });
   });
+  it('keeps config navigation in conceptual order', () => {
+    const configSection = sidebarConfig.sections.find((section) => section.key === 'config');
+
+    expect(configSection?.items.map((item) => item.key)).toEqual([
+      'model-mappings',
+      'model-prices',
+      'external-models',
+      'routing-strategies',
+      'retry-configs',
+      'proxies',
+      'proxy-access',
+      'api-token-limits',
+      'data-management',
+      'diagnostics',
+      'settings',
+    ]);
+  });
 });

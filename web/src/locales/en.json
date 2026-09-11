@@ -110,7 +110,7 @@
     "users": "Users",
     "changePassword": "Change Password",
     "managePasskeys": "Manage Passkeys",
-    "apiTokenLimits": "API Token Limits",
+    "apiTokenLimits": "Request Limits",
     "dataManagement": "Data Management",
     "proxyAccess": "Proxy Access",
     "externalModels": "External Models",
@@ -142,6 +142,8 @@
     "unnamedKey": "Unnamed key",
     "useCount": "Uses",
     "quotaBalance": "Balance",
+    "todayTokenUsage": "Today tokens",
+    "totalTokenUsage": "Total tokens",
     "lastUsed": "Recent",
     "apiAccess": "API Access",
     "baseURL": "Base URL",
@@ -167,8 +169,7 @@
     "expiresAt": "Expires",
     "noDedicatedKey": "No key",
     "dailyCheckInTitle": "Daily check-in",
-    "dailyCheckInReward": "Claim {{amount}} quota each day",
-    "dailyCheckInAction": "Check in",
+    "dailyCheckInReward": "Automatically claim {{amount}} quota each day",
     "dailyCheckInDone": "Claimed today",
     "dailyCheckInSuccess": "Checked in. {{amount}} quota added.",
     "dailyCheckInAlreadyDone": "Already checked in today.",
@@ -223,7 +224,14 @@
       "degraded": "Degraded",
       "no-data": "No data",
       "unavailable": "Unavailable"
-    }
+    },
+    "consumptionTab": "Consumption",
+    "todayConsumptionLeaderboard": "Today consumption",
+    "allConsumptionLeaderboard": "All-time consumption",
+    "amount": "Amount",
+    "consumptionLeaderboardLoadFailed": "Failed to load consumption leaderboard",
+    "dailyCheckInAutoPending": "Waiting for auto check-in",
+    "dailyCheckInAutoRunning": "Auto check-in…"
   },
   "testField": {
     "title": "Test Field",

@@ -129,6 +129,7 @@ export {
   useCreateUserPanelAPIToken,
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
+  useUserPanelConsumptionLeaderboard,
   useUserPanelAvailableModels,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
@@ -149,6 +150,7 @@ export {
 export {
   usageStatsKeys,
   useUsageStats,
+  useUserPanelUsageStats,
   useUsageStatsWithPreset,
   useRecalculateUsageStats,
   useRecalculateCosts,

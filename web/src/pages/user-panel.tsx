@@ -1,5 +1,17 @@
-import { useEffect, useState } from 'react';
-import { Clock3, Copy, Eye, EyeOff, Gift, KeyRound, LogOut, Server, UserRound } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Clock3,
+  Copy,
+  Eye,
+  EyeOff,
+  Gift,
+  KeyRound,
+  Loader2,
+  LogOut,
+  Server,
+  Trophy,
+  UserRound,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Badge,
@@ -9,6 +21,12 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Tabs,
   TabsContent,
   TabsList,
@@ -24,9 +42,16 @@ import {
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
+  useUserPanelConsumptionLeaderboard,
   usePublicSettings,
+  useUserPanelUsageStats,
 } from '@/hooks/queries';
-import type { APIToken } from '@/lib/transport';
+import type {
+  APIToken,
+  UsageStatsFilter,
+  UsageStats,
+  UserPanelConsumptionLeaderboardRow,
+} from '@/lib/transport';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import {
   getUserPanelTabStorageKey,
@@ -48,22 +73,29 @@ function formatQuotaAmount(value: number) {
   return `$${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
 }
 
+function formatCostAmount(value: number) {
+  return `$${((value || 0) / 1_000_000_000).toFixed(4)}`;
+}
+
+function getLocalDayBounds(now = new Date()) {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return {
+    start: start.toISOString(),
+    end: now.toISOString(),
+  };
+}
+
+function totalTokens(stats?: UsageStats[]) {
+  return (stats ?? []).reduce(
+    (sum, item) => sum + item.inputTokens + item.outputTokens + item.cacheRead + item.cacheWrite,
+    0,
+  );
+}
+
 function parseDailyCheckInAmountSetting(value?: string) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) return undefined;
   return Math.round(amount * 1_000_000_000);
-}
-
-function formatDateTime(value?: string) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat(undefined, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function getTokenStatus(token: APIToken) {
@@ -72,22 +104,131 @@ function getTokenStatus(token: APIToken) {
   return 'active';
 }
 
+function ConsumptionLeaderboardCard({
+  title,
+  rows,
+  isLoading,
+  isError,
+  currentUserID,
+}: {
+  title: string;
+  rows: UserPanelConsumptionLeaderboardRow[];
+  isLoading: boolean;
+  isError: boolean;
+  currentUserID?: number;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <Card className="border-border bg-card shadow-sm">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Trophy className="size-4 text-amber-500" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-5">
+        {isLoading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : isError ? (
+          <p className="py-8 text-center text-sm text-destructive">
+            {t('userPanel.consumptionLeaderboardLoadFailed')}
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('common.noData')}</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('userPanel.username')}</TableHead>
+                <TableHead className="text-right">{t('userPanel.amount')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => {
+                const isCurrentUser = currentUserID === row.userID;
+                return (
+                  <TableRow
+                    key={row.userID}
+                    className={
+                      isCurrentUser
+                        ? 'bg-primary/10 ring-1 ring-inset ring-primary/25 hover:bg-primary/15'
+                        : undefined
+                    }
+                  >
+                    <TableCell className="font-medium text-foreground">{row.username}</TableCell>
+                    <TableCell className="text-right font-mono font-semibold tabular-nums">
+                      {formatCostAmount(row.cost)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function UserPanelPage() {
   const { t } = useTranslation();
   const { logout, user } = useAuth();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
+  const [usageClock, setUsageClock] = useState(() => new Date());
+  const todayBounds = useMemo(() => getLocalDayBounds(usageClock), [usageClock]);
+  const todayUsageFilter = useMemo<UsageStatsFilter>(
+    () => ({
+      granularity: 'day',
+      start: todayBounds.start,
+      end: todayBounds.end,
+    }),
+    [todayBounds.end, todayBounds.start],
+  );
+  const totalUsageFilter = useMemo<UsageStatsFilter>(
+    () => ({
+      granularity: 'month',
+      start: '2020-01-01T00:00:00.000Z',
+      end: todayBounds.end,
+    }),
+    [todayBounds.end],
+  );
+  const {
+    data: todayUsageStats,
+    isLoading: todayUsageLoading,
+    isError: todayUsageError,
+  } = useUserPanelUsageStats(todayUsageFilter, {
+    enabled: Boolean(user),
+  });
+  const {
+    data: totalUsageStats,
+    isLoading: totalUsageLoading,
+    isError: totalUsageError,
+  } = useUserPanelUsageStats(totalUsageFilter, {
+    enabled: Boolean(user),
+  });
   const { data: publicSettings } = usePublicSettings();
   const {
     data: availableModels,
     isLoading: availableModelsLoading,
     isError: availableModelsError,
   } = useUserPanelAvailableModels(Boolean(user));
+  const {
+    data: consumptionLeaderboard,
+    isLoading: consumptionLeaderboardLoading,
+    isError: consumptionLeaderboardError,
+  } = useUserPanelConsumptionLeaderboard(Boolean(user));
+  const localUserPanelDayKey = useMemo(() => todayBounds.start.slice(0, 10), [todayBounds.start]);
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
-  const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(dailyCheckInEnabled);
+  const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(
+    dailyCheckInEnabled,
+    localUserPanelDayKey,
+  );
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const revealUserPanelToken = useRevealUserPanelAPIToken();
   const dailyCheckIn = useUserPanelDailyCheckIn();
+  const { mutateAsync: runDailyCheckIn } = dailyCheckIn;
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
@@ -95,6 +236,7 @@ export function UserPanelPage() {
   const [revealKeyError, setRevealKeyError] = useState('');
   const [dailyCheckInMessage, setDailyCheckInMessage] = useState('');
   const [dailyCheckInDone, setDailyCheckInDone] = useState(false);
+  const autoDailyCheckInStartedRef = useRef(false);
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
     if (typeof window === 'undefined') return 'main';
@@ -110,6 +252,8 @@ export function UserPanelPage() {
   });
 
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
+  const todayTokenUsage = totalTokens(todayUsageStats);
+  const totalTokenUsage = totalTokens(totalUsageStats);
   const hasCheckedInToday = dailyCheckInStatus?.alreadyCheckedIn || dailyCheckInDone;
   const dailyCheckInRewardAmount =
     dailyCheckInStatus?.rewardAmount ??
@@ -141,13 +285,50 @@ export function UserPanelPage() {
   }, [userPanelToken?.id]);
 
   useEffect(() => {
-    if (dailyCheckInStatus?.alreadyCheckedIn) {
-      setDailyCheckInDone(true);
-    } else if (!dailyCheckInEnabled) {
+    autoDailyCheckInStartedRef.current = false;
+    setDailyCheckInDone(false);
+    setDailyCheckInMessage('');
+  }, [localUserPanelDayKey]);
+
+  useEffect(() => {
+    if (!dailyCheckInEnabled) {
+      autoDailyCheckInStartedRef.current = false;
       setDailyCheckInDone(false);
       setDailyCheckInMessage('');
+      return;
     }
-  }, [dailyCheckInEnabled, dailyCheckInStatus?.alreadyCheckedIn]);
+
+    if (dailyCheckInStatus?.alreadyCheckedIn) {
+      setDailyCheckInDone(true);
+      setDailyCheckInMessage(t('userPanel.dailyCheckInAlreadyDone'));
+      return;
+    }
+
+    if (!dailyCheckInStatus || autoDailyCheckInStartedRef.current) {
+      return;
+    }
+
+    autoDailyCheckInStartedRef.current = true;
+    setDailyCheckInMessage(t('userPanel.dailyCheckInAutoRunning'));
+    runDailyCheckIn().then((result) => {
+        setDailyCheckInDone(result.alreadyCheckedIn || result.checkedIn);
+        setDailyCheckInMessage(
+          result.alreadyCheckedIn
+            ? t('userPanel.dailyCheckInAlreadyDone')
+            : t('userPanel.dailyCheckInSuccess', {
+                amount: formatQuotaAmount(result.rewardAmount),
+              }),
+        );
+      })
+      .catch(() => {
+        setDailyCheckInMessage(t('userPanel.dailyCheckInError'));
+      });
+  }, [dailyCheckInEnabled, dailyCheckInStatus, runDailyCheckIn, t]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setUsageClock(new Date()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -216,27 +397,12 @@ export function UserPanelPage() {
     setKeyCopied(false);
   };
 
-  const handleDailyCheckIn = async () => {
-    setDailyCheckInMessage('');
-    try {
-      const result = await dailyCheckIn.mutateAsync();
-      setDailyCheckInDone(result.alreadyCheckedIn || result.checkedIn);
-      setDailyCheckInMessage(
-        result.alreadyCheckedIn
-          ? t('userPanel.dailyCheckInAlreadyDone')
-          : t('userPanel.dailyCheckInSuccess', { amount: formatQuotaAmount(result.rewardAmount) }),
-      );
-    } catch {
-      setDailyCheckInMessage(t('userPanel.dailyCheckInError'));
-    }
-  };
-
   const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
   const revealActionPending = revealUserPanelToken.isPending;
 
   return (
     <main className="min-h-svh bg-muted/30 px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
         <header className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
@@ -261,8 +427,9 @@ export function UserPanelPage() {
         </header>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          <TabsList className="grid w-full grid-cols-1 rounded-xl p-1">
+          <TabsList className="grid w-full grid-cols-2 rounded-xl p-1">
             <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
+            <TabsTrigger value="consumption">{t('userPanel.consumptionTab')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="main" className="space-y-5">
@@ -289,21 +456,13 @@ export function UserPanelPage() {
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Button
-                      size="sm"
-                      className="h-8 gap-2"
-                      disabled={dailyCheckIn.isPending || hasCheckedInToday}
-                      onClick={handleDailyCheckIn}
-                    >
-                      <Gift className="size-3.5" />
-                      {hasCheckedInToday
-                        ? t('userPanel.dailyCheckInDone')
-                        : dailyCheckIn.isPending
-                          ? t('common.loading')
-                          : t('userPanel.dailyCheckInAction')}
-                    </Button>
-                  </div>
+                  <Badge variant={hasCheckedInToday ? 'success' : 'secondary'} className="shrink-0">
+                    {hasCheckedInToday
+                      ? t('userPanel.dailyCheckInDone')
+                      : dailyCheckIn.isPending
+                        ? t('userPanel.dailyCheckInAutoRunning')
+                        : t('userPanel.dailyCheckInAutoPending')}
+                  </Badge>
                 </CardContent>
               </Card>
             )}
@@ -361,29 +520,32 @@ export function UserPanelPage() {
 
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-center">
                       <div className="space-y-1">
-                        <div className="relative">
+                        <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-1">
                           <Input
                             readOnly
                             type={userPanelTokenRevealed ? 'text' : 'password'}
                             value={userPanelTokenValue}
-                            className="h-9 pr-10 font-mono text-xs"
+                            className="h-9 font-mono text-xs transition-colors"
                             aria-label={t('userPanel.myKey')}
                           />
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="outline"
                             size="icon"
-                            className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
+                            className="size-9 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                             disabled={tokenActionPending || revealActionPending}
                             aria-label={t(
                               userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey',
                             )}
+                            aria-pressed={userPanelTokenRevealed}
                             title={t(
                               userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey',
                             )}
                             onClick={handleToggleUserPanelTokenReveal}
                           >
-                            {userPanelTokenRevealed ? (
+                            {revealActionPending ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : userPanelTokenRevealed ? (
                               <EyeOff className="size-3.5" />
                             ) : (
                               <Eye className="size-3.5" />
@@ -398,7 +560,7 @@ export function UserPanelPage() {
                           </p>
                         ) : null}
                       </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
                             {t('userPanel.quotaBalance')}
@@ -409,26 +571,22 @@ export function UserPanelPage() {
                         </div>
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
-                            {t('userPanel.useCount')}
+                            {t('userPanel.todayTokenUsage')}
                           </p>
-                          <p className="mt-1 text-base font-semibold tabular-nums text-foreground">
-                            {formatNumber(userPanelToken.useCount)}
-                          </p>
-                        </div>
-                        <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
-                          <p className="text-[11px] text-muted-foreground">
-                            {t('userPanel.lastUsed')}
-                          </p>
-                          <p className="mt-1 truncate font-mono text-xs tabular-nums text-foreground">
-                            {formatDateTime(userPanelToken.lastUsedAt)}
+                          <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
+                            {todayUsageLoading || (todayUsageError && !todayUsageStats)
+                              ? '—'
+                              : formatNumber(todayTokenUsage)}
                           </p>
                         </div>
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
-                            {t('userPanel.expiresAt')}
+                            {t('userPanel.totalTokenUsage')}
                           </p>
-                          <p className="mt-1 truncate font-mono text-xs tabular-nums text-foreground">
-                            {formatDateTime(userPanelToken.expiresAt)}
+                          <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
+                            {totalUsageLoading || (totalUsageError && !totalUsageStats)
+                              ? '—'
+                              : formatNumber(totalTokenUsage)}
                           </p>
                         </div>
                       </div>
@@ -531,6 +689,25 @@ export function UserPanelPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="consumption" className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <ConsumptionLeaderboardCard
+                title={t('userPanel.todayConsumptionLeaderboard')}
+                rows={consumptionLeaderboard?.today ?? []}
+                isLoading={consumptionLeaderboardLoading}
+                isError={consumptionLeaderboardError}
+                currentUserID={user?.id}
+              />
+              <ConsumptionLeaderboardCard
+                title={t('userPanel.allConsumptionLeaderboard')}
+                rows={consumptionLeaderboard?.all ?? []}
+                isLoading={consumptionLeaderboardLoading}
+                isError={consumptionLeaderboardError}
+                currentUserID={user?.id}
+              />
+            </div>
           </TabsContent>
         </Tabs>
 
