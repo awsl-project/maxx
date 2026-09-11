@@ -817,7 +817,22 @@
         "createFailed": "Failed to create provider"
       }
     },
-    "accountId": "Account ID"
+    "accountId": "Account ID",
+    "bulkProxyUpdate": {
+      "open": "Bulk update proxy",
+      "title": "Bulk update outbound proxy",
+      "description": "Update {{count}} editable providers to use the same outbound proxy.",
+      "selected": "Selected",
+      "updatable": "Updatable",
+      "proxies": "Available proxies",
+      "proxyLabel": "Target outbound proxy",
+      "direct": "Direct / adapter default",
+      "helper": "Only enabled proxy entries are listed. Choosing direct clears explicit proxy config for these providers.",
+      "currentProxy": "Current: {{proxy}}",
+      "noTargets": "No editable providers selected. Black-box providers are skipped.",
+      "result": "Updated {{count}} providers",
+      "submit": "Update proxy"
+    }
   },
   "projects": {
     "title": "Projects",
