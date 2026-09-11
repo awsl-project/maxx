@@ -109,11 +109,13 @@ function ConsumptionLeaderboardCard({
   rows,
   isLoading,
   isError,
+  currentUserID,
 }: {
   title: string;
   rows: UserPanelConsumptionLeaderboardRow[];
   isLoading: boolean;
   isError: boolean;
+  currentUserID?: number;
 }) {
   const { t } = useTranslation();
 
@@ -143,14 +145,33 @@ function ConsumptionLeaderboardCard({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.userID}>
-                  <TableCell className="font-medium text-foreground">{row.username}</TableCell>
-                  <TableCell className="text-right font-mono font-semibold tabular-nums">
-                    {formatCostAmount(row.cost)}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {rows.map((row) => {
+                const isCurrentUser = currentUserID === row.userID;
+                return (
+                  <TableRow
+                    key={row.userID}
+                    className={
+                      isCurrentUser
+                        ? 'bg-primary/10 ring-1 ring-inset ring-primary/25 hover:bg-primary/15'
+                        : undefined
+                    }
+                  >
+                    <TableCell className="font-medium text-foreground">
+                      <div className="flex items-center gap-2">
+                        <span>{row.username}</span>
+                        {isCurrentUser ? (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {t('userPanel.me')}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-semibold tabular-nums">
+                      {formatCostAmount(row.cost)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
@@ -679,12 +700,14 @@ export function UserPanelPage() {
                 rows={consumptionLeaderboard?.today ?? []}
                 isLoading={consumptionLeaderboardLoading}
                 isError={consumptionLeaderboardError}
+                currentUserID={user?.id}
               />
               <ConsumptionLeaderboardCard
                 title={t('userPanel.allConsumptionLeaderboard')}
                 rows={consumptionLeaderboard?.all ?? []}
                 isLoading={consumptionLeaderboardLoading}
                 isError={consumptionLeaderboardError}
+                currentUserID={user?.id}
               />
             </div>
           </TabsContent>

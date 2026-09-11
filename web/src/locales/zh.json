@@ -230,7 +230,8 @@
     "todayConsumptionLeaderboard": "今日消耗榜",
     "allConsumptionLeaderboard": "全部消耗榜",
     "amount": "金额",
-    "consumptionLeaderboardLoadFailed": "消耗榜加载失败"
+    "consumptionLeaderboardLoadFailed": "消耗榜加载失败",
+    "me": "我"
   },
   "testField": {
     "title": "测试场",
