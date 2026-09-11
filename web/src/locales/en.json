@@ -225,7 +225,12 @@
       "degraded": "Degraded",
       "no-data": "No data",
       "unavailable": "Unavailable"
-    }
+    },
+    "consumptionTab": "Consumption",
+    "todayConsumptionLeaderboard": "Today consumption",
+    "allConsumptionLeaderboard": "All-time consumption",
+    "amount": "Amount",
+    "consumptionLeaderboardLoadFailed": "Failed to load consumption leaderboard"
   },
   "testField": {
     "title": "Test Field",

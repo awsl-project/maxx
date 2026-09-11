@@ -82,6 +82,7 @@ import type {
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
   UserPanelDailyCheckInResult,
+  UserPanelConsumptionLeaderboardResult,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -1197,6 +1198,16 @@ export class HttpTransport implements Transport {
   async checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult> {
     const { data } = await this.client.post<UserPanelDailyCheckInResult>('/user-panel/check-in');
     return data;
+  }
+
+  async getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult> {
+    const { data } = await this.client.get<UserPanelConsumptionLeaderboardResult>(
+      '/user-panel/consumption-leaderboard',
+    );
+    return this.expectObject<UserPanelConsumptionLeaderboardResult>(
+      data,
+      '/user-panel/consumption-leaderboard',
+    );
   }
 
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {

@@ -465,6 +465,7 @@ func InitializeServerComponents(
 	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	selfServiceHandler := handler.NewSelfServiceHandler(adminService, modelsHandler)
+	selfServiceHandler.SetUserRepo(repos.UserRepo)
 	adminHandler.SetUserRepo(repos.UserRepo)
 	adminHandler.SetAuthEnabled(authEnabled)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)

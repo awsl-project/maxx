@@ -7,6 +7,7 @@ export const userPanelTokenKeys = {
   detail: () => [...userPanelTokenKeys.all, 'detail'] as const,
   availableModels: () => [...userPanelTokenKeys.all, 'available-models'] as const,
   dailyCheckInStatus: () => [...userPanelTokenKeys.all, 'daily-check-in-status'] as const,
+  consumptionLeaderboard: () => [...userPanelTokenKeys.all, 'consumption-leaderboard'] as const,
 };
 
 async function refreshUserPanelTokenDependents(queryClient: QueryClient) {
@@ -73,5 +74,13 @@ export function useUserPanelDailyCheckIn() {
   return useMutation({
     mutationFn: () => getTransport().checkInUserPanelDailyQuota(),
     onSuccess: () => refreshUserPanelTokenDependents(queryClient),
+  });
+}
+
+export function useUserPanelConsumptionLeaderboard(enabled = true) {
+  return useQuery({
+    queryKey: userPanelTokenKeys.consumptionLeaderboard(),
+    queryFn: () => getTransport().getUserPanelConsumptionLeaderboard(),
+    enabled,
   });
 }

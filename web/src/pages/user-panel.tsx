@@ -9,6 +9,7 @@ import {
   Loader2,
   LogOut,
   Server,
+  Trophy,
   UserRound,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +21,12 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Tabs,
   TabsContent,
   TabsList,
@@ -35,10 +42,16 @@ import {
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
+  useUserPanelConsumptionLeaderboard,
   usePublicSettings,
   useUserPanelUsageStats,
 } from '@/hooks/queries';
-import type { APIToken, UsageStatsFilter, UsageStats } from '@/lib/transport';
+import type {
+  APIToken,
+  UsageStatsFilter,
+  UsageStats,
+  UserPanelConsumptionLeaderboardRow,
+} from '@/lib/transport';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import {
   getUserPanelTabStorageKey,
@@ -58,6 +71,10 @@ function formatQuotaBalance(value: number) {
 function formatQuotaAmount(value: number) {
   const amount = (value || 0) / 1_000_000_000;
   return `$${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
+}
+
+function formatCostAmount(value: number) {
+  return `$${((value || 0) / 1_000_000_000).toFixed(4)}`;
 }
 
 function getLocalDayBounds(now = new Date()) {
@@ -85,6 +102,61 @@ function getTokenStatus(token: APIToken) {
   if (!token.isEnabled) return 'disabled';
   if (token.expiresAt && new Date(token.expiresAt).getTime() <= Date.now()) return 'expired';
   return 'active';
+}
+
+function ConsumptionLeaderboardCard({
+  title,
+  rows,
+  isLoading,
+  isError,
+}: {
+  title: string;
+  rows: UserPanelConsumptionLeaderboardRow[];
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <Card className="border-border bg-card shadow-sm">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Trophy className="size-4 text-amber-500" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-5">
+        {isLoading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : isError ? (
+          <p className="py-8 text-center text-sm text-destructive">
+            {t('userPanel.consumptionLeaderboardLoadFailed')}
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('common.noData')}</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('userPanel.username')}</TableHead>
+                <TableHead className="text-right">{t('userPanel.amount')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.userID}>
+                  <TableCell className="font-medium text-foreground">{row.username}</TableCell>
+                  <TableCell className="text-right font-mono font-semibold tabular-nums">
+                    {formatCostAmount(row.cost)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function UserPanelPage() {
@@ -129,6 +201,11 @@ export function UserPanelPage() {
     isLoading: availableModelsLoading,
     isError: availableModelsError,
   } = useUserPanelAvailableModels(Boolean(user));
+  const {
+    data: consumptionLeaderboard,
+    isLoading: consumptionLeaderboardLoading,
+    isError: consumptionLeaderboardError,
+  } = useUserPanelConsumptionLeaderboard(Boolean(user));
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
   const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(dailyCheckInEnabled);
   const createUserPanelToken = useCreateUserPanelAPIToken();
@@ -290,7 +367,7 @@ export function UserPanelPage() {
 
   return (
     <main className="min-h-svh bg-muted/30 px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
         <header className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
@@ -315,8 +392,9 @@ export function UserPanelPage() {
         </header>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          <TabsList className="grid w-full grid-cols-1 rounded-xl p-1">
+          <TabsList className="grid w-full grid-cols-2 rounded-xl p-1">
             <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
+            <TabsTrigger value="consumption">{t('userPanel.consumptionTab')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="main" className="space-y-5">
@@ -592,6 +670,23 @@ export function UserPanelPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="consumption" className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <ConsumptionLeaderboardCard
+                title={t('userPanel.todayConsumptionLeaderboard')}
+                rows={consumptionLeaderboard?.today ?? []}
+                isLoading={consumptionLeaderboardLoading}
+                isError={consumptionLeaderboardError}
+              />
+              <ConsumptionLeaderboardCard
+                title={t('userPanel.allConsumptionLeaderboard')}
+                rows={consumptionLeaderboard?.all ?? []}
+                isLoading={consumptionLeaderboardLoading}
+                isError={consumptionLeaderboardError}
+              />
+            </div>
           </TabsContent>
         </Tabs>
 

@@ -46,6 +46,7 @@ const defaultUserPanelDailyCheckInAmountUSD = "10"
 type SelfServiceHandler struct {
 	svc           *service.AdminService
 	modelsHandler *ModelsHandler
+	userRepo      repository.UserRepository
 }
 
 // NewSelfServiceHandler creates a new self-service handler.
@@ -55,6 +56,11 @@ func NewSelfServiceHandler(svc *service.AdminService, modelsHandler ...*ModelsHa
 		mh = modelsHandler[0]
 	}
 	return &SelfServiceHandler{svc: svc, modelsHandler: mh}
+}
+
+// SetUserRepo sets the user repository for user-panel cross-user leaderboard endpoints.
+func (h *SelfServiceHandler) SetUserRepo(repo repository.UserRepository) {
+	h.userRepo = repo
 }
 
 func writeSelfServiceInternalError(w http.ResponseWriter, context string, err error) {
@@ -258,6 +264,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleUserPanelModels(w, r)
 		case len(parts) == 3 && parts[2] == "check-in":
 			h.handleUserPanelDailyCheckIn(w, r)
+		case len(parts) == 3 && parts[2] == "consumption-leaderboard":
+			h.handleUserPanelConsumptionLeaderboard(w, r)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
@@ -1581,6 +1589,108 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 		"checkInDate":      checkInDate,
 		"rewardAmount":     rewardAmount,
 	})
+}
+
+type userPanelConsumptionLeaderboardRow struct {
+	UserID   uint64 `json:"userID"`
+	Username string `json:"username"`
+	Cost     uint64 `json:"cost"`
+}
+
+type userPanelConsumptionLeaderboardResponse struct {
+	Today []userPanelConsumptionLeaderboardRow `json:"today"`
+	All   []userPanelConsumptionLeaderboardRow `json:"all"`
+}
+
+func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if h.userRepo == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "user management not available"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	users, err := h.userRepo.ListByTenant(tenantID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "ListUsers failed", err)
+		return
+	}
+	tokens, err := h.svc.GetAPITokens(tenantID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetAPITokens failed", err)
+		return
+	}
+
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayFilter := repository.UsageStatsFilter{Granularity: domain.GranularityDay, StartTime: &start, EndTime: &now}
+	todayStats, err := h.svc.GetUsageStats(tenantID, todayFilter)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetTodayConsumptionStats failed", err)
+		return
+	}
+	allFilter := repository.UsageStatsFilter{Granularity: domain.GranularityMonth}
+	allStats, err := h.svc.GetUsageStats(tenantID, allFilter)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetAllConsumptionStats failed", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, userPanelConsumptionLeaderboardResponse{
+		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, users),
+		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, users),
+	})
+}
+
+func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, users []*domain.User) []userPanelConsumptionLeaderboardRow {
+	usernames := make(map[uint64]string, len(users))
+	for _, user := range users {
+		if user != nil {
+			usernames[user.ID] = user.Username
+		}
+	}
+
+	tokenUsers := make(map[uint64]uint64, len(tokens))
+	for _, token := range tokens {
+		if token == nil || !strings.HasPrefix(token.Description, userPanelAPITokenDescriptionPrefix) {
+			continue
+		}
+		id, err := strconv.ParseUint(strings.TrimPrefix(token.Description, userPanelAPITokenDescriptionPrefix), 10, 64)
+		if err == nil && id > 0 {
+			tokenUsers[token.ID] = id
+		}
+	}
+
+	costs := make(map[uint64]uint64)
+	for _, item := range stats {
+		if item == nil {
+			continue
+		}
+		userID := tokenUsers[item.APITokenID]
+		if userID == 0 {
+			continue
+		}
+		costs[userID] += item.Cost
+	}
+
+	rows := make([]userPanelConsumptionLeaderboardRow, 0, len(costs))
+	for userID, cost := range costs {
+		username := usernames[userID]
+		if username == "" {
+			username = userPanelAPITokenName(userID)
+		}
+		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: userID, Username: username, Cost: cost})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Cost == rows[j].Cost {
+			return rows[i].Username < rows[j].Username
+		}
+		return rows[i].Cost > rows[j].Cost
+	})
+	return rows
 }
 
 func findUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, userID uint64) ([]*domain.APIToken, error) {
