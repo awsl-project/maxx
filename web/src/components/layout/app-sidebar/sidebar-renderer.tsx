@@ -17,6 +17,44 @@ interface SidebarRendererProps {
   config: SidebarConfig;
 }
 
+export function shouldRenderSidebarItem(
+  item: MenuItem,
+  {
+    settings,
+    isAdmin,
+    authEnabled,
+  }: { settings?: Record<string, string>; isAdmin: boolean; authEnabled: boolean },
+) {
+  const multiTenantUIEnabled = settings?.ui_multitenant_enabled === 'true';
+  const testFieldTabEnabled = settings?.ui_test_field_tab_enabled === 'true';
+  const externalModelsTabEnabled = settings?.external_model_list_enabled === 'true';
+  const proxyManagementTabEnabled = settings?.ui_proxy_management_enabled === 'true';
+
+  if (
+    !multiTenantUIEnabled &&
+    item.type === 'standard' &&
+    (item.key === 'invite-codes' || item.key === 'users')
+  ) {
+    return false;
+  }
+  if (item.type === 'standard' && item.key === 'test-field' && !testFieldTabEnabled) {
+    return false;
+  }
+  if (item.type === 'standard' && item.key === 'external-models' && !externalModelsTabEnabled) {
+    return false;
+  }
+  if (item.type === 'standard' && item.key === 'proxies' && !proxyManagementTabEnabled) {
+    return false;
+  }
+  if (item.type === 'standard' && item.adminOnly && !isAdmin) {
+    return false;
+  }
+  if (item.type === 'standard' && item.authOnly && !authEnabled) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Renders a single menu item based on its type
  */
@@ -68,43 +106,13 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
   const { user, authEnabled } = useAuth();
   const publicSettings = usePublicSettings();
   const isAdmin = !user || user.role === 'admin';
-  const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
-  const testFieldTabEnabled = publicSettings.data?.ui_test_field_tab_enabled === 'true';
-  const externalModelsTabEnabled = publicSettings.data?.external_model_list_enabled === 'true';
-  const proxyManagementTabEnabled = publicSettings.data?.ui_proxy_management_enabled === 'true';
 
   return (
     <>
       {config.sections.map((section) => {
-        const filteredItems = section.items.filter((item) => {
-          if (
-            !multiTenantUIEnabled &&
-            item.type === 'standard' &&
-            (item.key === 'invite-codes' || item.key === 'users')
-          ) {
-            return false;
-          }
-          if (item.type === 'standard' && item.key === 'test-field' && !testFieldTabEnabled) {
-            return false;
-          }
-          if (
-            item.type === 'standard' &&
-            item.key === 'external-models' &&
-            !externalModelsTabEnabled
-          ) {
-            return false;
-          }
-          if (item.type === 'standard' && item.key === 'proxies' && !proxyManagementTabEnabled) {
-            return false;
-          }
-          if (item.type === 'standard' && item.adminOnly && !isAdmin) {
-            return false;
-          }
-          if (item.type === 'standard' && item.authOnly && !authEnabled) {
-            return false;
-          }
-          return true;
-        });
+        const filteredItems = section.items.filter((item) =>
+          shouldRenderSidebarItem(item, { settings: publicSettings.data, isAdmin, authEnabled }),
+        );
 
         if (filteredItems.length === 0) return null;
 

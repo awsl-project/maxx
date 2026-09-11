@@ -43,6 +43,7 @@ func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 		domain.SettingKeyOpenAIChatStreamTimeoutsEnabled,
 		domain.SettingKeyRequestFailureDetailsEnabled,
 		domain.SettingKeyProxyRequestsDisabled,
+		domain.SettingKeyProxyManagementEnabled,
 		domain.SettingKeyUserPanelDailyCheckInEnabled,
 	}
 	tests := []struct {
