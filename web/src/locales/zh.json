@@ -169,8 +169,7 @@
     "expiresAt": "过期",
     "noDedicatedKey": "暂无 Key",
     "dailyCheckInTitle": "每日签到",
-    "dailyCheckInReward": "每日领取 {{amount}} 额度",
-    "dailyCheckInAction": "签到领取",
+    "dailyCheckInReward": "每日自动领取 {{amount}} 额度",
     "dailyCheckInDone": "今日已领取",
     "dailyCheckInSuccess": "签到成功，已增加 {{amount}} 额度。",
     "dailyCheckInAlreadyDone": "今日已签到。",
@@ -230,7 +229,9 @@
     "todayConsumptionLeaderboard": "今日消耗榜",
     "allConsumptionLeaderboard": "全部消耗榜",
     "amount": "金额",
-    "consumptionLeaderboardLoadFailed": "消耗榜加载失败"
+    "consumptionLeaderboardLoadFailed": "消耗榜加载失败",
+    "dailyCheckInAutoPending": "等待自动签到",
+    "dailyCheckInAutoRunning": "自动签到中…"
   },
   "testField": {
     "title": "测试场",

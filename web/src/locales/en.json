@@ -169,8 +169,7 @@
     "expiresAt": "Expires",
     "noDedicatedKey": "No key",
     "dailyCheckInTitle": "Daily check-in",
-    "dailyCheckInReward": "Claim {{amount}} quota each day",
-    "dailyCheckInAction": "Check in",
+    "dailyCheckInReward": "Automatically claim {{amount}} quota each day",
     "dailyCheckInDone": "Claimed today",
     "dailyCheckInSuccess": "Checked in. {{amount}} quota added.",
     "dailyCheckInAlreadyDone": "Already checked in today.",
@@ -230,7 +229,9 @@
     "todayConsumptionLeaderboard": "Today consumption",
     "allConsumptionLeaderboard": "All-time consumption",
     "amount": "Amount",
-    "consumptionLeaderboardLoadFailed": "Failed to load consumption leaderboard"
+    "consumptionLeaderboardLoadFailed": "Failed to load consumption leaderboard",
+    "dailyCheckInAutoPending": "Waiting for auto check-in",
+    "dailyCheckInAutoRunning": "Auto check-in…"
   },
   "testField": {
     "title": "Test Field",

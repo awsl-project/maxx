@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Clock3,
   Copy,
@@ -231,6 +231,7 @@ export function UserPanelPage() {
   const [revealKeyError, setRevealKeyError] = useState('');
   const [dailyCheckInMessage, setDailyCheckInMessage] = useState('');
   const [dailyCheckInDone, setDailyCheckInDone] = useState(false);
+  const autoDailyCheckInStartedRef = useRef(false);
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
     if (typeof window === 'undefined') return 'main';
@@ -279,13 +280,42 @@ export function UserPanelPage() {
   }, [userPanelToken?.id]);
 
   useEffect(() => {
-    if (dailyCheckInStatus?.alreadyCheckedIn) {
-      setDailyCheckInDone(true);
-    } else if (!dailyCheckInEnabled) {
+    if (!dailyCheckInEnabled) {
+      autoDailyCheckInStartedRef.current = false;
       setDailyCheckInDone(false);
       setDailyCheckInMessage('');
+      return;
     }
-  }, [dailyCheckInEnabled, dailyCheckInStatus?.alreadyCheckedIn]);
+
+    if (dailyCheckInStatus?.alreadyCheckedIn) {
+      setDailyCheckInDone(true);
+      setDailyCheckInMessage(t('userPanel.dailyCheckInAlreadyDone'));
+      return;
+    }
+
+    if (!dailyCheckInStatus || autoDailyCheckInStartedRef.current) {
+      return;
+    }
+
+    autoDailyCheckInStartedRef.current = true;
+    setDailyCheckInMessage(t('userPanel.dailyCheckInAutoRunning'));
+    dailyCheckIn
+      .mutateAsync()
+      .then((result) => {
+        setDailyCheckInDone(result.alreadyCheckedIn || result.checkedIn);
+        setDailyCheckInMessage(
+          result.alreadyCheckedIn
+            ? t('userPanel.dailyCheckInAlreadyDone')
+            : t('userPanel.dailyCheckInSuccess', {
+                amount: formatQuotaAmount(result.rewardAmount),
+              }),
+        );
+      })
+      .catch(() => {
+        autoDailyCheckInStartedRef.current = false;
+        setDailyCheckInMessage(t('userPanel.dailyCheckInError'));
+      });
+  }, [dailyCheckIn, dailyCheckInEnabled, dailyCheckInStatus, t]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setUsageClock(new Date()), 60_000);
@@ -359,21 +389,6 @@ export function UserPanelPage() {
     setKeyCopied(false);
   };
 
-  const handleDailyCheckIn = async () => {
-    setDailyCheckInMessage('');
-    try {
-      const result = await dailyCheckIn.mutateAsync();
-      setDailyCheckInDone(result.alreadyCheckedIn || result.checkedIn);
-      setDailyCheckInMessage(
-        result.alreadyCheckedIn
-          ? t('userPanel.dailyCheckInAlreadyDone')
-          : t('userPanel.dailyCheckInSuccess', { amount: formatQuotaAmount(result.rewardAmount) }),
-      );
-    } catch {
-      setDailyCheckInMessage(t('userPanel.dailyCheckInError'));
-    }
-  };
-
   const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
   const revealActionPending = revealUserPanelToken.isPending;
 
@@ -433,21 +448,13 @@ export function UserPanelPage() {
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Button
-                      size="sm"
-                      className="h-8 gap-2"
-                      disabled={dailyCheckIn.isPending || hasCheckedInToday}
-                      onClick={handleDailyCheckIn}
-                    >
-                      <Gift className="size-3.5" />
-                      {hasCheckedInToday
-                        ? t('userPanel.dailyCheckInDone')
-                        : dailyCheckIn.isPending
-                          ? t('common.loading')
-                          : t('userPanel.dailyCheckInAction')}
-                    </Button>
-                  </div>
+                  <Badge variant={hasCheckedInToday ? 'success' : 'secondary'} className="shrink-0">
+                    {hasCheckedInToday
+                      ? t('userPanel.dailyCheckInDone')
+                      : dailyCheckIn.isPending
+                        ? t('userPanel.dailyCheckInAutoRunning')
+                        : t('userPanel.dailyCheckInAutoPending')}
+                  </Badge>
                 </CardContent>
               </Card>
             )}
