@@ -6,7 +6,8 @@ export const userPanelTokenKeys = {
   all: ['user-panel-token'] as const,
   detail: () => [...userPanelTokenKeys.all, 'detail'] as const,
   availableModels: () => [...userPanelTokenKeys.all, 'available-models'] as const,
-  dailyCheckInStatus: () => [...userPanelTokenKeys.all, 'daily-check-in-status'] as const,
+  dailyCheckInStatus: (dayKey?: string) =>
+    [...userPanelTokenKeys.all, 'daily-check-in-status', dayKey] as const,
   consumptionLeaderboard: () => [...userPanelTokenKeys.all, 'consumption-leaderboard'] as const,
 };
 
@@ -60,9 +61,9 @@ export function useUserPanelAvailableModels(enabled = true) {
   });
 }
 
-export function useUserPanelDailyCheckInStatus(enabled = true) {
+export function useUserPanelDailyCheckInStatus(enabled = true, dayKey?: string) {
   return useQuery({
-    queryKey: userPanelTokenKeys.dailyCheckInStatus(),
+    queryKey: userPanelTokenKeys.dailyCheckInStatus(dayKey),
     queryFn: () => getTransport().getUserPanelDailyCheckInStatus(),
     enabled,
   });

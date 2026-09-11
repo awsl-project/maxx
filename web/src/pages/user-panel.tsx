@@ -218,12 +218,17 @@ export function UserPanelPage() {
     isLoading: consumptionLeaderboardLoading,
     isError: consumptionLeaderboardError,
   } = useUserPanelConsumptionLeaderboard(Boolean(user));
+  const localUserPanelDayKey = useMemo(() => todayBounds.start.slice(0, 10), [todayBounds.start]);
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
-  const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(dailyCheckInEnabled);
+  const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(
+    dailyCheckInEnabled,
+    localUserPanelDayKey,
+  );
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const revealUserPanelToken = useRevealUserPanelAPIToken();
   const dailyCheckIn = useUserPanelDailyCheckIn();
+  const { mutateAsync: runDailyCheckIn } = dailyCheckIn;
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
@@ -280,6 +285,12 @@ export function UserPanelPage() {
   }, [userPanelToken?.id]);
 
   useEffect(() => {
+    autoDailyCheckInStartedRef.current = false;
+    setDailyCheckInDone(false);
+    setDailyCheckInMessage('');
+  }, [localUserPanelDayKey]);
+
+  useEffect(() => {
     if (!dailyCheckInEnabled) {
       autoDailyCheckInStartedRef.current = false;
       setDailyCheckInDone(false);
@@ -299,9 +310,7 @@ export function UserPanelPage() {
 
     autoDailyCheckInStartedRef.current = true;
     setDailyCheckInMessage(t('userPanel.dailyCheckInAutoRunning'));
-    dailyCheckIn
-      .mutateAsync()
-      .then((result) => {
+    runDailyCheckIn().then((result) => {
         setDailyCheckInDone(result.alreadyCheckedIn || result.checkedIn);
         setDailyCheckInMessage(
           result.alreadyCheckedIn
@@ -312,10 +321,9 @@ export function UserPanelPage() {
         );
       })
       .catch(() => {
-        autoDailyCheckInStartedRef.current = false;
         setDailyCheckInMessage(t('userPanel.dailyCheckInError'));
       });
-  }, [dailyCheckIn, dailyCheckInEnabled, dailyCheckInStatus, t]);
+  }, [dailyCheckInEnabled, dailyCheckInStatus, runDailyCheckIn, t]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setUsageClock(new Date()), 60_000);
