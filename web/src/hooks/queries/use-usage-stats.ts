@@ -122,6 +122,15 @@ export function useUsageStats(filter?: UsageStatsFilter, options?: { enabled?: b
   });
 }
 
+export function useUserPanelUsageStats(filter?: UsageStatsFilter, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: [...usageStatsKeys.list(filter), 'userPanel'] as const,
+    queryFn: () => getTransport().getUserPanelUsageStats(filter),
+    placeholderData: keepPreviousData,
+    enabled: options?.enabled ?? true,
+  });
+}
+
 /**
  * 使用预设时间范围获取统计数据
  */

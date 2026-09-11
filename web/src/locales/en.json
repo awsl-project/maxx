@@ -142,6 +142,8 @@
     "unnamedKey": "Unnamed key",
     "useCount": "Uses",
     "quotaBalance": "Balance",
+    "todayTokenUsage": "Today tokens",
+    "totalTokenUsage": "Total tokens",
     "lastUsed": "Recent",
     "apiAccess": "API Access",
     "baseURL": "Base URL",

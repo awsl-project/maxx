@@ -142,6 +142,8 @@
     "unnamedKey": "未命名 Key",
     "useCount": "调用",
     "quotaBalance": "余额",
+    "todayTokenUsage": "今日 Token",
+    "totalTokenUsage": "总 Token",
     "lastUsed": "最近",
     "apiAccess": "接口接入",
     "baseURL": "基础地址",

@@ -149,6 +149,7 @@ export {
 export {
   usageStatsKeys,
   useUsageStats,
+  useUserPanelUsageStats,
   useUsageStatsWithPreset,
   useRecalculateUsageStats,
   useRecalculateCosts,

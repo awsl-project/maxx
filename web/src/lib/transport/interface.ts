@@ -348,6 +348,7 @@ export interface Transport {
 
   // ===== Usage Stats API =====
   getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;
+  getUserPanelUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;
   recalculateUsageStats(): Promise<void>;
   recalculateCosts(): Promise<RecalculateCostsResult>;
   recalculateRequestCost(requestId: number): Promise<RecalculateRequestCostResult>;

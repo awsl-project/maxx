@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Clock3, Copy, Eye, EyeOff, Gift, KeyRound, LogOut, Server, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -25,8 +25,9 @@ import {
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
   usePublicSettings,
+  useUserPanelUsageStats,
 } from '@/hooks/queries';
-import type { APIToken } from '@/lib/transport';
+import type { APIToken, UsageStatsFilter, UsageStats } from '@/lib/transport';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import {
   getUserPanelTabStorageKey,
@@ -48,22 +49,26 @@ function formatQuotaAmount(value: number) {
   return `$${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
 }
 
+function getLocalDayBounds() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return {
+    start: start.toISOString(),
+    end: now.toISOString(),
+  };
+}
+
+function totalTokens(stats?: UsageStats[]) {
+  return (stats ?? []).reduce(
+    (sum, item) => sum + item.inputTokens + item.outputTokens + item.cacheRead + item.cacheWrite,
+    0,
+  );
+}
+
 function parseDailyCheckInAmountSetting(value?: string) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) return undefined;
   return Math.round(amount * 1_000_000_000);
-}
-
-function formatDateTime(value?: string) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat(undefined, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function getTokenStatus(token: APIToken) {
@@ -76,6 +81,35 @@ export function UserPanelPage() {
   const { t } = useTranslation();
   const { logout, user } = useAuth();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
+  const todayBounds = useMemo(() => getLocalDayBounds(), []);
+  const todayUsageFilter = useMemo<UsageStatsFilter>(
+    () => ({
+      granularity: 'day',
+      start: todayBounds.start,
+      end: todayBounds.end,
+    }),
+    [todayBounds.end, todayBounds.start],
+  );
+  const totalUsageFilter = useMemo<UsageStatsFilter>(
+    () => ({
+      granularity: 'month',
+      start: '2020-01-01T00:00:00.000Z',
+      end: todayBounds.end,
+    }),
+    [todayBounds.end],
+  );
+  const { data: todayUsageStats, isLoading: todayUsageLoading } = useUserPanelUsageStats(
+    todayUsageFilter,
+    {
+      enabled: Boolean(user),
+    },
+  );
+  const { data: totalUsageStats, isLoading: totalUsageLoading } = useUserPanelUsageStats(
+    totalUsageFilter,
+    {
+      enabled: Boolean(user),
+    },
+  );
   const { data: publicSettings } = usePublicSettings();
   const {
     data: availableModels,
@@ -110,6 +144,8 @@ export function UserPanelPage() {
   });
 
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
+  const todayTokenUsage = totalTokens(todayUsageStats);
+  const totalTokenUsage = totalTokens(totalUsageStats);
   const hasCheckedInToday = dailyCheckInStatus?.alreadyCheckedIn || dailyCheckInDone;
   const dailyCheckInRewardAmount =
     dailyCheckInStatus?.rewardAmount ??
@@ -417,18 +453,18 @@ export function UserPanelPage() {
                         </div>
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
-                            {t('userPanel.lastUsed')}
+                            {t('userPanel.todayTokenUsage')}
                           </p>
-                          <p className="mt-1 truncate font-mono text-xs tabular-nums text-foreground">
-                            {formatDateTime(userPanelToken.lastUsedAt)}
+                          <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
+                            {todayUsageLoading ? '—' : formatNumber(todayTokenUsage)}
                           </p>
                         </div>
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
-                            {t('userPanel.expiresAt')}
+                            {t('userPanel.totalTokenUsage')}
                           </p>
-                          <p className="mt-1 truncate font-mono text-xs tabular-nums text-foreground">
-                            {formatDateTime(userPanelToken.expiresAt)}
+                          <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
+                            {totalUsageLoading ? '—' : formatNumber(totalTokenUsage)}
                           </p>
                         </div>
                       </div>
