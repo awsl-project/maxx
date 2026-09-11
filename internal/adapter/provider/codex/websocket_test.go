@@ -84,7 +84,7 @@ func TestExecuteResponsesWebSocket_PreservesOfficialWirePayload(t *testing.T) {
 	adapter := &CodexAdapter{
 		provider:   provider,
 		tokenCache: &TokenCache{AccessToken: "test-token"},
-		httpClient: newUpstreamHTTPClient(),
+		httpClient: &http.Client{Timeout: 600 * time.Second},
 	}
 	connectionID := uuid.NewString()
 	var acquiredSlots atomic.Int32

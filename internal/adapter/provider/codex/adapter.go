@@ -99,10 +99,15 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 		return cliproxyapi.NewAdapter(p)
 	}
 
+	httpClient, err := newUpstreamHTTPClient(p)
+	if err != nil {
+		return nil, err
+	}
+
 	adapter := &CodexAdapter{
 		provider:   p,
 		tokenCache: &TokenCache{},
-		httpClient: newUpstreamHTTPClient(p),
+		httpClient: httpClient,
 	}
 
 	// Initialize token cache from persisted config if available
@@ -832,16 +837,8 @@ func applyCodexRequestTuning(c *flow.Ctx, body []byte) (string, []byte) {
 	return cacheID, body
 }
 
-func newUpstreamHTTPClient(providers ...*domain.Provider) *http.Client {
-	var p *domain.Provider
-	if len(providers) > 0 {
-		p = providers[0]
-	}
-	client, err := provider.NewHTTPClient(p, 600*time.Second, true)
-	if err != nil {
-		return &http.Client{Timeout: 600 * time.Second}
-	}
-	return client
+func newUpstreamHTTPClient(p *domain.Provider) (*http.Client, error) {
+	return provider.NewHTTPClient(p, 600*time.Second, true)
 }
 
 func flattenHeaders(h http.Header) map[string]string {

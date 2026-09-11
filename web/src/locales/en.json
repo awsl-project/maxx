@@ -2261,6 +2261,7 @@
     "url": "Proxy URL",
     "preview": "Preview",
     "hint": "Supported schemes: http, https, socks5, socks5h. Passwords are masked in the UI preview.",
+    "saveFailed": "Failed to save proxy settings.",
     "invalidURL": "Proxy URL must start with http://, https://, socks5://, or socks5h://."
   }
 }

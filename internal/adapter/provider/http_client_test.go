@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +23,11 @@ func TestNewHTTPClientUsesExplicitHTTPProxy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTPClient returned error: %v", err)
 	}
-	resp, err := client.Get("http://example.test/probe")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.test/probe", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("proxied request failed: %v", err)
 	}
