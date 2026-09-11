@@ -545,21 +545,13 @@ export function UserPanelPage() {
                           </p>
                         ) : null}
                       </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
                             {t('userPanel.quotaBalance')}
                           </p>
                           <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
                             {formatQuotaBalance(userPanelToken.quotaBalance)}
-                          </p>
-                        </div>
-                        <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
-                          <p className="text-[11px] text-muted-foreground">
-                            {t('userPanel.useCount')}
-                          </p>
-                          <p className="mt-1 text-base font-semibold tabular-nums text-foreground">
-                            {formatNumber(userPanelToken.useCount)}
                           </p>
                         </div>
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
