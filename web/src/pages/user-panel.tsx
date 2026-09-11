@@ -515,7 +515,7 @@ export function UserPanelPage() {
                         <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-1">
                           <Input
                             readOnly
-                            type="text"
+                            type={userPanelTokenRevealed ? 'text' : 'password'}
                             value={userPanelTokenValue}
                             className="h-9 font-mono text-xs transition-colors"
                             aria-label={t('userPanel.myKey')}
