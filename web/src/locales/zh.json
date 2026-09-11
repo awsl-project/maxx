@@ -110,7 +110,7 @@
     "users": "用户管理",
     "changePassword": "修改密码",
     "managePasskeys": "管理 Passkey",
-    "apiTokenLimits": "API Token 限流",
+    "apiTokenLimits": "请求限制",
     "dataManagement": "数据管理",
     "proxyAccess": "代理访问控制",
     "externalModels": "外部模型",

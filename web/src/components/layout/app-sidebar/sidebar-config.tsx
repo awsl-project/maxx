@@ -179,6 +179,13 @@ export const sidebarConfig: SidebarConfig = {
         },
         {
           type: 'standard',
+          key: 'retry-configs',
+          to: '/retry-configs',
+          icon: RefreshCw,
+          labelKey: 'nav.retryConfigs',
+        },
+        {
+          type: 'standard',
           key: 'proxies',
           to: '/proxies',
           icon: NetworkIcon,
@@ -187,10 +194,11 @@ export const sidebarConfig: SidebarConfig = {
         },
         {
           type: 'standard',
-          key: 'retry-configs',
-          to: '/retry-configs',
-          icon: RefreshCw,
-          labelKey: 'nav.retryConfigs',
+          key: 'proxy-access',
+          to: '/proxy-access',
+          icon: ShieldCheck,
+          labelKey: 'nav.proxyAccess',
+          adminOnly: true,
         },
         {
           type: 'standard',
@@ -198,14 +206,6 @@ export const sidebarConfig: SidebarConfig = {
           to: '/api-token-limits',
           icon: Gauge,
           labelKey: 'nav.apiTokenLimits',
-          adminOnly: true,
-        },
-        {
-          type: 'standard',
-          key: 'proxy-access',
-          to: '/proxy-access',
-          icon: ShieldCheck,
-          labelKey: 'nav.proxyAccess',
           adminOnly: true,
         },
         {

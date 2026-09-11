@@ -110,7 +110,7 @@
     "users": "Users",
     "changePassword": "Change Password",
     "managePasskeys": "Manage Passkeys",
-    "apiTokenLimits": "API Token Limits",
+    "apiTokenLimits": "Request Limits",
     "dataManagement": "Data Management",
     "proxyAccess": "Proxy Access",
     "externalModels": "External Models",
