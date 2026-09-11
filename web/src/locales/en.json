@@ -230,8 +230,7 @@
     "todayConsumptionLeaderboard": "Today consumption",
     "allConsumptionLeaderboard": "All-time consumption",
     "amount": "Amount",
-    "consumptionLeaderboardLoadFailed": "Failed to load consumption leaderboard",
-    "me": "Me"
+    "consumptionLeaderboardLoadFailed": "Failed to load consumption leaderboard"
   },
   "testField": {
     "title": "Test Field",

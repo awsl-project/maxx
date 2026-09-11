@@ -156,16 +156,7 @@ function ConsumptionLeaderboardCard({
                         : undefined
                     }
                   >
-                    <TableCell className="font-medium text-foreground">
-                      <div className="flex items-center gap-2">
-                        <span>{row.username}</span>
-                        {isCurrentUser ? (
-                          <Badge variant="secondary" className="text-[10px]">
-                            {t('userPanel.me')}
-                          </Badge>
-                        ) : null}
-                      </div>
-                    </TableCell>
+                    <TableCell className="font-medium text-foreground">{row.username}</TableCell>
                     <TableCell className="text-right font-mono font-semibold tabular-nums">
                       {formatCostAmount(row.cost)}
                     </TableCell>
