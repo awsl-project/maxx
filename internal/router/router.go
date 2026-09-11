@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,6 +126,44 @@ func (r *Router) isProviderAtConcurrencyLimit(p *domain.Provider) bool {
 	return r != nil && p != nil && r.limiter.IsAtLimit(p.ID, p.MaxConcurrency)
 }
 
+type outboundProxySettingEntry struct {
+	ID       string `json:"id"`
+	URL      string `json:"url"`
+	Disabled bool   `json:"disabled"`
+}
+
+func (r *Router) providerForAdapter(p *domain.Provider) *domain.Provider {
+	if p == nil || p.Config == nil || r == nil || r.settingRepo == nil {
+		return p
+	}
+	rawProxy := strings.TrimSpace(p.Config.ProxyURL)
+	if rawProxy == "" {
+		return p
+	}
+	rawSetting, err := r.settingRepo.Get(domain.SettingKeyOutboundProxies)
+	if err != nil || strings.TrimSpace(rawSetting) == "" {
+		return p
+	}
+	var entries []outboundProxySettingEntry
+	if err := json.Unmarshal([]byte(rawSetting), &entries); err != nil {
+		return p
+	}
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.URL) != rawProxy {
+			continue
+		}
+		if !entry.Disabled {
+			return p
+		}
+		clone := *p
+		configClone := *p.Config
+		configClone.ProxyURL = ""
+		clone.Config = &configClone
+		return &clone
+	}
+	return p
+}
+
 // InitAdapters initializes adapters for all providers
 func (r *Router) InitAdapters() error {
 	providers := r.providerRepo.GetAll()
@@ -132,11 +171,12 @@ func (r *Router) InitAdapters() error {
 	nextFingerprints := make(map[uint64]string, len(providers))
 
 	for _, p := range providers {
-		factory, ok := provider.GetAdapterFactory(p.Type)
+		adapterProvider := r.providerForAdapter(p)
+		factory, ok := provider.GetAdapterFactory(adapterProvider.Type)
 		if !ok {
 			continue // Skip providers without registered adapters
 		}
-		a, err := factory(p)
+		a, err := factory(adapterProvider)
 		if err != nil {
 			// A single mis-configured provider (e.g. empty config) must not
 			// abort building adapters for every other provider. Log and skip
@@ -146,7 +186,7 @@ func (r *Router) InitAdapters() error {
 		}
 		r.injectProviderUpdate(a, p)
 		next[p.ID] = a
-		nextFingerprints[p.ID] = adapterFingerprint(p)
+		nextFingerprints[p.ID] = adapterFingerprint(adapterProvider)
 	}
 
 	r.mu.Lock()
@@ -177,19 +217,20 @@ func (r *Router) ReconcileAdapters() error {
 	nextFingerprints := make(map[uint64]string, len(providers))
 	var changedProviderIDs []uint64
 	for _, p := range providers {
-		fingerprint := adapterFingerprint(p)
+		adapterProvider := r.providerForAdapter(p)
+		fingerprint := adapterFingerprint(adapterProvider)
 		if current, ok := currentAdapters[p.ID]; ok && currentFingerprints[p.ID] == fingerprint {
 			next[p.ID] = current
 			nextFingerprints[p.ID] = fingerprint
 			continue
 		}
 
-		factory, ok := provider.GetAdapterFactory(p.Type)
+		factory, ok := provider.GetAdapterFactory(adapterProvider.Type)
 		if !ok {
 			changedProviderIDs = append(changedProviderIDs, p.ID)
 			continue
 		}
-		a, err := factory(p)
+		a, err := factory(adapterProvider)
 		if err != nil {
 			// A single mis-configured provider must not abort reconciliation
 			// for every other provider (which would freeze hot-reload until a
@@ -220,11 +261,15 @@ func (r *Router) ReconcileAdapters() error {
 
 // RefreshAdapter refreshes the adapter for a specific provider
 func (r *Router) RefreshAdapter(p *domain.Provider) error {
-	factory, ok := provider.GetAdapterFactory(p.Type)
+	if p == nil {
+		return nil
+	}
+	adapterProvider := r.providerForAdapter(p)
+	factory, ok := provider.GetAdapterFactory(adapterProvider.Type)
 	if !ok {
 		return nil
 	}
-	a, err := factory(p)
+	a, err := factory(adapterProvider)
 	if err != nil {
 		return err
 	}
@@ -232,7 +277,7 @@ func (r *Router) RefreshAdapter(p *domain.Provider) error {
 	provider.ClearResponsesWebSocketTransportCooldown(p.ID)
 	r.mu.Lock()
 	r.adapters[p.ID] = a
-	r.adapterFingerprints[p.ID] = adapterFingerprint(p)
+	r.adapterFingerprints[p.ID] = adapterFingerprint(adapterProvider)
 	r.mu.Unlock()
 	return nil
 }

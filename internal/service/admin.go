@@ -1361,6 +1361,9 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 		return err
 	}
 	systemsettingcache.Invalidate(key)
+	if key == domain.SettingKeyOutboundProxies {
+		s.refreshAllProviderAdapters()
+	}
 
 	// 如果更新的是 pprof 相关设置，触发重载
 	switch key {
@@ -1373,6 +1376,23 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	}
 
 	return nil
+}
+
+type providerAllGetter interface {
+	GetAll() map[uint64]*domain.Provider
+}
+
+func (s *AdminService) refreshAllProviderAdapters() {
+	if s == nil || s.adapterRefresher == nil || s.providerRepo == nil {
+		return
+	}
+	providerRepo, ok := s.providerRepo.(providerAllGetter)
+	if !ok {
+		return
+	}
+	for _, p := range providerRepo.GetAll() {
+		_ = s.adapterRefresher.RefreshAdapter(p)
+	}
 }
 
 var publicProxyRouteExposureSettingKeys = []string{
@@ -1428,6 +1448,9 @@ func (s *AdminService) DeleteSetting(key string) error {
 		return err
 	}
 	systemsettingcache.Invalidate(key)
+	if key == domain.SettingKeyOutboundProxies {
+		s.refreshAllProviderAdapters()
+	}
 
 	// 如果删除的是 pprof 相关设置，触发重载
 	switch key {
