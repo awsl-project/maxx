@@ -2065,7 +2065,13 @@
     "failed": "Failed",
     "recalculate": "Recalculate",
     "recalculateCosts": "Recalculate Costs",
-    "recalculateStats": "Re-aggregate Stats"
+    "recalculateStats": "Re-aggregate Stats",
+    "overviewTab": "Overview",
+    "consumptionLeaderboardTab": "Consumption",
+    "todayConsumptionLeaderboard": "Today consumption",
+    "allConsumptionLeaderboard": "All-time consumption",
+    "username": "Username",
+    "amount": "Amount"
   },
   "addProvider": {
     "title": "Add Provider",

@@ -9,6 +9,7 @@ import {
   Cpu,
   Coins,
   CheckCircle,
+  Trophy,
   Check,
   X,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  TabsContent,
   Button,
   Progress,
   Dialog,
@@ -29,6 +31,12 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import {
@@ -36,6 +44,7 @@ import {
   useProviders,
   useProjects,
   useVisibleAPITokens,
+  useUsers,
   useRecalculateUsageStats,
   useRecalculateCosts,
   useResponseModels,
@@ -45,11 +54,15 @@ import type {
   UsageStatsFilter,
   UsageStats,
   StatsGranularity,
+  APIToken,
+  User,
   RecalculateCostsProgress,
   RecalculateStatsProgress,
 } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+
+type StatsTab = 'overview' | 'consumptionLeaderboard';
 
 type TimeRange =
   | '1h'
@@ -70,6 +83,77 @@ interface TimeRangeConfig {
   end: Date;
   granularity: StatsGranularity;
   durationMinutes: number; // Total duration in minutes for RPM/TPM calculation
+}
+
+const USER_PANEL_TOKEN_DESCRIPTION_PREFIX = 'managed-by=maxx-user-panel;user-id=';
+
+interface ConsumptionLeaderboardRow {
+  userID: number;
+  username: string;
+  cost: number;
+}
+
+function getUsageStatAPITokenID(stat: UsageStats): number {
+  const raw = stat.apiTokenID ?? (stat as unknown as { apiTokenId?: number }).apiTokenId ?? 0;
+  return Number(raw) || 0;
+}
+
+function getUserIDFromUserPanelToken(token: APIToken): number | null {
+  if (!token.description?.startsWith(USER_PANEL_TOKEN_DESCRIPTION_PREFIX)) return null;
+  const id = Number(token.description.slice(USER_PANEL_TOKEN_DESCRIPTION_PREFIX.length));
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function aggregateConsumptionLeaderboard(
+  stats: UsageStats[] | undefined,
+  apiTokens: APIToken[] | undefined,
+  users: User[] | undefined,
+): ConsumptionLeaderboardRow[] {
+  if (!stats?.length || !apiTokens?.length || !users?.length) return [];
+
+  const tokenUserMap = new Map<number, number>();
+  for (const token of apiTokens) {
+    const userID = getUserIDFromUserPanelToken(token);
+    if (userID) tokenUserMap.set(token.id, userID);
+  }
+
+  const userNameMap = new Map(users.map((user) => [user.id, user.username]));
+  const costByUser = new Map<number, number>();
+  for (const item of stats) {
+    const userID = tokenUserMap.get(getUsageStatAPITokenID(item));
+    if (!userID) continue;
+    costByUser.set(userID, (costByUser.get(userID) ?? 0) + item.cost);
+  }
+
+  return Array.from(costByUser.entries())
+    .map(([userID, cost]) => ({
+      userID,
+      username: userNameMap.get(userID) ?? `user ${userID}`,
+      cost,
+    }))
+    .sort((a, b) => b.cost - a.cost || a.username.localeCompare(b.username));
+}
+
+function formatCost(value: number) {
+  return `$${(value / 1_000_000_000).toFixed(4)}`;
+}
+
+function getTodayUsageFilter(): UsageStatsFilter {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return {
+    granularity: 'day',
+    start: start.toISOString(),
+    end: now.toISOString(),
+  };
+}
+
+function getAllUsageFilter(): UsageStatsFilter {
+  return {
+    granularity: 'month',
+    start: '2020-01-01T00:00:00.000Z',
+    end: new Date().toISOString(),
+  };
 }
 
 /**
@@ -412,6 +496,7 @@ export function StatsPage() {
   const [chartView, setChartView] = useState<ChartView>('requests');
   const [costsProgress, setCostsProgress] = useState<RecalculateCostsProgress | null>(null);
   const [statsProgress, setStatsProgress] = useState<RecalculateStatsProgress | null>(null);
+  const [activeStatsTab, setActiveStatsTab] = useState<StatsTab>('overview');
 
   // Reset all filters to 'all'
   const handleResetFilters = () => {
@@ -459,6 +544,7 @@ export function StatsPage() {
   const { data: providers } = useProviders();
   const { data: projects } = useProjects();
   const { data: apiTokens } = useVisibleAPITokens();
+  const { data: users } = useUsers();
   const { data: responseModels } = useResponseModels();
 
   const timeConfig = useMemo(() => getTimeRangeConfig(timeRange), [timeRange]);
@@ -480,6 +566,20 @@ export function StatsPage() {
   }, [timeConfig, providerId, projectId, clientType, apiTokenId, model]);
 
   const { data: stats, isLoading } = useUsageStats(filter);
+  const todayLeaderboardFilter = useMemo(() => getTodayUsageFilter(), []);
+  const allLeaderboardFilter = useMemo(() => getAllUsageFilter(), []);
+  const { data: todayLeaderboardStats, isLoading: todayLeaderboardLoading } =
+    useUsageStats(todayLeaderboardFilter);
+  const { data: allLeaderboardStats, isLoading: allLeaderboardLoading } =
+    useUsageStats(allLeaderboardFilter);
+  const todayLeaderboard = useMemo(
+    () => aggregateConsumptionLeaderboard(todayLeaderboardStats, apiTokens, users),
+    [todayLeaderboardStats, apiTokens, users],
+  );
+  const allLeaderboard = useMemo(
+    () => aggregateConsumptionLeaderboard(allLeaderboardStats, apiTokens, users),
+    [allLeaderboardStats, apiTokens, users],
+  );
   const chartData = useMemo(
     () => aggregateForChart(stats, timeConfig.granularity, timeRange, timeConfig),
     [stats, timeConfig, timeRange],
@@ -801,234 +901,327 @@ export function StatsPage() {
           data-testid="stats-results-region"
           className="flex-none min-w-0 flex flex-col p-4 @3xl/main:flex-1 @3xl/main:min-h-0 @3xl/main:p-6 @3xl/main:overflow-y-auto"
         >
-          <div className="max-w-7xl mx-auto w-full flex shrink-0 flex-col gap-6">
-            {/* 当前筛选条件摘要 */}
-            <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-              <span className="font-medium text-foreground">{t('stats.filterSummary')}:</span>
-              <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
-                {timeConfig.start
-                  ? `${timeConfig.start.toLocaleString()} - ${timeConfig.end.toLocaleString()}`
-                  : t('stats.allTime')}
-              </span>
-              {providerId !== 'all' && (
-                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
-                  {t('stats.provider')}:{' '}
-                  {providers?.find((p) => String(p.id) === providerId)?.name || providerId}
-                </span>
-              )}
-              {projectId !== 'all' && (
-                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
-                  {t('stats.project')}:{' '}
-                  {projects?.find((p) => String(p.id) === projectId)?.name || projectId}
-                </span>
-              )}
-              {clientType !== 'all' && (
-                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
-                  {t('stats.clientType')}: {clientType}
-                </span>
-              )}
-              {apiTokenId !== 'all' && (
-                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
-                  {t('stats.apiToken')}:{' '}
-                  {apiTokens?.find((t) => String(t.id) === apiTokenId)?.name || apiTokenId}
-                </span>
-              )}
-              {model !== 'all' && (
-                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs break-all">
-                  {t('stats.model')}: {model}
-                </span>
-              )}
-            </div>
+          <Tabs
+            value={activeStatsTab}
+            onValueChange={(value) => setActiveStatsTab(value as StatsTab)}
+            className="max-w-7xl mx-auto w-full flex shrink-0 flex-col gap-6"
+          >
+            <TabsList className="w-fit">
+              <TabsTrigger value="overview">{t('stats.overviewTab')}</TabsTrigger>
+              <TabsTrigger value="consumptionLeaderboard">
+                {t('stats.consumptionLeaderboardTab')}
+              </TabsTrigger>
+            </TabsList>
 
-            {/* 汇总卡片 - 与 Dashboard 一致的排列顺序 */}
-            <div data-testid="stats-summary-grid" className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-              <StatCard
-                title={t('stats.requests')}
-                value={summary.totalRequests.toLocaleString()}
-                subtitle={`${formatNumber(summary.avgRpm)} RPM · ${summary.avgTtft.toFixed(2)}s TTFT`}
-                icon={Activity}
-                iconClassName="text-blue-600 dark:text-blue-400"
-              />
-              <StatCard
-                title={t('stats.tokens')}
-                value={formatNumber(summary.totalTokens)}
-                subtitle={`${formatNumber(summary.avgTpm)} TPM · ${summary.cacheHitRate.toFixed(1)}% ${t('stats.cacheHit')}`}
-                icon={Cpu}
-                iconClassName="text-violet-600 dark:text-violet-400"
-              />
-              <StatCard
-                title={t('stats.totalCost')}
-                value={`$${(summary.totalCost / 1_000_000_000).toFixed(4)}`}
-                icon={Coins}
-                iconClassName="text-amber-600 dark:text-amber-400"
-              />
-              <StatCard
-                title={t('stats.successRate')}
-                value={`${summary.totalRequests > 0 ? ((summary.successfulRequests / summary.totalRequests) * 100).toFixed(1) : 0}%`}
-                icon={CheckCircle}
-                iconClassName={cn(
-                  summary.successfulRequests / summary.totalRequests >= 0.95
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : summary.successfulRequests / summary.totalRequests >= 0.8
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-red-600 dark:text-red-400',
+            <TabsContent value="overview" className="mt-0 flex flex-col gap-6">
+              {/* 当前筛选条件摘要 */}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+                <span className="font-medium text-foreground">{t('stats.filterSummary')}:</span>
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                  {timeConfig.start
+                    ? `${timeConfig.start.toLocaleString()} - ${timeConfig.end.toLocaleString()}`
+                    : t('stats.allTime')}
+                </span>
+                {providerId !== 'all' && (
+                  <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                    {t('stats.provider')}:{' '}
+                    {providers?.find((p) => String(p.id) === providerId)?.name || providerId}
+                  </span>
                 )}
-              />
-            </div>
+                {projectId !== 'all' && (
+                  <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                    {t('stats.project')}:{' '}
+                    {projects?.find((p) => String(p.id) === projectId)?.name || projectId}
+                  </span>
+                )}
+                {clientType !== 'all' && (
+                  <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                    {t('stats.clientType')}: {clientType}
+                  </span>
+                )}
+                {apiTokenId !== 'all' && (
+                  <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                    {t('stats.apiToken')}:{' '}
+                    {apiTokens?.find((t) => String(t.id) === apiTokenId)?.name || apiTokenId}
+                  </span>
+                )}
+                {model !== 'all' && (
+                  <span className="bg-muted/50 px-2 py-0.5 rounded text-xs break-all">
+                    {t('stats.model')}: {model}
+                  </span>
+                )}
+              </div>
 
-            {isLoading ? (
-              <div className="text-center text-muted-foreground py-8">{t('common.loading')}</div>
-            ) : chartData.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">{t('common.noData')}</div>
-            ) : (
-              <Card
-                data-testid="stats-chart-card"
-                className="border-border/50 bg-card/50 backdrop-blur-sm"
+              {/* 汇总卡片 - 与 Dashboard 一致的排列顺序 */}
+              <div
+                data-testid="stats-summary-grid"
+                className="grid gap-4 grid-cols-2 lg:grid-cols-4"
               >
-                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
-                  <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4 text-emerald-500" />
-                    {t('stats.chart')}
-                  </CardTitle>
-                  <Tabs value={chartView} onValueChange={(v) => setChartView(v as ChartView)}>
-                    <TabsList>
-                      <TabsTrigger value="requests">{t('stats.requests')}</TabsTrigger>
-                      <TabsTrigger value="tokens">{t('stats.tokens')}</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </CardHeader>
-                <CardContent className="pt-2">
-                  <div ref={chartContainerRef} className="w-full h-[400px] min-h-[400px]">
-                    {chartWidth > 0 && (
-                      <ComposedChart width={chartWidth} height={400} data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fontSize: 11 }}
-                          tickLine={false}
-                          axisLine={false}
-                          interval="preserveStartEnd"
-                        />
-                        <YAxis
-                          yAxisId="left"
-                          tick={{ fontSize: 11 }}
-                          tickLine={false}
-                          axisLine={false}
-                          tickFormatter={(v) => formatNumber(v)}
-                        />
-                        <YAxis
-                          yAxisId="right"
-                          orientation="right"
-                          tick={{ fontSize: 11 }}
-                          tickLine={false}
-                          axisLine={false}
-                          tickFormatter={(v) => `${v.toFixed(2)}`}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'var(--card)',
-                            border: '1px solid var(--border)',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                          }}
-                          itemSorter={(a) => (a.name === t('stats.costUSD') ? -1 : 0)}
-                          formatter={(value, name) => {
-                            const numValue = typeof value === 'number' ? value : 0;
-                            const nameStr = name ?? '';
-                            if (nameStr === t('stats.costUSD'))
-                              return [`$${numValue.toFixed(4)}`, nameStr];
-                            return [numValue.toLocaleString(), nameStr];
-                          }}
-                        />
-                        <Legend
-                          wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
-                          itemSorter={(a) => (a.value === t('stats.costUSD') ? -1 : 0)}
-                        />
-                        {chartView === 'requests' && (
-                          <>
-                            <Line
-                              yAxisId="right"
-                              type="monotone"
-                              dataKey="cost"
-                              name={t('stats.costUSD')}
-                              stroke="var(--color-chart-3)"
-                              strokeWidth={2}
-                              dot={false}
-                            />
-                            <Bar
-                              yAxisId="left"
-                              dataKey="successful"
-                              name={t('stats.successful')}
-                              stackId="a"
-                              fill="var(--color-chart-1)"
-                              radius={[0, 0, 0, 0]}
-                            />
-                            <Bar
-                              yAxisId="left"
-                              dataKey="failed"
-                              name={t('stats.failed')}
-                              stackId="a"
-                              fill="var(--color-chart-2)"
-                              radius={[4, 4, 0, 0]}
-                            />
-                          </>
-                        )}
-                        {chartView === 'tokens' && (
-                          <>
-                            <Line
-                              yAxisId="right"
-                              type="monotone"
-                              dataKey="cost"
-                              name={t('stats.costUSD')}
-                              stroke="var(--color-chart-3)"
-                              strokeWidth={2}
-                              dot={false}
-                            />
-                            <Bar
-                              yAxisId="left"
-                              dataKey="inputTokens"
-                              name={t('stats.inputTokens')}
-                              stackId="a"
-                              fill="var(--color-chart-1)"
-                              radius={[0, 0, 0, 0]}
-                            />
-                            <Bar
-                              yAxisId="left"
-                              dataKey="outputTokens"
-                              name={t('stats.outputTokens')}
-                              stackId="a"
-                              fill="var(--color-chart-2)"
-                              radius={[0, 0, 0, 0]}
-                            />
-                            <Bar
-                              yAxisId="left"
-                              dataKey="cacheRead"
-                              name={t('stats.cacheRead')}
-                              stackId="a"
-                              fill="var(--color-chart-4)"
-                              radius={[0, 0, 0, 0]}
-                            />
-                            <Bar
-                              yAxisId="left"
-                              dataKey="cacheWrite"
-                              name={t('stats.cacheWrite')}
-                              stackId="a"
-                              fill="var(--color-chart-5)"
-                              radius={[4, 4, 0, 0]}
-                            />
-                          </>
-                        )}
-                      </ComposedChart>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                <StatCard
+                  title={t('stats.requests')}
+                  value={summary.totalRequests.toLocaleString()}
+                  subtitle={`${formatNumber(summary.avgRpm)} RPM · ${summary.avgTtft.toFixed(2)}s TTFT`}
+                  icon={Activity}
+                  iconClassName="text-blue-600 dark:text-blue-400"
+                />
+                <StatCard
+                  title={t('stats.tokens')}
+                  value={formatNumber(summary.totalTokens)}
+                  subtitle={`${formatNumber(summary.avgTpm)} TPM · ${summary.cacheHitRate.toFixed(1)}% ${t('stats.cacheHit')}`}
+                  icon={Cpu}
+                  iconClassName="text-violet-600 dark:text-violet-400"
+                />
+                <StatCard
+                  title={t('stats.totalCost')}
+                  value={`$${(summary.totalCost / 1_000_000_000).toFixed(4)}`}
+                  icon={Coins}
+                  iconClassName="text-amber-600 dark:text-amber-400"
+                />
+                <StatCard
+                  title={t('stats.successRate')}
+                  value={`${summary.totalRequests > 0 ? ((summary.successfulRequests / summary.totalRequests) * 100).toFixed(1) : 0}%`}
+                  icon={CheckCircle}
+                  iconClassName={cn(
+                    summary.successfulRequests / summary.totalRequests >= 0.95
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : summary.successfulRequests / summary.totalRequests >= 0.8
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-red-600 dark:text-red-400',
+                  )}
+                />
+              </div>
+
+              {isLoading ? (
+                <div className="text-center text-muted-foreground py-8">{t('common.loading')}</div>
+              ) : chartData.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">{t('common.noData')}</div>
+              ) : (
+                <Card
+                  data-testid="stats-chart-card"
+                  className="border-border/50 bg-card/50 backdrop-blur-sm"
+                >
+                  <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-emerald-500" />
+                      {t('stats.chart')}
+                    </CardTitle>
+                    <Tabs value={chartView} onValueChange={(v) => setChartView(v as ChartView)}>
+                      <TabsList>
+                        <TabsTrigger value="requests">{t('stats.requests')}</TabsTrigger>
+                        <TabsTrigger value="tokens">{t('stats.tokens')}</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  </CardHeader>
+                  <CardContent className="pt-2">
+                    <div ref={chartContainerRef} className="w-full h-[400px] min-h-[400px]">
+                      {chartWidth > 0 && (
+                        <ComposedChart width={chartWidth} height={400} data={chartData}>
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="var(--border)"
+                            opacity={0.5}
+                          />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis
+                            yAxisId="left"
+                            tick={{ fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(v) => formatNumber(v)}
+                          />
+                          <YAxis
+                            yAxisId="right"
+                            orientation="right"
+                            tick={{ fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(v) => `${v.toFixed(2)}`}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: 'var(--card)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                            }}
+                            itemSorter={(a) => (a.name === t('stats.costUSD') ? -1 : 0)}
+                            formatter={(value, name) => {
+                              const numValue = typeof value === 'number' ? value : 0;
+                              const nameStr = name ?? '';
+                              if (nameStr === t('stats.costUSD'))
+                                return [`$${numValue.toFixed(4)}`, nameStr];
+                              return [numValue.toLocaleString(), nameStr];
+                            }}
+                          />
+                          <Legend
+                            wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                            itemSorter={(a) => (a.value === t('stats.costUSD') ? -1 : 0)}
+                          />
+                          {chartView === 'requests' && (
+                            <>
+                              <Line
+                                yAxisId="right"
+                                type="monotone"
+                                dataKey="cost"
+                                name={t('stats.costUSD')}
+                                stroke="var(--color-chart-3)"
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                              <Bar
+                                yAxisId="left"
+                                dataKey="successful"
+                                name={t('stats.successful')}
+                                stackId="a"
+                                fill="var(--color-chart-1)"
+                                radius={[0, 0, 0, 0]}
+                              />
+                              <Bar
+                                yAxisId="left"
+                                dataKey="failed"
+                                name={t('stats.failed')}
+                                stackId="a"
+                                fill="var(--color-chart-2)"
+                                radius={[4, 4, 0, 0]}
+                              />
+                            </>
+                          )}
+                          {chartView === 'tokens' && (
+                            <>
+                              <Line
+                                yAxisId="right"
+                                type="monotone"
+                                dataKey="cost"
+                                name={t('stats.costUSD')}
+                                stroke="var(--color-chart-3)"
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                              <Bar
+                                yAxisId="left"
+                                dataKey="inputTokens"
+                                name={t('stats.inputTokens')}
+                                stackId="a"
+                                fill="var(--color-chart-1)"
+                                radius={[0, 0, 0, 0]}
+                              />
+                              <Bar
+                                yAxisId="left"
+                                dataKey="outputTokens"
+                                name={t('stats.outputTokens')}
+                                stackId="a"
+                                fill="var(--color-chart-2)"
+                                radius={[0, 0, 0, 0]}
+                              />
+                              <Bar
+                                yAxisId="left"
+                                dataKey="cacheRead"
+                                name={t('stats.cacheRead')}
+                                stackId="a"
+                                fill="var(--color-chart-4)"
+                                radius={[0, 0, 0, 0]}
+                              />
+                              <Bar
+                                yAxisId="left"
+                                dataKey="cacheWrite"
+                                name={t('stats.cacheWrite')}
+                                stackId="a"
+                                fill="var(--color-chart-5)"
+                                radius={[4, 4, 0, 0]}
+                              />
+                            </>
+                          )}
+                        </ComposedChart>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="consumptionLeaderboard" className="mt-0">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ConsumptionLeaderboardCard
+                  title={t('stats.todayConsumptionLeaderboard')}
+                  rows={todayLeaderboard}
+                  isLoading={todayLeaderboardLoading}
+                />
+                <ConsumptionLeaderboardCard
+                  title={t('stats.allConsumptionLeaderboard')}
+                  rows={allLeaderboard}
+                  isLoading={allLeaderboardLoading}
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>
+  );
+}
+
+function ConsumptionLeaderboardCard({
+  title,
+  rows,
+  isLoading,
+}: {
+  title: string;
+  rows: ConsumptionLeaderboardRow[];
+  isLoading: boolean;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-amber-500" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            {t('common.loading')}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">{t('common.noData')}</div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('stats.username')}</TableHead>
+                <TableHead className="text-right">{t('stats.amount')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row, index) => (
+                <TableRow key={row.userID}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                        {index + 1}
+                      </span>
+                      <span className="font-medium text-foreground">{row.username}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono font-semibold tabular-nums">
+                    {formatCost(row.cost)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

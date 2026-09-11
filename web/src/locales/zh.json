@@ -2061,7 +2061,13 @@
     "failed": "失败",
     "recalculate": "重新计算",
     "recalculateCosts": "重算成本",
-    "recalculateStats": "重新聚合"
+    "recalculateStats": "重新聚合",
+    "overviewTab": "概览",
+    "consumptionLeaderboardTab": "消耗榜",
+    "todayConsumptionLeaderboard": "今日消耗榜",
+    "allConsumptionLeaderboard": "全部消耗榜",
+    "username": "用户名",
+    "amount": "金额"
   },
   "addProvider": {
     "title": "添加提供商",
