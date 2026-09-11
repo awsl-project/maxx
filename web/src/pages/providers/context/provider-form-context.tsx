@@ -47,6 +47,7 @@ const initialFormData: ProviderFormData = {
   smartMappingRetryLimit: 1,
   reasoning: undefined,
   maxConcurrency: 0,
+  proxyURL: '',
   excludeFromExport: false,
   blackBox: false,
 };

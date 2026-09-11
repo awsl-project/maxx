@@ -79,10 +79,14 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 	if p.Config == nil || p.Config.Fal == nil {
 		return nil, fmt.Errorf("provider %s missing fal config", p.Name)
 	}
+	client, err := provider.NewHTTPClient(p, 10*time.Minute, false)
+	if err != nil {
+		return nil, err
+	}
 	return &Adapter{
 		apiKey:   p.Config.Fal.APIKey,
 		provider: p,
-		client:   &http.Client{Timeout: 10 * time.Minute},
+		client:   client,
 	}, nil
 }
 

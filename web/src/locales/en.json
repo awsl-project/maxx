@@ -113,7 +113,8 @@
     "apiTokenLimits": "API Token Limits",
     "dataManagement": "Data Management",
     "proxyAccess": "Proxy Access",
-    "externalModels": "External Models"
+    "externalModels": "External Models",
+    "proxies": "Proxies"
   },
   "userPanel": {
     "title": "User Console",
@@ -1579,7 +1580,10 @@
     "providerCloneNameStrategyTemplate": "Custom template",
     "providerCloneNameTemplate": "Clone name template",
     "providerCloneNameTemplateDesc": "Supports {{name}}, {{base}}, {{suffix}}, and {{n}}. Empty templates fall back to {{name}}{{suffix}}.",
-    "providerCloneNameSaveError": "Failed to save provider clone naming settings."
+    "providerCloneNameSaveError": "Failed to save provider clone naming settings.",
+    "proxyManagement": "Proxy management",
+    "proxyManagementLabel": "Show proxy tab",
+    "proxyManagementDesc": "Default off. When enabled, admins can manage outbound proxies and bind providers to one proxy."
   },
   "modelMappings": {
     "title": "Model Mappings",
@@ -1940,7 +1944,11 @@
     "consecutiveErrorFreeze": "Temporarily freeze after consecutive errors",
     "consecutiveErrorFreezeDesc": "When enabled, this provider is temporarily frozen after consecutive upstream-attributed errors reach the threshold. If Disable Switching is also enabled, the request fails instead of falling through to later providers.",
     "consecutiveErrorFreezeThreshold": "Consecutive error threshold",
-    "consecutiveErrorFreezeHint": "Only non-request-level HTTP 429 responses are counted. All other errors do not trigger this consecutive-error freeze. Freeze duration reuses the default cooldown setting."
+    "consecutiveErrorFreezeHint": "Only non-request-level HTTP 429 responses are counted. All other errors do not trigger this consecutive-error freeze. Freeze duration reuses the default cooldown setting.",
+    "outboundProxy": "Outbound proxy",
+    "outboundProxyLabel": "Provider outbound proxy",
+    "outboundProxyDirect": "Direct / adapter default",
+    "outboundProxyDesc": "Select a proxy from the proxy tab. Explicit proxy config fails closed instead of silently going direct."
   },
   "cooldown": {
     "title": "Cooldown Protection",
@@ -2242,5 +2250,18 @@
     "saveHint": "This list is used only while the External model list switch is enabled in Settings.",
     "modelCount": "{{count}} models",
     "empty": "No external models configured. With the switch enabled, model-list APIs will return an empty list."
+  },
+  "proxies": {
+    "title": "Proxies",
+    "description": "Manage reusable outbound proxies for provider requests.",
+    "add": "Add proxy",
+    "list": "Proxy list",
+    "empty": "No proxies yet. Add one to bind providers to it.",
+    "name": "Name",
+    "url": "Proxy URL",
+    "preview": "Preview",
+    "hint": "Supported schemes: http, https, socks5, socks5h. Passwords are masked in the UI preview.",
+    "saveFailed": "Failed to save proxy settings.",
+    "invalidURL": "Proxy URL must start with http://, https://, socks5://, or socks5h://."
   }
 }

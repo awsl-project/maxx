@@ -20,6 +20,7 @@ import {
   Database,
   FlaskConical,
   Eye,
+  NetworkIcon,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -175,6 +176,14 @@ export const sidebarConfig: SidebarConfig = {
           labelKey: 'nav.routingStrategies',
           adminOnly: true,
           authOnly: true,
+        },
+        {
+          type: 'standard',
+          key: 'proxies',
+          to: '/proxies',
+          icon: NetworkIcon,
+          labelKey: 'nav.proxies',
+          adminOnly: true,
         },
         {
           type: 'standard',

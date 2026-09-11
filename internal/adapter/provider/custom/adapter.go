@@ -53,10 +53,10 @@ func (a *CustomAdapter) SupportedClientTypes() []domain.ClientType {
 	return a.provider.SupportedClientTypes
 }
 
-func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
+func (a *CustomAdapter) Execute(c *flow.Ctx, upstreamProvider *domain.Provider) error {
 	clientType := flow.GetClientType(c)
 	if strings.EqualFold(strings.TrimSpace(a.provider.Config.Custom.Backend), customBackendOllama) {
-		return a.executeOllama(c, provider)
+		return a.executeOllama(c, upstreamProvider)
 	}
 
 	mappedModel := flow.GetMappedModel(c)
@@ -290,8 +290,9 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	// Execute request with reasonable timeout
-	client := &http.Client{
-		Timeout: 10 * time.Minute, // Long timeout for LLM requests
+	client, err := provider.NewHTTPClient(a.provider, 10*time.Minute, false)
+	if err != nil {
+		return domain.NewUpstreamConnectionError("invalid provider proxy configuration")
 	}
 	resp, err := client.Do(upstreamReq)
 	if err != nil {

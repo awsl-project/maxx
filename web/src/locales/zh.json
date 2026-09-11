@@ -113,7 +113,8 @@
     "apiTokenLimits": "API Token 限流",
     "dataManagement": "数据管理",
     "proxyAccess": "代理访问控制",
-    "externalModels": "外部模型"
+    "externalModels": "外部模型",
+    "proxies": "代理"
   },
   "userPanel": {
     "title": "用户控制台",
@@ -1576,7 +1577,10 @@
     "providerCloneNameStrategyTemplate": "自定义模板",
     "providerCloneNameTemplate": "克隆名称模板",
     "providerCloneNameTemplateDesc": "支持 {{name}}、{{base}}、{{suffix}}、{{n}}。模板为空时使用 {{name}}{{suffix}}。",
-    "providerCloneNameSaveError": "保存提供商克隆命名设置失败。"
+    "providerCloneNameSaveError": "保存提供商克隆命名设置失败。",
+    "proxyManagement": "代理管理",
+    "proxyManagementLabel": "显示代理 tab",
+    "proxyManagementDesc": "默认关闭。开启后管理员可以维护出站代理，并把 provider 绑定到指定代理。"
   },
   "modelMappings": {
     "title": "模型映射",
@@ -1937,7 +1941,11 @@
     "consecutiveErrorFreeze": "连续错误后临时冻结",
     "consecutiveErrorFreezeDesc": "开启后，当该提供商连续发生可归因于上游的错误达到阈值时，会按全局冷却时间临时冻结；若已启用禁止切换，则请求会直接失败，不再切到后续提供商。",
     "consecutiveErrorFreezeThreshold": "连续错误阈值",
-    "consecutiveErrorFreezeHint": "只统计非请求级的 HTTP 429 错误；其他错误都不会触发这条连续错误冻结。冻结时长复用设置里的默认冷却时间。"
+    "consecutiveErrorFreezeHint": "只统计非请求级的 HTTP 429 错误；其他错误都不会触发这条连续错误冻结。冻结时长复用设置里的默认冷却时间。",
+    "outboundProxy": "出站代理",
+    "outboundProxyLabel": "Provider 出站代理",
+    "outboundProxyDirect": "直连 / 适配器默认",
+    "outboundProxyDesc": "从代理 tab 选择代理。显式代理配置错误时会失败关闭，不会偷偷直连。"
   },
   "cooldown": {
     "title": "冷却保护中",
@@ -2238,5 +2246,18 @@
     "saveHint": "仅当设置里的「外部模型列表」开关开启时，此列表才会生效。",
     "modelCount": "{{count}} 个模型",
     "empty": "还没有配置外部模型。开关开启时，模型列表接口会返回空列表。"
+  },
+  "proxies": {
+    "title": "代理",
+    "description": "管理 provider 请求可复用的出站代理。",
+    "add": "新增代理",
+    "list": "代理列表",
+    "empty": "还没有代理。新增后可以绑定到 provider。",
+    "name": "名称",
+    "url": "代理 URL",
+    "preview": "预览",
+    "hint": "支持协议：http、https、socks5、socks5h。UI 预览会遮蔽密码。",
+    "saveFailed": "保存代理设置失败。",
+    "invalidURL": "代理 URL 必须以 http://、https://、socks5:// 或 socks5h:// 开头。"
   }
 }
