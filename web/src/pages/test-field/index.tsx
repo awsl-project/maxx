@@ -292,7 +292,7 @@ export function TestFieldPage() {
             </CardHeader>
             <CardContent className="space-y-5 p-6">
               <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <Label>{t('testField.benchmark.providerSelect')}</Label>
                   <Combobox
                     value={providerToAdd || null}
