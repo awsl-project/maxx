@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Clock3, Copy, Eye, EyeOff, Gift, KeyRound, LogOut, Server, UserRound } from 'lucide-react';
+import {
+  Clock3,
+  Copy,
+  Eye,
+  EyeOff,
+  Gift,
+  KeyRound,
+  Loader2,
+  LogOut,
+  Server,
+  UserRound,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Badge,
@@ -397,29 +408,32 @@ export function UserPanelPage() {
 
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-center">
                       <div className="space-y-1">
-                        <div className="relative">
+                        <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-1">
                           <Input
                             readOnly
-                            type={userPanelTokenRevealed ? 'text' : 'password'}
+                            type="text"
                             value={userPanelTokenValue}
-                            className="h-9 pr-10 font-mono text-xs"
+                            className="h-9 font-mono text-xs transition-colors"
                             aria-label={t('userPanel.myKey')}
                           />
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="outline"
                             size="icon"
-                            className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
+                            className="size-9 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                             disabled={tokenActionPending || revealActionPending}
                             aria-label={t(
                               userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey',
                             )}
+                            aria-pressed={userPanelTokenRevealed}
                             title={t(
                               userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey',
                             )}
                             onClick={handleToggleUserPanelTokenReveal}
                           >
-                            {userPanelTokenRevealed ? (
+                            {revealActionPending ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : userPanelTokenRevealed ? (
                               <EyeOff className="size-3.5" />
                             ) : (
                               <Eye className="size-3.5" />
