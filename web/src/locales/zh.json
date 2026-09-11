@@ -814,7 +814,22 @@
         "createFailed": "创建失败"
       }
     },
-    "accountId": "账号 ID"
+    "accountId": "账号 ID",
+    "bulkProxyUpdate": {
+      "open": "批量更新代理",
+      "title": "批量更新出站代理",
+      "description": "将 {{count}} 个可编辑 provider 的出站代理统一更新为同一个目标。",
+      "selected": "已选择",
+      "updatable": "可更新",
+      "proxies": "可用代理",
+      "proxyLabel": "目标出站代理",
+      "direct": "直连 / 适配器默认",
+      "helper": "只列出代理管理中未禁用的代理。选择直连会清空这些 provider 的显式代理配置。",
+      "currentProxy": "当前：{{proxy}}",
+      "noTargets": "没有可更新的 provider。黑盒 provider 会被跳过。",
+      "result": "已更新 {{count}} 个 provider",
+      "submit": "更新代理"
+    }
   },
   "projects": {
     "title": "项目",

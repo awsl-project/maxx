@@ -9,6 +9,7 @@ import {
   Terminal,
   Trash2,
   AlertTriangle,
+  Network,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -20,6 +21,7 @@ import {
   useUpdateSetting,
   useProxyRequestUpdates,
   useCreateProvider,
+  useUpdateProvider,
   useCreateModelMapping,
   useBulkDeleteProviders,
   useRoutes,
@@ -34,6 +36,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -76,6 +85,12 @@ import {
   type ProviderBulkDeleteStatus,
 } from './utils/provider-bulk-delete';
 import { normalizeProviderList } from './utils/provider-normalize';
+import {
+  OUTBOUND_PROXIES_SETTING_KEY,
+  PROXY_MANAGEMENT_ENABLED_SETTING_KEY,
+  parseOutboundProxies,
+  proxyLabel,
+} from '@/pages/proxies/utils/proxy-settings';
 
 type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
   canManage: boolean;
@@ -152,6 +167,13 @@ export function ProvidersPage() {
   const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus | null>(null);
   const [selectedProviderIds, setSelectedProviderIds] = useState<Set<number>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [isBulkProxyUpdateOpen, setIsBulkProxyUpdateOpen] = useState(false);
+  const [bulkProxyURL, setBulkProxyURL] = useState('');
+  const [bulkProxyUpdateStatus, setBulkProxyUpdateStatus] = useState<{
+    updated: number;
+    skipped: string[];
+  } | null>(null);
+  const [isBulkProxyUpdating, setIsBulkProxyUpdating] = useState(false);
   const [isRefreshingQuotas, setIsRefreshingQuotas] = useState(false);
   const [isRefreshingCodex, setIsRefreshingCodex] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
@@ -164,6 +186,7 @@ export function ProvidersPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const createProvider = useCreateProvider();
+  const updateProvider = useUpdateProvider();
   const createModelMapping = useCreateModelMapping();
   const bulkDeleteProviders = useBulkDeleteProviders();
   const canManageProviderSettings = user?.role === 'admin';
@@ -220,6 +243,15 @@ export function ProvidersPage() {
   const updateSetting = useUpdateSetting();
   const autoSortAntigravity = settings?.auto_sort_antigravity === 'true';
   const autoSortCodex = settings?.auto_sort_codex === 'true';
+  const proxyManagementEnabled = settings?.[PROXY_MANAGEMENT_ENABLED_SETTING_KEY] === 'true';
+  const outboundProxies = useMemo(
+    () => parseOutboundProxies(settings?.[OUTBOUND_PROXIES_SETTING_KEY]),
+    [settings],
+  );
+  const enabledOutboundProxies = useMemo(
+    () => outboundProxies.filter((proxy) => !proxy.disabled),
+    [outboundProxies],
+  );
   const bulkImportPreview = useMemo(
     () => parseBulkCustomProviderCommands(bulkImportCommands),
     [bulkImportCommands],
@@ -291,6 +323,15 @@ export function ProvidersPage() {
   const bulkDeleteStreamingCount = bulkDeletePreview.reduce(
     (sum, item) => sum + item.streamingCount,
     0,
+  );
+  const bulkProxyUpdateTargets = useMemo(
+    () => selectedProviders.filter((provider) => !provider.blackBox),
+    [selectedProviders],
+  );
+  const bulkProxyUpdateSkipped = useMemo(
+    () =>
+      selectedProviders.filter((provider) => provider.blackBox).map((provider) => provider.name),
+    [selectedProviders],
   );
 
   useEffect(() => {
@@ -543,6 +584,66 @@ export function ProvidersPage() {
     }
   };
 
+  const handleBulkProxyUpdateOpenChange = (open: boolean) => {
+    if (isBulkProxyUpdating && !open) return;
+    setIsBulkProxyUpdateOpen(open);
+    if (open) {
+      setBulkProxyUpdateStatus(null);
+    }
+  };
+
+  const handleBulkProxyUpdate = async () => {
+    const selectedProxy = bulkProxyURL
+      ? enabledOutboundProxies.find((proxy) => proxy.url === bulkProxyURL)
+      : undefined;
+
+    if (
+      !canManageProviderSettings ||
+      !proxyManagementEnabled ||
+      bulkProxyUpdateTargets.length === 0 ||
+      isBulkProxyUpdating
+    ) {
+      return;
+    }
+
+    if (bulkProxyURL && !selectedProxy) {
+      setBulkProxyURL('');
+      return;
+    }
+
+    setIsBulkProxyUpdating(true);
+    const failed: string[] = [];
+    let updated = 0;
+
+    for (const provider of bulkProxyUpdateTargets) {
+      try {
+        await updateProvider.mutateAsync({
+          id: provider.id,
+          data: {
+            config: {
+              ...(provider.config ?? {}),
+              proxyURL: selectedProxy?.url,
+            },
+          },
+        });
+        updated += 1;
+      } catch (error) {
+        failed.push(`${provider.name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    setIsBulkProxyUpdating(false);
+    setBulkProxyUpdateStatus({ updated, skipped: [...bulkProxyUpdateSkipped, ...failed] });
+
+    if (failed.length === 0) {
+      setSelectedProviderIds(new Set());
+      setTimeout(() => {
+        setIsBulkProxyUpdateOpen(false);
+        setBulkProxyUpdateStatus(null);
+      }, 900);
+    }
+  };
+
   // Refresh Antigravity quotas
   const handleRefreshQuotas = async () => {
     if (!canManageProviderSettings || isRefreshingQuotas) return;
@@ -612,55 +713,56 @@ export function ProvidersPage() {
           canManage={canManageProviderSettings}
           blockedReason={t('providers.importProvidersAdminOnly')}
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2"
+          className="flex h-9 w-9 items-center justify-center p-0"
           title={canManageProviderSettings ? t('providers.importProviders') : undefined}
+          aria-label={t('providers.importProviders')}
           variant="outline"
         >
           <Upload size={14} />
-          <span>{t('common.import')}</span>
         </ManageProvidersButton>
         {canManageProviderSettings ? (
           <Button
             onClick={handleExport}
-            className="flex items-center gap-2"
+            className="flex h-9 w-9 items-center justify-center p-0"
             disabled={providers.length === 0}
             title={t('providers.exportProviders')}
+            aria-label={t('providers.exportProviders')}
             variant="outline"
           >
             <Download size={14} />
-            <span>{t('common.export')}</span>
           </Button>
         ) : (
           <ManageProvidersButton
             canManage={false}
             blockedReason={providerReadOnlyHint}
-            className="flex items-center gap-2"
+            className="flex h-9 w-9 items-center justify-center p-0"
             title={t('providers.exportProviders')}
+            aria-label={t('providers.exportProviders')}
             variant="outline"
           >
             <Download size={14} />
-            <span>{t('common.export')}</span>
           </ManageProvidersButton>
         )}
         <ManageProvidersButton
           canManage={canManageProviderSettings}
           blockedReason={t('providers.addProviderAdminOnly')}
           onClick={() => setIsBulkImportOpen(true)}
-          className="flex items-center gap-2"
+          className="flex h-9 w-9 items-center justify-center p-0"
           title={canManageProviderSettings ? t('providers.bulkImport.open') : undefined}
+          aria-label={t('providers.bulkImport.open')}
           variant="outline"
         >
           <Terminal size={14} />
-          <span>{t('providers.bulkImport.open')}</span>
         </ManageProvidersButton>
         <ManageProvidersButton
           canManage={canManageProviderSettings}
           blockedReason={t('providers.addProviderAdminOnly')}
           onClick={() => navigate('/providers/create')}
           title={canManageProviderSettings ? t('providers.addProvider') : undefined}
+          aria-label={t('providers.addProvider')}
+          className="flex h-9 w-9 items-center justify-center p-0"
         >
           <Plus size={14} />
-          <span>{t('providers.addProvider')}</span>
         </ManageProvidersButton>
       </PageHeader>
 
@@ -704,11 +806,24 @@ export function ProvidersPage() {
                   {t('common.cancel')}
                 </Button>
               )}
+              {proxyManagementEnabled && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto gap-2"
+                  onClick={() => handleBulkProxyUpdateOpenChange(true)}
+                  disabled={selectedProviderIds.size === 0 || isBulkProxyUpdating}
+                >
+                  <Network size={14} />
+                  {t('providers.bulkProxyUpdate.open')}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="destructive"
                 size="sm"
-                className="ml-auto gap-2"
+                className={!proxyManagementEnabled ? 'ml-auto gap-2' : 'gap-2'}
                 onClick={() => setIsBulkDeleteOpen(true)}
                 disabled={selectedProviderIds.size === 0 || isBulkDeleting}
               >
@@ -1083,6 +1198,132 @@ export function ProvidersPage() {
               }
             >
               {isBulkImporting ? t('common.saving') : t('providers.bulkImport.submit')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isBulkProxyUpdateOpen} onOpenChange={handleBulkProxyUpdateOpenChange}>
+        <DialogContent
+          className="grid max-h-[calc(100dvh-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          showCloseButton={!isBulkProxyUpdating}
+        >
+          <DialogHeader className="px-6 pt-6 pr-12 pb-4">
+            <DialogTitle>{t('providers.bulkProxyUpdate.title')}</DialogTitle>
+            <DialogDescription>
+              {t('providers.bulkProxyUpdate.description', {
+                count: bulkProxyUpdateTargets.length,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                  {t('providers.bulkProxyUpdate.selected')}
+                </div>
+                <div className="mt-1 text-lg font-semibold">{selectedProviders.length}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                  {t('providers.bulkProxyUpdate.updatable')}
+                </div>
+                <div className="mt-1 text-lg font-semibold">{bulkProxyUpdateTargets.length}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                  {t('providers.bulkProxyUpdate.proxies')}
+                </div>
+                <div className="mt-1 text-lg font-semibold">{enabledOutboundProxies.length}</div>
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded-lg border border-border bg-card p-4">
+              <div className="text-sm font-medium text-foreground">
+                {t('providers.bulkProxyUpdate.proxyLabel')}
+              </div>
+              <Select
+                value={bulkProxyURL || '__direct__'}
+                disabled={isBulkProxyUpdating}
+                onValueChange={(value) =>
+                  setBulkProxyURL(value === '__direct__' ? '' : (value ?? ''))
+                }
+              >
+                <SelectTrigger
+                  data-testid="providers-bulk-proxy-select"
+                  aria-label={t('providers.bulkProxyUpdate.proxyLabel')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__direct__">
+                    {t('providers.bulkProxyUpdate.direct')}
+                  </SelectItem>
+                  {enabledOutboundProxies.map((proxy) => (
+                    <SelectItem key={proxy.id} value={proxy.url}>
+                      {proxyLabel(proxy)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('providers.bulkProxyUpdate.helper')}
+              </p>
+            </div>
+
+            <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-border p-3 text-sm">
+              {bulkProxyUpdateTargets.map((provider) => (
+                <div key={provider.id} className="rounded-md bg-muted/40 p-2">
+                  <div className="font-medium text-foreground">{provider.name}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {t('providers.bulkProxyUpdate.currentProxy', {
+                      proxy: provider.config?.proxyURL || t('providers.bulkProxyUpdate.direct'),
+                    })}
+                  </div>
+                </div>
+              ))}
+              {bulkProxyUpdateTargets.length === 0 && (
+                <div className="rounded-md bg-muted/40 p-3 text-muted-foreground">
+                  {t('providers.bulkProxyUpdate.noTargets')}
+                </div>
+              )}
+            </div>
+
+            {bulkProxyUpdateStatus && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs">
+                <div className="font-medium text-foreground">
+                  {t('providers.bulkProxyUpdate.result', { count: bulkProxyUpdateStatus.updated })}
+                </div>
+                {bulkProxyUpdateStatus.skipped.length > 0 && (
+                  <div className="mt-2 space-y-1 text-muted-foreground">
+                    {bulkProxyUpdateStatus.skipped.map((item) => (
+                      <div key={item}>• {item}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="border-t border-border bg-background px-6 py-4">
+            <Button
+              variant="secondary"
+              onClick={() => handleBulkProxyUpdateOpenChange(false)}
+              disabled={isBulkProxyUpdating}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleBulkProxyUpdate}
+              disabled={
+                !canManageProviderSettings ||
+                !proxyManagementEnabled ||
+                isBulkProxyUpdating ||
+                bulkProxyUpdateTargets.length === 0
+              }
+            >
+              {isBulkProxyUpdating ? t('common.saving') : t('providers.bulkProxyUpdate.submit')}
             </Button>
           </DialogFooter>
         </DialogContent>
