@@ -60,8 +60,7 @@ function formatQuotaAmount(value: number) {
   return `$${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
 }
 
-function getLocalDayBounds() {
-  const now = new Date();
+function getLocalDayBounds(now = new Date()) {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return {
     start: start.toISOString(),
@@ -92,7 +91,8 @@ export function UserPanelPage() {
   const { t } = useTranslation();
   const { logout, user } = useAuth();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
-  const todayBounds = useMemo(() => getLocalDayBounds(), []);
+  const [usageClock, setUsageClock] = useState(() => new Date());
+  const todayBounds = useMemo(() => getLocalDayBounds(usageClock), [usageClock]);
   const todayUsageFilter = useMemo<UsageStatsFilter>(
     () => ({
       granularity: 'day',
@@ -109,18 +109,20 @@ export function UserPanelPage() {
     }),
     [todayBounds.end],
   );
-  const { data: todayUsageStats, isLoading: todayUsageLoading } = useUserPanelUsageStats(
-    todayUsageFilter,
-    {
-      enabled: Boolean(user),
-    },
-  );
-  const { data: totalUsageStats, isLoading: totalUsageLoading } = useUserPanelUsageStats(
-    totalUsageFilter,
-    {
-      enabled: Boolean(user),
-    },
-  );
+  const {
+    data: todayUsageStats,
+    isLoading: todayUsageLoading,
+    isError: todayUsageError,
+  } = useUserPanelUsageStats(todayUsageFilter, {
+    enabled: Boolean(user),
+  });
+  const {
+    data: totalUsageStats,
+    isLoading: totalUsageLoading,
+    isError: totalUsageError,
+  } = useUserPanelUsageStats(totalUsageFilter, {
+    enabled: Boolean(user),
+  });
   const { data: publicSettings } = usePublicSettings();
   const {
     data: availableModels,
@@ -195,6 +197,11 @@ export function UserPanelPage() {
       setDailyCheckInMessage('');
     }
   }, [dailyCheckInEnabled, dailyCheckInStatus?.alreadyCheckedIn]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setUsageClock(new Date()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -470,7 +477,9 @@ export function UserPanelPage() {
                             {t('userPanel.todayTokenUsage')}
                           </p>
                           <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
-                            {todayUsageLoading ? '—' : formatNumber(todayTokenUsage)}
+                            {todayUsageLoading || (todayUsageError && !todayUsageStats)
+                              ? '—'
+                              : formatNumber(todayTokenUsage)}
                           </p>
                         </div>
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
@@ -478,7 +487,9 @@ export function UserPanelPage() {
                             {t('userPanel.totalTokenUsage')}
                           </p>
                           <p className="mt-1 truncate font-mono text-xs font-semibold tabular-nums text-foreground">
-                            {totalUsageLoading ? '—' : formatNumber(totalTokenUsage)}
+                            {totalUsageLoading || (totalUsageError && !totalUsageStats)
+                              ? '—'
+                              : formatNumber(totalTokenUsage)}
                           </p>
                         </div>
                       </div>
