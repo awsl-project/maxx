@@ -1365,6 +1365,15 @@ export interface UserPanelDailyCheckInResult {
   rewardAmount: number;
 }
 
+export interface UserPanelAvailableModelRouteGroup {
+  routeID: number;
+  providerID: number;
+  providerName: string;
+  clientType: ClientType;
+  projectID: number;
+  models: string[];
+}
+
 export interface UserPanelConsumptionLeaderboardRow {
   userID: number;
   username: string;

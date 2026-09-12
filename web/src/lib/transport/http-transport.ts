@@ -85,6 +85,7 @@ import type {
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
   UserPanelDailyCheckInResult,
+  UserPanelAvailableModelRouteGroup,
   UserPanelConsumptionLeaderboardResult,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
@@ -1208,6 +1209,13 @@ export class HttpTransport implements Transport {
   async getUserPanelAvailableModels(): Promise<string[]> {
     const { data } = await this.client.get<string[]>('/user-panel/models');
     return this.expectArray<string>(data, '/user-panel/models');
+  }
+
+  async getUserPanelAvailableModelRoutes(): Promise<UserPanelAvailableModelRouteGroup[]> {
+    const { data } = await this.client.get<UserPanelAvailableModelRouteGroup[]>(
+      '/user-panel/model-routes',
+    );
+    return this.expectArray<UserPanelAvailableModelRouteGroup>(data, '/user-panel/model-routes');
   }
 
   async getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult> {

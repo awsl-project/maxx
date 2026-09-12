@@ -264,6 +264,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case len(parts) == 3 && parts[2] == "models":
 			h.handleUserPanelModels(w, r)
+		case len(parts) == 3 && parts[2] == "model-routes":
+			h.handleUserPanelModelRoutes(w, r)
 		case len(parts) == 3 && parts[2] == "check-in":
 			h.handleUserPanelDailyCheckIn(w, r)
 		case len(parts) == 3 && parts[2] == "consumption-leaderboard":
@@ -339,6 +341,50 @@ func (h *SelfServiceHandler) handleUserPanelModels(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusOK, names)
 }
 
+func (h *SelfServiceHandler) handleUserPanelModelRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel models are not enabled"})
+		return
+	}
+	if h.modelsHandler == nil {
+		writeSelfServiceInternalError(w, "UserPanelModelRoutes failed", fmt.Errorf("models handler not configured"))
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		writeJSON(w, http.StatusOK, []modelRouteGroup{})
+		return
+	}
+
+	groups, err := h.collectUserPanelAvailableModelRouteGroups(tenantID, canonicalToken.ID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "CollectUserPanelModelRoutes failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
 func (h *SelfServiceHandler) collectUserPanelAvailableModelNames(tenantID, apiTokenID uint64) ([]string, error) {
 	if h.modelsHandler == nil {
 		return nil, fmt.Errorf("models handler not configured")
@@ -361,6 +407,47 @@ func (h *SelfServiceHandler) collectUserPanelAvailableModelNames(tenantID, apiTo
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+func (h *SelfServiceHandler) collectUserPanelAvailableModelRouteGroups(tenantID, apiTokenID uint64) ([]modelRouteGroup, error) {
+	if h.modelsHandler == nil {
+		return nil, fmt.Errorf("models handler not configured")
+	}
+
+	groups := make([]modelRouteGroup, 0)
+	seen := make(map[uint64]int)
+	for _, clientType := range h.userPanelModelClientTypes() {
+		clientGroups, err := h.modelsHandler.collectAvailableModelRouteGroups(tenantID, clientType, 0, 0, apiTokenID, "")
+		if err != nil {
+			return nil, err
+		}
+		for _, group := range clientGroups {
+			if idx, ok := seen[group.RouteID]; ok {
+				merged := make(map[string]struct{}, len(groups[idx].Models)+len(group.Models))
+				for _, model := range groups[idx].Models {
+					merged[model] = struct{}{}
+				}
+				for _, model := range group.Models {
+					merged[model] = struct{}{}
+				}
+				groups[idx].Models = sortedModelNames(merged)
+				continue
+			}
+			seen[group.RouteID] = len(groups)
+			groups = append(groups, group)
+		}
+	}
+
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].ProjectID != groups[j].ProjectID {
+			return groups[i].ProjectID < groups[j].ProjectID
+		}
+		if groups[i].ClientType != groups[j].ClientType {
+			return groups[i].ClientType < groups[j].ClientType
+		}
+		return groups[i].RouteID < groups[j].RouteID
+	})
+	return groups, nil
 }
 
 func (h *SelfServiceHandler) userPanelModelClientTypes() []domain.ClientType {

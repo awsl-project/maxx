@@ -132,6 +132,7 @@ export {
   useRevealUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
   useUserPanelAvailableModels,
+  useUserPanelAvailableModelRoutes,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
 } from './use-user-panel-token';

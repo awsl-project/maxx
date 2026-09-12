@@ -39,6 +39,7 @@ import {
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
   useUserPanelAvailableModels,
+  useUserPanelAvailableModelRoutes,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
@@ -51,6 +52,7 @@ import type {
   UsageStatsFilter,
   UsageStats,
   UserPanelConsumptionLeaderboardRow,
+  UserPanelAvailableModelRouteGroup,
 } from '@/lib/transport';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import {
@@ -83,6 +85,16 @@ function getLocalDayBounds(now = new Date()) {
     start: start.toISOString(),
     end: now.toISOString(),
   };
+}
+
+function visibleModelRouteGroups(groups: UserPanelAvailableModelRouteGroup[]) {
+  return groups
+    .filter((group) => group.models.length > 0)
+    .map((group) => ({
+      ...group,
+      visibleModels: group.models.slice(0, 8),
+      hiddenModelCount: Math.max(group.models.length - 8, 0),
+    }));
 }
 
 function totalTokens(stats?: UsageStats[]) {
@@ -214,6 +226,11 @@ export function UserPanelPage() {
     isError: availableModelsError,
   } = useUserPanelAvailableModels(Boolean(user));
   const {
+    data: availableModelRoutes,
+    isLoading: availableModelRoutesLoading,
+    isError: availableModelRoutesError,
+  } = useUserPanelAvailableModelRoutes(Boolean(user));
+  const {
     data: consumptionLeaderboard,
     isLoading: consumptionLeaderboardLoading,
     isError: consumptionLeaderboardError,
@@ -242,7 +259,8 @@ export function UserPanelPage() {
     if (typeof window === 'undefined') return 'main';
     const params = new URLSearchParams(window.location.search);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      PerformanceNavigationTiming | undefined;
+      | PerformanceNavigationTiming
+      | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     return resolveUserPanelTab({
       urlTab: params.get('tab'),
@@ -273,11 +291,8 @@ export function UserPanelPage() {
             ? t('userPanel.routeClaude')
             : t('userPanel.routeGemini'),
   }));
-  const visibleAvailableModels = (availableModels ?? []).slice(0, 12);
-  const hiddenAvailableModelCount = Math.max(
-    (availableModels?.length ?? 0) - visibleAvailableModels.length,
-    0,
-  );
+  const modelRouteGroups = visibleModelRouteGroups(availableModelRoutes ?? []);
+  const availableModelCount = availableModels?.length ?? 0;
 
   useEffect(() => {
     setRevealedUserPanelToken('');
@@ -310,7 +325,8 @@ export function UserPanelPage() {
 
     autoDailyCheckInStartedRef.current = true;
     setDailyCheckInMessage(t('userPanel.dailyCheckInAutoRunning'));
-    runDailyCheckIn().then((result) => {
+    runDailyCheckIn()
+      .then((result) => {
         setDailyCheckInDone(result.alreadyCheckedIn || result.checkedIn);
         setDailyCheckInMessage(
           result.alreadyCheckedIn
@@ -335,7 +351,8 @@ export function UserPanelPage() {
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     const storedTab = window.localStorage.getItem(tabStorageKey);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      PerformanceNavigationTiming | undefined;
+      | PerformanceNavigationTiming
+      | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     setActiveTab(resolveUserPanelTab({ urlTab, storedTab, allowStoredTab }));
   }, [tabStorageKey]);
@@ -628,15 +645,59 @@ export function UserPanelPage() {
                       </Badge>
                     ) : null}
                   </div>
-                  {availableModelsLoading ? (
+                  {availableModelsLoading || availableModelRoutesLoading ? (
                     <p className="mt-3 text-sm text-muted-foreground">{t('common.loading')}</p>
-                  ) : availableModelsError ? (
+                  ) : availableModelsError || availableModelRoutesError ? (
                     <p className="mt-3 text-sm text-destructive">
                       {t('userPanel.availableModelsLoadFailed')}
                     </p>
-                  ) : visibleAvailableModels.length > 0 ? (
+                  ) : modelRouteGroups.length > 0 ? (
+                    <div className="mt-3 space-y-3">
+                      {modelRouteGroups.map((group) => (
+                        <div
+                          key={group.routeID}
+                          className="rounded-lg border border-border bg-background p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-foreground">
+                                {group.providerName}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {group.projectID > 0
+                                  ? t('userPanel.projectRouteScope', { projectID: group.projectID })
+                                  : t('userPanel.globalRouteScope')}{' '}
+                                · {group.clientType} · route #{group.routeID}
+                              </p>
+                            </div>
+                            <Badge variant="secondary">
+                              {t('userPanel.availableModelsCount', { count: group.models.length })}
+                            </Badge>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {group.visibleModels.map((model) => (
+                              <Badge
+                                key={model}
+                                variant="outline"
+                                className="max-w-full truncate font-mono"
+                              >
+                                {model}
+                              </Badge>
+                            ))}
+                            {group.hiddenModelCount > 0 ? (
+                              <Badge variant="secondary">
+                                {t('userPanel.moreAvailableModels', {
+                                  count: group.hiddenModelCount,
+                                })}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : availableModelCount > 0 ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {visibleAvailableModels.map((model) => (
+                      {(availableModels ?? []).slice(0, 12).map((model) => (
                         <Badge
                           key={model}
                           variant="outline"
@@ -645,11 +706,6 @@ export function UserPanelPage() {
                           {model}
                         </Badge>
                       ))}
-                      {hiddenAvailableModelCount > 0 ? (
-                        <Badge variant="secondary">
-                          {t('userPanel.moreAvailableModels', { count: hiddenAvailableModelCount })}
-                        </Badge>
-                      ) : null}
                     </div>
                   ) : (
                     <p className="mt-3 text-sm text-muted-foreground">
