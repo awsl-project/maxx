@@ -1364,29 +1364,11 @@ export function ExternalModelListSection() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-sm font-medium text-foreground">
-              {t('settings.externalModelListLabel')}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('settings.externalModelListDesc')}
-            </p>
-          </div>
-          <Switch
-            aria-label={t('settings.externalModelList')}
-            checked={localEnabled}
-            onCheckedChange={handleToggle}
-            disabled={updateSetting.isPending}
-          />
-        </div>
         {error && (
           <p role="alert" className="text-xs text-destructive">
             {error}
           </p>
         )}
-        <p className="text-xs text-muted-foreground">{t('settings.externalModelListHint')}</p>
-        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
 
         <div className="rounded-lg border border-border bg-muted/20 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1456,6 +1438,29 @@ export function ExternalModelListSection() {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="rounded-lg border border-dashed border-border bg-background p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {t('settings.externalModelListLabel')}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('settings.externalModelListDesc')}
+              </p>
+            </div>
+            <Switch
+              aria-label={t('settings.externalModelListLabel')}
+              checked={localEnabled}
+              onCheckedChange={handleToggle}
+              disabled={updateSetting.isPending}
+            />
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {t('settings.externalModelListHint')}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
         </div>
       </CardContent>
     </Card>
