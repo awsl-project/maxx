@@ -1286,6 +1286,81 @@ func TestProxyRequestDeleteFailedWithFilterDeletesAttemptsAndPreservesNonErrors(
 	}
 }
 
+func TestProxyRequestDeleteFailedWithFilterMatchesErrorContains(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+
+	upstreamNeedle := "failed to connect to upstream: upstream error"
+	disconnectNeedle := "client disconnected: context canceled"
+	instanceNeedle := "Instance no longer alive"
+	literalWildcardNeedle := "100%_upstream"
+	matching := buildTestProxyRequest("FAILED", 201)
+	matching.StatusCode = 500
+	matching.Error = "proxy failed: failed to connect to upstream: upstream error"
+	disconnectMatching := buildTestProxyRequest("FAILED", 205)
+	disconnectMatching.StatusCode = 499
+	disconnectMatching.Error = "stream closed: client disconnected: context canceled"
+	instanceMatching := buildTestProxyRequest("FAILED", 206)
+	instanceMatching.StatusCode = 500
+	instanceMatching.Error = "proxy failed: Instance no longer alive"
+	wildcardLiteralMatching := buildTestProxyRequest("FAILED", 207)
+	wildcardLiteralMatching.StatusCode = 500
+	wildcardLiteralMatching.Error = "proxy failed: 100%_upstream"
+	wildcardWouldMatchIfUnescaped := buildTestProxyRequest("FAILED", 208)
+	wildcardWouldMatchIfUnescaped.StatusCode = 500
+	wildcardWouldMatchIfUnescaped.Error = "proxy failed: 100xxupstream"
+	nonMatching := buildTestProxyRequest("FAILED", 202)
+	nonMatching.StatusCode = 500
+	nonMatching.Error = "provider returned: invalid api key"
+	activeMatching := buildTestProxyRequest("IN_PROGRESS", 203)
+	activeMatching.StatusCode = 500
+	activeMatching.Error = upstreamNeedle
+	successMatching := buildTestProxyRequest("COMPLETED", 204)
+	successMatching.StatusCode = 200
+	successMatching.Error = upstreamNeedle
+
+	for _, req := range []*domain.ProxyRequest{matching, disconnectMatching, instanceMatching, wildcardLiteralMatching, wildcardWouldMatchIfUnescaped, nonMatching, activeMatching, successMatching} {
+		if err := repo.Create(req); err != nil {
+			t.Fatalf("create request %s: %v", req.RequestID, err)
+		}
+		seedAttemptForRequest(t, attemptRepo, db, req.ID, time.Now())
+	}
+
+	filter := &repository.ProxyRequestFilter{ErrorContainsAny: []string{upstreamNeedle, disconnectNeedle, instanceNeedle, literalWildcardNeedle}}
+	candidateCount, err := repo.CountFailedWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("CountFailedWithFilter: %v", err)
+	}
+	if candidateCount != 4 {
+		t.Fatalf("cleanup candidate count = %d, want 4", candidateCount)
+	}
+
+	deletedRequests, deletedAttempts, err := repo.DeleteFailedWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("DeleteFailedWithFilter: %v", err)
+	}
+	if deletedRequests != 4 || deletedAttempts != 4 {
+		t.Fatalf("deleted requests/attempts = %d/%d, want 4/4", deletedRequests, deletedAttempts)
+	}
+
+	for _, req := range []*domain.ProxyRequest{matching, disconnectMatching, instanceMatching, wildcardLiteralMatching} {
+		if _, err := repo.GetByID(1, req.ID); err == nil {
+			t.Fatalf("matching failed request %d still exists after cleanup", req.ID)
+		}
+	}
+	for _, req := range []*domain.ProxyRequest{wildcardWouldMatchIfUnescaped, nonMatching, activeMatching, successMatching} {
+		if _, err := repo.GetByID(req.TenantID, req.ID); err != nil {
+			t.Fatalf("request %d (%s) should be preserved: %v", req.ID, req.Status, err)
+		}
+	}
+}
+
 func TestProxyRequestRepositoryReassignAPITokenID(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

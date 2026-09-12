@@ -1181,8 +1181,9 @@ func parseProxyRequestFilter(r *http.Request) (*repository.ProxyRequestFilter, e
 	startTimeStr := r.URL.Query().Get("startTime")
 	endTimeStr := r.URL.Query().Get("endTime")
 	errorModeStr := r.URL.Query().Get("errorMode")
+	errorContainsValues := r.URL.Query()["errorContains"]
 
-	if providerIDStr == "" && statusStr == "" && apiTokenIDStr == "" && projectIDStr == "" && startTimeStr == "" && endTimeStr == "" && errorModeStr == "" {
+	if providerIDStr == "" && statusStr == "" && apiTokenIDStr == "" && projectIDStr == "" && startTimeStr == "" && endTimeStr == "" && errorModeStr == "" && len(errorContainsValues) == 0 {
 		return nil, nil
 	}
 
@@ -1235,6 +1236,15 @@ func parseProxyRequestFilter(r *http.Request) (*repository.ProxyRequestFilter, e
 		default:
 			return nil, errors.New("invalid errorMode")
 		}
+	}
+	for _, value := range errorContainsValues {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			filter.ErrorContainsAny = append(filter.ErrorContainsAny, value)
+		}
+	}
+	if len(filter.ErrorContainsAny) == 1 {
+		filter.ErrorContains = &filter.ErrorContainsAny[0]
 	}
 	return filter, nil
 }

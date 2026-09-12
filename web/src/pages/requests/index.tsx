@@ -132,6 +132,13 @@ const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
+const CLEANUP_ERROR_TEXTS = [
+  'failed to connect to upstream: upstream error',
+  'client disconnected: context canceled',
+  'Instance no longer alive',
+];
+
+type CleanupFailedKind = 'all' | 'upstreamError';
 
 function ProtocolBadge({
   request,
@@ -347,6 +354,7 @@ export function RequestsPage() {
   const [errorMode, setErrorMode] = useState<ProxyRequestErrorMode>('all');
   const [errorStatsOpen, setErrorStatsOpen] = useState(false);
   const [cleanupFailedOpen, setCleanupFailedOpen] = useState(false);
+  const [cleanupFailedKind, setCleanupFailedKind] = useState<CleanupFailedKind>('all');
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
@@ -424,10 +432,20 @@ export function RequestsPage() {
     selectedStatus,
   ]);
 
+  const upstreamErrorCleanupParams = useMemo<CursorPaginationParams>(
+    () => ({
+      ...cleanupFailedCountParams,
+      errorContains: CLEANUP_ERROR_TEXTS,
+    }),
+    [cleanupFailedCountParams],
+  );
+
   const { data: failedCount, refetch: refetchFailedCount } = useCleanupFailedProxyRequestsCount(
     cleanupFailedCountParams,
     requestsQueryEnabled,
   );
+  const { data: upstreamErrorFailedCount, refetch: refetchUpstreamErrorFailedCount } =
+    useCleanupFailedProxyRequestsCount(upstreamErrorCleanupParams, requestsQueryEnabled);
   const cleanupFailedRequests = useCleanupFailedProxyRequests();
 
   // Check if API Token auth is enabled
@@ -593,13 +611,21 @@ export function RequestsPage() {
     errorStatsOpen && requestsQueryEnabled,
   );
 
+  const handleOpenCleanupFailedDialog = (kind: CleanupFailedKind) => {
+    setCleanupFailedKind(kind);
+    setCleanupFailedOpen(true);
+  };
+
   const handleCleanupFailedRequests = () => {
-    cleanupFailedRequests.mutate(cleanupFailedCountParams, {
+    const params =
+      cleanupFailedKind === 'upstreamError' ? upstreamErrorCleanupParams : cleanupFailedCountParams;
+    cleanupFailedRequests.mutate(params, {
       onSuccess: () => {
         setCleanupFailedOpen(false);
         void refetch();
         void refetchCount();
         void refetchFailedCount();
+        void refetchUpstreamErrorFailedCount();
       },
     });
   };
@@ -838,6 +864,7 @@ export function RequestsPage() {
     refetch();
     refetchCount();
     refetchFailedCount();
+    refetchUpstreamErrorFailedCount();
   };
 
   // 过滤模式变化时重置滚动
@@ -980,14 +1007,29 @@ export function RequestsPage() {
           variant="destructive"
           size="sm"
           disabled={(failedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
-          onClick={() => setCleanupFailedOpen(true)}
+          onClick={() => handleOpenCleanupFailedDialog('all')}
         >
-          {cleanupFailedRequests.isPending ? (
+          {cleanupFailedRequests.isPending && cleanupFailedKind === 'all' ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Trash2 className="mr-2 h-4 w-4" />
           )}
           {t('requests.cleanupFailed.action')}
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={(upstreamErrorFailedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
+          onClick={() => handleOpenCleanupFailedDialog('upstreamError')}
+          title={CLEANUP_ERROR_TEXTS.join('\n')}
+        >
+          {cleanupFailedRequests.isPending && cleanupFailedKind === 'upstreamError' ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="mr-2 h-4 w-4" />
+          )}
+          {t('requests.cleanupFailed.noisyErrorsAction')}
         </Button>
         <TimeRangeFilter
           startDate={startDate}
@@ -1005,15 +1047,16 @@ export function RequestsPage() {
         <button
           onClick={handleRefresh}
           disabled={isFetching || waitingFilterValidation}
+          aria-label={t('requests.refresh')}
+          title={t('requests.refresh')}
           className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            'flex size-8 items-center justify-center rounded-lg text-sm font-medium transition-all',
             'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
             'text-muted-foreground hover:text-foreground',
             (isFetching || waitingFilterValidation) && 'opacity-50 cursor-not-allowed',
           )}
         >
           <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
-          <span>{t('requests.refresh')}</span>
         </button>
       </PageHeader>
 
@@ -1029,10 +1072,17 @@ export function RequestsPage() {
         <AlertDialogContent className="border-destructive/30 bg-card shadow-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-foreground">
-              {t('requests.cleanupFailed.title')}
+              {cleanupFailedKind === 'upstreamError'
+                ? t('requests.cleanupFailed.noisyErrorsTitle')
+                : t('requests.cleanupFailed.title')}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-foreground/90">
-              {t('requests.cleanupFailed.description', { count: failedCount ?? 0 })}
+              {cleanupFailedKind === 'upstreamError'
+                ? t('requests.cleanupFailed.noisyErrorsDescription', {
+                    count: upstreamErrorFailedCount ?? 0,
+                    errors: CLEANUP_ERROR_TEXTS.join(' / '),
+                  })
+                : t('requests.cleanupFailed.description', { count: failedCount ?? 0 })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1040,7 +1090,12 @@ export function RequestsPage() {
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={cleanupFailedRequests.isPending || (failedCount ?? 0) === 0}
+              disabled={
+                cleanupFailedRequests.isPending ||
+                (cleanupFailedKind === 'upstreamError'
+                  ? (upstreamErrorFailedCount ?? 0) === 0
+                  : (failedCount ?? 0) === 0)
+              }
               onClick={handleCleanupFailedRequests}
             >
               {cleanupFailedRequests.isPending

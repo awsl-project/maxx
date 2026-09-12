@@ -152,14 +152,15 @@ export function RequestsColumnSettings({ prefs, availability, onChange }: Column
   return (
     <Popover>
       <PopoverTrigger
+        aria-label={t('requests.columns.action')}
+        title={t('requests.columns.action')}
         className={cn(
-          'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+          'flex size-8 items-center justify-center rounded-lg text-sm font-medium transition-all',
           'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
           'text-muted-foreground hover:text-foreground',
         )}
       >
         <Columns3 size={14} />
-        <span>{t('requests.columns.action')}</span>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-3 gap-2">
         <div className="flex items-center justify-between gap-2 px-1">

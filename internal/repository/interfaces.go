@@ -125,14 +125,16 @@ type SessionKey struct {
 
 // ProxyRequestFilter 请求列表过滤条件
 type ProxyRequestFilter struct {
-	TenantID   *uint64 // Tenant ID，nil 表示不过滤
-	ProviderID *uint64 // Provider ID，nil 表示不过滤
-	Status     *string // 状态，nil 表示不过滤
-	APITokenID *uint64 // API Token ID，nil 表示不过滤
-	ProjectID  *uint64 // Project ID，nil 表示不过滤
-	StartTime  *time.Time
-	EndTime    *time.Time
-	ErrorMode  ProxyRequestErrorMode // 错误请求过滤模式
+	TenantID         *uint64 // Tenant ID，nil 表示不过滤
+	ProviderID       *uint64 // Provider ID，nil 表示不过滤
+	Status           *string // 状态，nil 表示不过滤
+	APITokenID       *uint64 // API Token ID，nil 表示不过滤
+	ProjectID        *uint64 // Project ID，nil 表示不过滤
+	StartTime        *time.Time
+	EndTime          *time.Time
+	ErrorMode        ProxyRequestErrorMode // 错误请求过滤模式
+	ErrorContains    *string               // Error substring filter，nil 表示不过滤
+	ErrorContainsAny []string              // Error substring OR filter，nil 表示不过滤
 }
 
 type ProxyRequestErrorMode string

@@ -472,8 +472,11 @@
     },
     "cleanupFailed": {
       "action": "Clean failed records",
+      "noisyErrorsAction": "Clean noisy errors",
       "title": "Clean failed request records?",
+      "noisyErrorsTitle": "Clean noisy error records?",
       "description": "This will delete {{count}} failed/error request records matching the current filters and their upstream attempts. Successful and active requests are not deleted.",
+      "noisyErrorsDescription": "This will delete {{count}} failed/error request records matching the current filters whose error contains one of: {{errors}}. Their upstream attempts are deleted too. Other failed records, successful records, and active requests are not deleted.",
       "confirm": "Clean failed records",
       "cleaning": "Cleaning..."
     }
