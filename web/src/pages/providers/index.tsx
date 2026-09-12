@@ -28,7 +28,7 @@ import {
   useModelMappings,
 } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
-import type { Provider, ImportResult, Route, ModelMapping } from '@/lib/transport';
+import type { Provider, ImportResult, Route, ModelMapping, ClientType } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
 import { ProviderRow } from './components/provider-row';
 import { useQueryClient } from '@tanstack/react-query';
@@ -148,6 +148,11 @@ type ProviderBulkDeletePreviewItem = {
   streamingCount: number;
 };
 
+type BulkUpdateField = 'proxy' | 'multiplier';
+
+const BULK_UPDATE_CLIENT_TYPES: ClientType[] = ['claude', 'openai', 'codex', 'gemini'];
+const DEFAULT_BULK_UPDATE_MULTIPLIER = '1.00';
+
 export const PROVIDER_BULK_ACTIONS_STICKY_CLASS =
   'sticky top-0 z-20 mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80';
 
@@ -168,7 +173,12 @@ export function ProvidersPage() {
   const [selectedProviderIds, setSelectedProviderIds] = useState<Set<number>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isBulkProxyUpdateOpen, setIsBulkProxyUpdateOpen] = useState(false);
+  const [bulkUpdateEnabledFields, setBulkUpdateEnabledFields] = useState<Set<BulkUpdateField>>(
+    () => new Set(),
+  );
   const [bulkProxyURL, setBulkProxyURL] = useState('');
+  const [bulkMultiplierClient, setBulkMultiplierClient] = useState<ClientType>('claude');
+  const [bulkMultiplierValue, setBulkMultiplierValue] = useState(DEFAULT_BULK_UPDATE_MULTIPLIER);
   const [bulkProxyUpdateStatus, setBulkProxyUpdateStatus] = useState<{
     updated: number;
     skipped: string[];
@@ -332,6 +342,17 @@ export function ProvidersPage() {
     () =>
       selectedProviders.filter((provider) => provider.blackBox).map((provider) => provider.name),
     [selectedProviders],
+  );
+  const bulkUpdateProxyEnabled = bulkUpdateEnabledFields.has('proxy');
+  const bulkUpdateMultiplierEnabled = bulkUpdateEnabledFields.has('multiplier');
+  const hasBulkUpdateFields = bulkUpdateEnabledFields.size > 0;
+  const bulkMultiplierTargets = useMemo(
+    () =>
+      bulkProxyUpdateTargets.filter(
+        (provider) =>
+          !!provider.config?.custom && provider.supportedClientTypes.includes(bulkMultiplierClient),
+      ),
+    [bulkMultiplierClient, bulkProxyUpdateTargets],
   );
 
   useEffect(() => {
@@ -584,11 +605,27 @@ export function ProvidersPage() {
     }
   };
 
+  const toggleBulkUpdateField = (field: BulkUpdateField, enabled: boolean) => {
+    setBulkUpdateEnabledFields((previous) => {
+      const next = new Set(previous);
+      if (enabled) {
+        next.add(field);
+      } else {
+        next.delete(field);
+      }
+      return next;
+    });
+    setBulkProxyUpdateStatus(null);
+  };
+
   const handleBulkProxyUpdateOpenChange = (open: boolean) => {
     if (isBulkProxyUpdating && !open) return;
     setIsBulkProxyUpdateOpen(open);
     if (open) {
       setBulkProxyUpdateStatus(null);
+      setBulkUpdateEnabledFields(new Set());
+      setBulkProxyURL('');
+      setBulkMultiplierValue(DEFAULT_BULK_UPDATE_MULTIPLIER);
     }
   };
 
@@ -596,44 +633,93 @@ export function ProvidersPage() {
     const selectedProxy = bulkProxyURL
       ? enabledOutboundProxies.find((proxy) => proxy.url === bulkProxyURL)
       : undefined;
+    const parsedMultiplier = Number.parseFloat(bulkMultiplierValue);
+    const nextMultiplier = Math.round(parsedMultiplier * 10000);
 
     if (
       !canManageProviderSettings ||
-      !proxyManagementEnabled ||
       bulkProxyUpdateTargets.length === 0 ||
-      isBulkProxyUpdating
+      isBulkProxyUpdating ||
+      !hasBulkUpdateFields
     ) {
       return;
     }
 
-    if (bulkProxyURL && !selectedProxy) {
+    if (bulkUpdateProxyEnabled && (!proxyManagementEnabled || (bulkProxyURL && !selectedProxy))) {
       setBulkProxyURL('');
       return;
     }
 
+    if (
+      bulkUpdateMultiplierEnabled &&
+      (!Number.isFinite(parsedMultiplier) || parsedMultiplier < 0)
+    ) {
+      setBulkMultiplierValue(DEFAULT_BULK_UPDATE_MULTIPLIER);
+      return;
+    }
+
     setIsBulkProxyUpdating(true);
+    const skipped = [...bulkProxyUpdateSkipped];
     const failed: string[] = [];
     let updated = 0;
 
     for (const provider of bulkProxyUpdateTargets) {
+      const nextConfig = { ...(provider.config ?? {}) };
+      let shouldUpdateProvider = false;
+      let skippedMultiplier = false;
+
+      if (bulkUpdateProxyEnabled) {
+        nextConfig.proxyURL = selectedProxy?.url;
+        shouldUpdateProvider = true;
+      }
+
+      if (bulkUpdateMultiplierEnabled) {
+        if (
+          provider.config?.custom &&
+          provider.supportedClientTypes.includes(bulkMultiplierClient)
+        ) {
+          const nextClientMultiplier = { ...(provider.config.custom.clientMultiplier ?? {}) };
+          if (nextMultiplier === 10000) {
+            delete nextClientMultiplier[bulkMultiplierClient];
+          } else {
+            nextClientMultiplier[bulkMultiplierClient] = nextMultiplier;
+          }
+          nextConfig.custom = {
+            ...provider.config.custom,
+            clientMultiplier:
+              Object.keys(nextClientMultiplier).length > 0 ? nextClientMultiplier : undefined,
+          };
+          shouldUpdateProvider = true;
+        } else {
+          skippedMultiplier = true;
+        }
+      }
+
+      if (!shouldUpdateProvider) {
+        if (skippedMultiplier) {
+          skipped.push(t('providers.bulkProxyUpdate.multiplierSkipped', { name: provider.name }));
+        }
+        continue;
+      }
+
       try {
         await updateProvider.mutateAsync({
           id: provider.id,
           data: {
-            config: {
-              ...(provider.config ?? {}),
-              proxyURL: selectedProxy?.url,
-            },
+            config: nextConfig,
           },
         });
         updated += 1;
+        if (skippedMultiplier) {
+          skipped.push(t('providers.bulkProxyUpdate.multiplierSkipped', { name: provider.name }));
+        }
       } catch (error) {
         failed.push(`${provider.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
     setIsBulkProxyUpdating(false);
-    setBulkProxyUpdateStatus({ updated, skipped: [...bulkProxyUpdateSkipped, ...failed] });
+    setBulkProxyUpdateStatus({ updated, skipped: [...skipped, ...failed] });
 
     if (failed.length === 0) {
       setSelectedProviderIds(new Set());
@@ -806,24 +892,22 @@ export function ProvidersPage() {
                   {t('common.cancel')}
                 </Button>
               )}
-              {proxyManagementEnabled && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="ml-auto gap-2"
-                  onClick={() => handleBulkProxyUpdateOpenChange(true)}
-                  disabled={selectedProviderIds.size === 0 || isBulkProxyUpdating}
-                >
-                  <Network size={14} />
-                  {t('providers.bulkProxyUpdate.open')}
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="ml-auto gap-2"
+                onClick={() => handleBulkProxyUpdateOpenChange(true)}
+                disabled={selectedProviderIds.size === 0 || isBulkProxyUpdating}
+              >
+                <Network size={14} />
+                {t('providers.bulkProxyUpdate.open')}
+              </Button>
               <Button
                 type="button"
                 variant="destructive"
                 size="sm"
-                className={!proxyManagementEnabled ? 'ml-auto gap-2' : 'gap-2'}
+                className="gap-2"
                 onClick={() => setIsBulkDeleteOpen(true)}
                 disabled={selectedProviderIds.size === 0 || isBulkDeleting}
               >
@@ -1233,43 +1317,118 @@ export function ProvidersPage() {
               </div>
               <div className="rounded-lg border border-border bg-muted/30 p-3">
                 <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                  {t('providers.bulkProxyUpdate.proxies')}
+                  {t('providers.bulkProxyUpdate.multiplierTargets')}
                 </div>
-                <div className="mt-1 text-lg font-semibold">{enabledOutboundProxies.length}</div>
+                <div className="mt-1 text-lg font-semibold">{bulkMultiplierTargets.length}</div>
               </div>
             </div>
 
-            <div className="space-y-2 rounded-lg border border-border bg-card p-4">
-              <div className="text-sm font-medium text-foreground">
-                {t('providers.bulkProxyUpdate.proxyLabel')}
-              </div>
-              <Select
-                value={bulkProxyURL || '__direct__'}
-                disabled={isBulkProxyUpdating}
-                onValueChange={(value) =>
-                  setBulkProxyURL(value === '__direct__' ? '' : (value ?? ''))
-                }
-              >
-                <SelectTrigger
-                  data-testid="providers-bulk-proxy-select"
+            <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.bulkProxyUpdate.proxyLabel')}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {proxyManagementEnabled
+                      ? t('providers.bulkProxyUpdate.proxySwitchHelper')
+                      : t('providers.bulkProxyUpdate.proxyUnavailable')}
+                  </p>
+                </div>
+                <Switch
+                  checked={bulkUpdateProxyEnabled}
+                  onCheckedChange={(checked) => toggleBulkUpdateField('proxy', checked)}
+                  disabled={isBulkProxyUpdating || !proxyManagementEnabled}
                   aria-label={t('providers.bulkProxyUpdate.proxyLabel')}
+                />
+              </div>
+              {bulkUpdateProxyEnabled && (
+                <Select
+                  value={bulkProxyURL || '__direct__'}
+                  disabled={isBulkProxyUpdating}
+                  onValueChange={(value) =>
+                    setBulkProxyURL(value === '__direct__' ? '' : (value ?? ''))
+                  }
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__direct__">
-                    {t('providers.bulkProxyUpdate.direct')}
-                  </SelectItem>
-                  {enabledOutboundProxies.map((proxy) => (
-                    <SelectItem key={proxy.id} value={proxy.url}>
-                      {proxyLabel(proxy)}
+                  <SelectTrigger
+                    data-testid="providers-bulk-proxy-select"
+                    aria-label={t('providers.bulkProxyUpdate.proxyLabel')}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__direct__">
+                      {t('providers.bulkProxyUpdate.direct')}
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {t('providers.bulkProxyUpdate.helper')}
-              </p>
+                    {enabledOutboundProxies.map((proxy) => (
+                      <SelectItem key={proxy.id} value={proxy.url}>
+                        {proxyLabel(proxy)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.bulkProxyUpdate.multiplierLabel')}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('providers.bulkProxyUpdate.multiplierHelper')}
+                  </p>
+                </div>
+                <Switch
+                  checked={bulkUpdateMultiplierEnabled}
+                  onCheckedChange={(checked) => toggleBulkUpdateField('multiplier', checked)}
+                  disabled={isBulkProxyUpdating}
+                  aria-label={t('providers.bulkProxyUpdate.multiplierLabel')}
+                />
+              </div>
+              {bulkUpdateMultiplierEnabled && (
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <Select
+                    value={bulkMultiplierClient}
+                    disabled={isBulkProxyUpdating}
+                    onValueChange={(value) => setBulkMultiplierClient(value as ClientType)}
+                  >
+                    <SelectTrigger aria-label={t('providers.bulkProxyUpdate.multiplierClient')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BULK_UPDATE_CLIENT_TYPES.map((client) => (
+                        <SelectItem key={client} value={client}>
+                          {client}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      data-testid="providers-bulk-multiplier-input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={bulkMultiplierValue}
+                      onChange={(event) => setBulkMultiplierValue(event.target.value)}
+                      onBlur={() => {
+                        const parsed = Number.parseFloat(bulkMultiplierValue);
+                        if (Number.isFinite(parsed) && parsed >= 0) {
+                          setBulkMultiplierValue(parsed.toFixed(2));
+                        } else {
+                          setBulkMultiplierValue(DEFAULT_BULK_UPDATE_MULTIPLIER);
+                        }
+                      }}
+                      disabled={isBulkProxyUpdating}
+                      className="w-28 font-mono"
+                      aria-label={t('providers.bulkProxyUpdate.multiplierValue')}
+                    />
+                    <span className="text-sm text-muted-foreground">×</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-border p-3 text-sm">
@@ -1279,6 +1438,15 @@ export function ProvidersPage() {
                   <div className="mt-1 text-xs text-muted-foreground">
                     {t('providers.bulkProxyUpdate.currentProxy', {
                       proxy: provider.config?.proxyURL || t('providers.bulkProxyUpdate.direct'),
+                    })}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {t('providers.bulkProxyUpdate.currentMultiplier', {
+                      client: bulkMultiplierClient,
+                      multiplier: (
+                        (provider.config?.custom?.clientMultiplier?.[bulkMultiplierClient] ??
+                          10000) / 10000
+                      ).toFixed(2),
                     })}
                   </div>
                 </div>
@@ -1318,9 +1486,9 @@ export function ProvidersPage() {
               onClick={handleBulkProxyUpdate}
               disabled={
                 !canManageProviderSettings ||
-                !proxyManagementEnabled ||
                 isBulkProxyUpdating ||
-                bulkProxyUpdateTargets.length === 0
+                bulkProxyUpdateTargets.length === 0 ||
+                !hasBulkUpdateFields
               }
             >
               {isBulkProxyUpdating ? t('common.saving') : t('providers.bulkProxyUpdate.submit')}
