@@ -369,6 +369,20 @@ func parseExternalModelListSetting(value string) []string {
 	if strings.HasPrefix(trimmed, "[") && json.Unmarshal([]byte(trimmed), &parsed) == nil {
 		return normalizeExternalModelList(parsed)
 	}
+	if strings.HasPrefix(trimmed, "{") {
+		var categorized struct {
+			Routes        map[string][]string `json:"routes"`
+			Uncategorized []string            `json:"uncategorized"`
+		}
+		if json.Unmarshal([]byte(trimmed), &categorized) == nil {
+			values := make([]string, 0, len(categorized.Uncategorized))
+			for _, models := range categorized.Routes {
+				values = append(values, models...)
+			}
+			values = append(values, categorized.Uncategorized...)
+			return normalizeExternalModelList(values)
+		}
+	}
 	fields := strings.FieldsFunc(trimmed, func(r rune) bool {
 		return r == '\n' || r == '\r' || r == ','
 	})

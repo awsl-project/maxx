@@ -7,18 +7,31 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@/compo
 import { Textarea } from '@/components/ui/textarea';
 import {
   settingsKeys,
-  useModelMappings,
   useProjects,
   useProviders,
   useRoutes,
   useSettings,
   useUpdateSetting,
 } from '@/hooks/queries';
-import type { ModelMapping, Project, Provider, Route } from '@/lib/transport/types';
+import type { Project, Provider, Route } from '@/lib/transport/types';
 
 const EXTERNAL_MODEL_LIST_SETTING_KEY = 'external_model_list';
+const UNCATEGORIZED_KEY = '__uncategorized__';
 
-function parseModelList(value: string) {
+type CategorizedExternalModelListSetting = {
+  version?: number;
+  routes?: Record<string, string[]>;
+  uncategorized?: string[];
+};
+
+type RouteGroup = {
+  key: string;
+  route: Route;
+  provider: Provider;
+  project?: Project;
+};
+
+function parseModelText(value: string) {
   return Array.from(
     new Set(
       value
@@ -29,64 +42,44 @@ function parseModelList(value: string) {
   ).sort((a, b) => a.localeCompare(b));
 }
 
-type ExternalModelRouteGroup = {
-  route: Route;
-  provider: Provider;
-  project?: Project;
-  models: string[];
-};
+function parseStoredExternalModels(value: string): Record<string, string> {
+  const trimmed = value.trim();
+  if (!trimmed) return { [UNCATEGORIZED_KEY]: '' };
 
-function isConcretePublicModel(model: string): boolean {
-  const trimmed = model.trim();
-  return trimmed.length > 0 && !trimmed.includes('*');
-}
-
-function mappingAppliesToRoute(mapping: ModelMapping, route: Route, provider: Provider): boolean {
-  if (!mapping.isEnabled) return false;
-  if (mapping.routeID && mapping.routeID !== route.id) return false;
-  if (mapping.providerID && mapping.providerID !== provider.id) return false;
-  if (mapping.projectID && mapping.projectID !== route.projectID) return false;
-  if (mapping.clientType && mapping.clientType !== route.clientType) return false;
-  if (mapping.providerType && mapping.providerType !== provider.type) return false;
-  return true;
-}
-
-function routePublicModels(route: Route, provider: Provider, mappings: ModelMapping[]): string[] {
-  const models = new Set<string>();
-
-  const configuredModels = provider.exposedModelsEnabled
-    ? (provider.exposedModels ?? [])
-    : (provider.supportModels ?? []);
-  for (const model of configuredModels) {
-    if (isConcretePublicModel(model)) models.add(model.trim());
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (Array.isArray(parsed)) {
+      return { [UNCATEGORIZED_KEY]: parseModelText(parsed.join('\n')).join('\n') };
+    }
+    if (parsed && typeof parsed === 'object') {
+      const setting = parsed as CategorizedExternalModelListSetting;
+      const next: Record<string, string> = {};
+      for (const [routeID, models] of Object.entries(setting.routes ?? {})) {
+        next[routeID] = parseModelText(Array.isArray(models) ? models.join('\n') : '').join('\n');
+      }
+      next[UNCATEGORIZED_KEY] = parseModelText((setting.uncategorized ?? []).join('\n')).join('\n');
+      return next;
+    }
+  } catch {
+    // Legacy newline/comma-separated values are intentionally kept unassigned.
   }
 
-  for (const mapping of mappings) {
-    if (!mappingAppliesToRoute(mapping, route, provider)) continue;
-    if (isConcretePublicModel(mapping.pattern)) models.add(mapping.pattern.trim());
-  }
-
-  return Array.from(models).sort((a, b) => a.localeCompare(b));
+  return { [UNCATEGORIZED_KEY]: parseModelText(trimmed).join('\n') };
 }
 
-function buildExternalModelRouteGroups({
-  models,
+function buildRouteGroups({
   routes,
   providers,
   projects,
-  mappings,
 }: {
-  models: string[];
   routes: Route[];
   providers: Provider[];
   projects: Project[];
-  mappings: ModelMapping[];
-}): { groups: ExternalModelRouteGroup[]; uncategorized: string[] } {
+}): RouteGroup[] {
   const providerByID = new Map(providers.map((provider) => [provider.id, provider]));
   const projectByID = new Map(projects.map((project) => [project.id, project]));
-  const remaining = new Set(models);
 
-  const groups = routes
+  return routes
     .filter((route) => route.isEnabled)
     .sort((a, b) => {
       if (a.projectID !== b.projectID) return a.projectID - b.projectID;
@@ -96,21 +89,50 @@ function buildExternalModelRouteGroups({
     .flatMap((route) => {
       const provider = providerByID.get(route.providerID);
       if (!provider) return [];
-      const routeModels = new Set(routePublicModels(route, provider, mappings));
-      const matched = models.filter((model) => routeModels.has(model));
-      if (matched.length === 0) return [];
-      for (const model of matched) remaining.delete(model);
       return [
         {
+          key: String(route.id),
           route,
           provider,
           project: route.projectID ? projectByID.get(route.projectID) : undefined,
-          models: matched,
         },
       ];
     });
+}
 
-  return { groups, uncategorized: Array.from(remaining).sort((a, b) => a.localeCompare(b)) };
+function normalizeDraftForSave(draft: Record<string, string>, groups: RouteGroup[]) {
+  const routes: Record<string, string[]> = {};
+  const usedKeys = new Set(groups.map((group) => group.key));
+
+  for (const group of groups) {
+    const models = parseModelText(draft[group.key] ?? '');
+    if (models.length > 0) routes[group.key] = models;
+  }
+
+  const uncategorized = parseModelText(
+    Object.entries(draft)
+      .filter(([key]) => key === UNCATEGORIZED_KEY || !usedKeys.has(key))
+      .map(([, value]) => value)
+      .join('\n'),
+  );
+
+  return JSON.stringify(
+    {
+      version: 1,
+      routes,
+      uncategorized,
+    },
+    null,
+    2,
+  );
+}
+
+function countModels(draft: Record<string, string>) {
+  const models = new Set<string>();
+  for (const value of Object.values(draft)) {
+    for (const model of parseModelText(value)) models.add(model);
+  }
+  return models.size;
 }
 
 export function ExternalModelsPage() {
@@ -120,30 +142,45 @@ export function ExternalModelsPage() {
   const { data: providers = [] } = useProviders();
   const { data: routes = [] } = useRoutes();
   const { data: projects = [] } = useProjects();
-  const { data: mappings = [] } = useModelMappings();
   const updateSetting = useUpdateSetting();
   const storedList = settings?.[EXTERNAL_MODEL_LIST_SETTING_KEY] ?? '';
-  const [value, setValue] = useState(storedList);
-  const [saved, setSaved] = useState(false);
-  const models = useMemo(() => parseModelList(value), [value]);
-  const { groups, uncategorized } = useMemo(
-    () => buildExternalModelRouteGroups({ models, routes, providers, projects, mappings }),
-    [models, routes, providers, projects, mappings],
+  const routeGroups = useMemo(
+    () => buildRouteGroups({ routes, providers, projects }),
+    [routes, providers, projects],
   );
-  const hasChanges = value !== storedList;
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    parseStoredExternalModels(storedList),
+  );
+  const [saved, setSaved] = useState(false);
+  const normalizedValue = useMemo(
+    () => normalizeDraftForSave(draft, routeGroups),
+    [draft, routeGroups],
+  );
+  const storedNormalizedValue = useMemo(() => {
+    const parsed = parseStoredExternalModels(storedList);
+    return normalizeDraftForSave(parsed, routeGroups);
+  }, [storedList, routeGroups]);
+  const modelCount = useMemo(() => countModels(draft), [draft]);
+  const hasChanges = normalizedValue !== storedNormalizedValue;
 
   useEffect(() => {
-    setValue(storedList);
+    setDraft(parseStoredExternalModels(storedList));
   }, [storedList]);
 
+  const setGroupValue = (key: string, value: string) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+
   const handleSave = async () => {
-    const normalized = models.join('\n');
-    await updateSetting.mutateAsync({ key: EXTERNAL_MODEL_LIST_SETTING_KEY, value: normalized });
+    await updateSetting.mutateAsync({
+      key: EXTERNAL_MODEL_LIST_SETTING_KEY,
+      value: normalizedValue,
+    });
     queryClient.setQueryData<Record<string, string>>(settingsKeys.all, {
       ...(settings ?? {}),
-      [EXTERNAL_MODEL_LIST_SETTING_KEY]: normalized,
+      [EXTERNAL_MODEL_LIST_SETTING_KEY]: normalizedValue,
     });
-    setValue(normalized);
+    setDraft(parseStoredExternalModels(normalizedValue));
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1600);
   };
@@ -163,21 +200,86 @@ export function ExternalModelsPage() {
             <CardTitle className="flex items-center justify-between gap-3 text-base font-medium">
               <span>{t('externalModels.editorTitle')}</span>
               <Badge variant="secondary">
-                {t('externalModels.modelCount', { count: models.length })}
+                {t('externalModels.modelCount', { count: modelCount })}
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
-            <p className="text-sm text-muted-foreground">{t('externalModels.editorDesc')}</p>
-            <Textarea
-              className="min-h-72 font-mono text-sm"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              disabled={isLoading || updateSetting.isPending}
-              placeholder={t('externalModels.placeholder')}
-            />
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('externalModels.editorDesc')}</p>
               <p className="text-xs text-muted-foreground">{t('externalModels.saveHint')}</p>
+            </div>
+
+            {routeGroups.length > 0 ? (
+              <div className="space-y-3">
+                {routeGroups.map((group) => {
+                  const models = parseModelText(draft[group.key] ?? '');
+                  return (
+                    <div
+                      key={group.key}
+                      className="rounded-lg border border-border bg-background p-4"
+                    >
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-foreground">
+                            {group.provider.name}
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            <span>{group.project?.name ?? t('externalModels.globalScope')}</span>
+                            <span>·</span>
+                            <span>{group.route.clientType}</span>
+                            <span>·</span>
+                            <span>route #{group.route.id}</span>
+                          </div>
+                        </div>
+                        <Badge variant="secondary">
+                          {t('externalModels.modelCount', { count: models.length })}
+                        </Badge>
+                      </div>
+                      <Textarea
+                        className="min-h-28 font-mono text-sm"
+                        value={draft[group.key] ?? ''}
+                        onChange={(event) => setGroupValue(group.key, event.target.value)}
+                        disabled={isLoading || updateSetting.isPending}
+                        placeholder={t('externalModels.groupPlaceholder')}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                {t('externalModels.noRoutes')}
+              </div>
+            )}
+
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    {t('externalModels.uncategorizedTitle')}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('externalModels.uncategorizedDesc')}
+                  </p>
+                </div>
+                <Badge variant="outline">
+                  {t('externalModels.modelCount', {
+                    count: parseModelText(draft[UNCATEGORIZED_KEY] ?? '').length,
+                  })}
+                </Badge>
+              </div>
+              <Textarea
+                className="min-h-24 font-mono text-sm"
+                value={draft[UNCATEGORIZED_KEY] ?? ''}
+                onChange={(event) => setGroupValue(UNCATEGORIZED_KEY, event.target.value)}
+                disabled={isLoading || updateSetting.isPending}
+                placeholder={t('externalModels.uncategorizedPlaceholder')}
+              />
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted-foreground">{t('externalModels.saveFormatHint')}</p>
               <Button
                 className="gap-2"
                 onClick={handleSave}
@@ -191,85 +293,6 @@ export function ExternalModelsPage() {
                     : t('common.save')}
               </Button>
             </div>
-            {models.length > 0 ? (
-              <div className="space-y-3 rounded-xl border border-border bg-muted/25 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-medium text-foreground">
-                      {t('externalModels.groupedTitle')}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t('externalModels.groupedDesc')}
-                    </p>
-                  </div>
-                  <Badge variant="outline">
-                    {t('externalModels.groupCount', { count: groups.length })}
-                  </Badge>
-                </div>
-
-                {groups.map((group) => (
-                  <div
-                    key={group.route.id}
-                    className="rounded-lg border border-border bg-background p-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">
-                          {group.provider.name}
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          <span>{group.project?.name ?? t('externalModels.globalScope')}</span>
-                          <span>·</span>
-                          <span>{group.route.clientType}</span>
-                          <span>·</span>
-                          <span>route #{group.route.id}</span>
-                        </div>
-                      </div>
-                      <Badge variant="secondary">
-                        {t('externalModels.modelCount', { count: group.models.length })}
-                      </Badge>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {group.models.map((model) => (
-                        <Badge
-                          key={model}
-                          variant="outline"
-                          className="max-w-full truncate font-mono"
-                        >
-                          {model}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-
-                {uncategorized.length > 0 && (
-                  <div className="rounded-lg border border-dashed border-border bg-background p-3">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('externalModels.uncategorizedTitle')}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t('externalModels.uncategorizedDesc')}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {uncategorized.map((model) => (
-                        <Badge
-                          key={model}
-                          variant="outline"
-                          className="max-w-full truncate font-mono"
-                        >
-                          {model}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                {t('externalModels.empty')}
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>

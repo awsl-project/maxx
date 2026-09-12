@@ -351,6 +351,37 @@ func TestModelsHandlerUsesConfiguredExternalModelListWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestModelsHandlerUsesCategorizedExternalModelListWhenEnabled(t *testing.T) {
+	responseRepo := &fakeResponseModelRepo{names: []string{"gpt-history"}}
+	providerRepo := &fakeProviderRepo{providers: []*domain.Provider{{SupportModels: []string{"gpt-supported"}}}}
+	handler := NewModelsHandler(responseRepo, providerRepo, nil)
+	handler.SetSettingsRepository(&selfServiceSettingsRepo{values: map[string]string{
+		domain.SettingKeyExternalModelListEnabled: "true",
+		domain.SettingKeyExternalModelList: `{
+			"version": 1,
+			"routes": {
+				"21": ["gpt-public", "claude-public"],
+				"22": ["gemini-public", "gpt-public"]
+			},
+			"uncategorized": ["manual-public"]
+		}`,
+	}})
+
+	names, err := handler.collectModelNames(1)
+	if err != nil {
+		t.Fatalf("collectModelNames error: %v", err)
+	}
+	want := []string{"claude-public", "gemini-public", "gpt-public", "manual-public"}
+	if len(names) != len(want) {
+		t.Fatalf("names = %#v, want %#v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("names = %#v, want %#v", names, want)
+		}
+	}
+}
+
 func TestModelsHandlerConfiguredExternalModelListDisabledKeepsExistingSources(t *testing.T) {
 	responseRepo := &fakeResponseModelRepo{names: []string{"gpt-history"}}
 	handler := NewModelsHandler(responseRepo, nil, nil)
