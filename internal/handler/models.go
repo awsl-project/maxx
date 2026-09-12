@@ -117,6 +117,12 @@ func (h *ModelsHandler) collectModelNamesForUserAgent(tenantID uint64, userAgent
 }
 
 func (h *ModelsHandler) collectAvailableModelNames(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, userAgent string) ([]string, error) {
+	if models, enabled, err := h.collectConfiguredExternalModelClientTypeList(clientType); err != nil {
+		return nil, err
+	} else if enabled {
+		return sortedModelNames(models), nil
+	}
+
 	candidates, err := h.collectCandidateModelNames(tenantID, userAgent)
 	if err != nil {
 		return nil, err
@@ -344,7 +350,7 @@ func isProviderModelExposed(provider *domain.Provider, model string) bool {
 }
 
 func (h *ModelsHandler) collectConfiguredExternalModelRouteGroups(tenantID uint64, clientType domain.ClientType, projectID, providerID uint64) ([]modelRouteGroup, bool, error) {
-	if h == nil || h.settingsRepo == nil || h.router == nil {
+	if h == nil || h.settingsRepo == nil {
 		return nil, false, nil
 	}
 	enabledValue, err := h.settingsRepo.Get(domain.SettingKeyExternalModelListEnabled)
@@ -357,6 +363,32 @@ func (h *ModelsHandler) collectConfiguredExternalModelRouteGroups(tenantID uint6
 	value, err := h.settingsRepo.Get(domain.SettingKeyExternalModelList)
 	if err != nil {
 		return nil, false, err
+	}
+	clientTypeModels, hasClientTypes := parseExternalModelClientTypeSetting(value)
+	if hasClientTypes {
+		groups := make([]modelRouteGroup, 0, len(clientTypeModels))
+		for groupClientType, models := range clientTypeModels {
+			if clientType != "" && groupClientType != clientType {
+				continue
+			}
+			if providerID != 0 || projectID != 0 {
+				continue
+			}
+			normalizedModels := normalizeExternalModelList(models)
+			sort.Strings(normalizedModels)
+			if len(normalizedModels) == 0 {
+				continue
+			}
+			groups = append(groups, modelRouteGroup{
+				ClientType: groupClientType,
+				Models:     normalizedModels,
+			})
+		}
+		sort.Slice(groups, func(i, j int) bool { return groups[i].ClientType < groups[j].ClientType })
+		return groups, true, nil
+	}
+	if h.router == nil {
+		return nil, false, nil
 	}
 	routeModels, categorized := parseExternalModelRouteSetting(value)
 	if !categorized {
@@ -404,6 +436,32 @@ func (h *ModelsHandler) collectConfiguredExternalModelRouteGroups(tenantID uint6
 	return groups, true, nil
 }
 
+func (h *ModelsHandler) collectConfiguredExternalModelClientTypeList(clientType domain.ClientType) (map[string]struct{}, bool, error) {
+	result := make(map[string]struct{})
+	if h == nil || h.settingsRepo == nil || clientType == "" {
+		return result, false, nil
+	}
+	enabledValue, err := h.settingsRepo.Get(domain.SettingKeyExternalModelListEnabled)
+	if err != nil {
+		return nil, false, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(enabledValue), "true") {
+		return result, false, nil
+	}
+	value, err := h.settingsRepo.Get(domain.SettingKeyExternalModelList)
+	if err != nil {
+		return nil, false, err
+	}
+	clientTypeModels, categorized := parseExternalModelClientTypeSetting(value)
+	if !categorized {
+		return result, false, nil
+	}
+	for _, name := range clientTypeModels[clientType] {
+		addModelName(result, name)
+	}
+	return result, true, nil
+}
+
 func (h *ModelsHandler) collectConfiguredExternalModelList() (map[string]struct{}, bool, error) {
 	result := make(map[string]struct{})
 	if h == nil || h.settingsRepo == nil {
@@ -425,6 +483,36 @@ func (h *ModelsHandler) collectConfiguredExternalModelList() (map[string]struct{
 		addModelName(result, name)
 	}
 	return result, true, nil
+}
+
+func parseExternalModelClientTypeSetting(value string) (map[domain.ClientType][]string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil, false
+	}
+	var categorized struct {
+		ClientTypes map[string][]string `json:"clientTypes"`
+	}
+	if json.Unmarshal([]byte(trimmed), &categorized) != nil || len(categorized.ClientTypes) == 0 {
+		return nil, false
+	}
+	result := make(map[domain.ClientType][]string, len(categorized.ClientTypes))
+	valid := map[domain.ClientType]struct{}{
+		domain.ClientTypeOpenAI: {},
+		domain.ClientTypeCodex:  {},
+		domain.ClientTypeClaude: {},
+		domain.ClientTypeGemini: {},
+	}
+	for key, models := range categorized.ClientTypes {
+		clientType := domain.ClientType(strings.TrimSpace(key))
+		if _, ok := valid[clientType]; !ok {
+			continue
+		}
+		if normalized := normalizeExternalModelList(models); len(normalized) > 0 {
+			result[clientType] = normalized
+		}
+	}
+	return result, true
 }
 
 func parseExternalModelRouteSetting(value string) (map[uint64][]string, bool) {
@@ -462,11 +550,15 @@ func parseExternalModelListSetting(value string) []string {
 	}
 	if strings.HasPrefix(trimmed, "{") {
 		var categorized struct {
+			ClientTypes   map[string][]string `json:"clientTypes"`
 			Routes        map[string][]string `json:"routes"`
 			Uncategorized []string            `json:"uncategorized"`
 		}
 		if json.Unmarshal([]byte(trimmed), &categorized) == nil {
 			values := make([]string, 0, len(categorized.Uncategorized))
+			for _, models := range categorized.ClientTypes {
+				values = append(values, models...)
+			}
 			for _, models := range categorized.Routes {
 				values = append(values, models...)
 			}
