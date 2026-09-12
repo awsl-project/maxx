@@ -113,7 +113,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.57.0
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
@@ -125,6 +125,6 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-replace github.com/router-for-me/CLIProxyAPI/v7 => github.com/awsl-project/CLIProxyAPI/v7 v7.0.0-20260901085119-7d0a4bdae0f4
+replace github.com/router-for-me/CLIProxyAPI/v7 => github.com/awsl-project/CLIProxyAPI/v7 v7.0.0-20260912064407-ceff7c13a983
 
 replace github.com/router-for-me/CLIProxyAPI/v6 => github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260507052548-159217ed39b2
