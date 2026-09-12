@@ -2278,17 +2278,20 @@
     "title": "外部模型",
     "description": "管理暴露给外部客户端和用户控制台的模型名。",
     "editorTitle": "公开模型列表",
-    "editorDesc": "按路由分类填写对外暴露的模型名；每个分类每行一个模型，也可以粘贴逗号分隔的模型名。",
+    "editorDesc": "按路由类型填写模型名。",
     "placeholder": "gpt-5\nclaude-sonnet-4\ngemini-2.5-pro",
-    "saveHint": "这里仍是管理员后台 External Models tab 的原维护入口；不会在其他 tab 新增填写入口。",
     "modelCount": "{{count}} 个模型",
     "globalScope": "全局",
     "uncategorizedTitle": "未分类模型",
-    "uncategorizedDesc": "用于暂存还没归到具体路由分类的模型名；保存后仍会进入外部模型列表。",
     "groupPlaceholder": "例如：\ngpt-4o-public\nglm-4.5",
     "noRoutes": "当前没有已启用路由。仍可先把模型名填到未分类区域。",
     "uncategorizedPlaceholder": "例如：\nmanual-custom-model",
-    "saveFormatHint": "保存时会按分类写入外部模型列表；/v1/models 会读取所有分类中的模型名。"
+    "routeTypes": {
+      "openai": "OpenAI 路由",
+      "codex": "Codex 路由",
+      "claude": "Claude 路由",
+      "gemini": "Gemini 路由"
+    }
   },
   "proxies": {
     "title": "代理",

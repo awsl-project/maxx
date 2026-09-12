@@ -415,14 +415,15 @@ func (h *SelfServiceHandler) collectUserPanelAvailableModelRouteGroups(tenantID,
 	}
 
 	groups := make([]modelRouteGroup, 0)
-	seen := make(map[uint64]int)
+	seen := make(map[string]int)
 	for _, clientType := range h.userPanelModelClientTypes() {
 		clientGroups, err := h.modelsHandler.collectAvailableModelRouteGroups(tenantID, clientType, 0, 0, apiTokenID, "")
 		if err != nil {
 			return nil, err
 		}
 		for _, group := range clientGroups {
-			if idx, ok := seen[group.RouteID]; ok {
+			groupKey := fmt.Sprintf("%s:%d", group.ClientType, group.RouteID)
+			if idx, ok := seen[groupKey]; ok {
 				merged := make(map[string]struct{}, len(groups[idx].Models)+len(group.Models))
 				for _, model := range groups[idx].Models {
 					merged[model] = struct{}{}
@@ -433,7 +434,7 @@ func (h *SelfServiceHandler) collectUserPanelAvailableModelRouteGroups(tenantID,
 				groups[idx].Models = sortedModelNames(merged)
 				continue
 			}
-			seen[group.RouteID] = len(groups)
+			seen[groupKey] = len(groups)
 			groups = append(groups, group)
 		}
 	}

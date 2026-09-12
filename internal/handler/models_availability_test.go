@@ -296,8 +296,8 @@ func TestAvailableModelRouteGroupsUseCategorizedExternalModelList(t *testing.T) 
 	handler.SetSettingsRepository(&selfServiceSettingsRepo{values: map[string]string{
 		domain.SettingKeyExternalModelListEnabled: "true",
 		domain.SettingKeyExternalModelList: `{
-			"version": 1,
-			"routes": {"21": ["user-manual-fill-demo", "glm-4.5"]},
+			"version": 2,
+			"clientTypes": {"openai": ["user-manual-fill-demo", "glm-4.5"], "claude": ["claude-manual"]},
 			"uncategorized": ["manual-custom-model"]
 		}`,
 	}})
@@ -307,10 +307,10 @@ func TestAvailableModelRouteGroupsUseCategorizedExternalModelList(t *testing.T) 
 		t.Fatalf("collectAvailableModelRouteGroups: %v", err)
 	}
 	if len(groups) != 1 {
-		t.Fatalf("groups = %#v, want one manual route group", groups)
+		t.Fatalf("groups = %#v, want one manual route type group", groups)
 	}
-	if groups[0].RouteID != 21 || groups[0].ProviderName != "manual-openai" {
-		t.Fatalf("group = %#v, want route 21 provider manual-openai", groups[0])
+	if groups[0].RouteID != 0 || groups[0].ProviderName != "" || groups[0].ClientType != domain.ClientTypeOpenAI {
+		t.Fatalf("group = %#v, want openai route type without provider split", groups[0])
 	}
 	want := []string{"glm-4.5", "user-manual-fill-demo"}
 	if len(groups[0].Models) != len(want) {
@@ -319,6 +319,19 @@ func TestAvailableModelRouteGroupsUseCategorizedExternalModelList(t *testing.T) 
 	for i := range want {
 		if groups[0].Models[i] != want[i] {
 			t.Fatalf("models = %#v, want %#v", groups[0].Models, want)
+		}
+	}
+
+	names, err := handler.collectAvailableModelNames(1, domain.ClientTypeOpenAI, 0, 0, 0, "")
+	if err != nil {
+		t.Fatalf("collectAvailableModelNames: %v", err)
+	}
+	if len(names) != len(want) {
+		t.Fatalf("names = %#v, want %#v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("names = %#v, want %#v", names, want)
 		}
 	}
 }

@@ -2282,17 +2282,20 @@
     "title": "External Models",
     "description": "Manage the model names exposed to external clients and the user console.",
     "editorTitle": "Public model list",
-    "editorDesc": "Enter externally exposed model names by route group. Use one model per line, or paste comma-separated names.",
+    "editorDesc": "Enter model names by route type.",
     "placeholder": "gpt-5\nclaude-sonnet-4\ngemini-2.5-pro",
-    "saveHint": "This remains the original admin External Models tab entry point; no other tab gets a model-name editor.",
     "modelCount": "{{count}} models",
     "globalScope": "Global",
     "uncategorizedTitle": "Uncategorized models",
-    "uncategorizedDesc": "Temporarily holds model names that are not assigned to a specific route group yet; they are still saved into the external model list.",
     "groupPlaceholder": "Example:\ngpt-4o-public\nglm-4.5",
     "noRoutes": "No enabled routes are available. You can still put model names in the uncategorized section.",
     "uncategorizedPlaceholder": "Example:\nmanual-custom-model",
-    "saveFormatHint": "Saved categories are written into the external model list; /v1/models reads model names from every category."
+    "routeTypes": {
+      "openai": "OpenAI route",
+      "codex": "Codex route",
+      "claude": "Claude route",
+      "gemini": "Gemini route"
+    }
   },
   "proxies": {
     "title": "Proxies",

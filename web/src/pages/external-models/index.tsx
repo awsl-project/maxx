@@ -5,31 +5,24 @@ import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  settingsKeys,
-  useProjects,
-  useProviders,
-  useRoutes,
-  useSettings,
-  useUpdateSetting,
-} from '@/hooks/queries';
-import type { Project, Provider, Route } from '@/lib/transport/types';
+import { settingsKeys, useRoutes, useSettings, useUpdateSetting } from '@/hooks/queries';
+import type { ClientType, Route } from '@/lib/transport/types';
 
 const EXTERNAL_MODEL_LIST_SETTING_KEY = 'external_model_list';
 const UNCATEGORIZED_KEY = '__uncategorized__';
 
 type CategorizedExternalModelListSetting = {
   version?: number;
+  clientTypes?: Partial<Record<ClientType, string[]>>;
   routes?: Record<string, string[]>;
   uncategorized?: string[];
 };
 
 type RouteGroup = {
-  key: string;
-  route: Route;
-  provider: Provider;
-  project?: Project;
+  key: ClientType;
 };
+
+const ROUTE_GROUP_ORDER: ClientType[] = ['openai', 'codex', 'claude', 'gemini'];
 
 function parseModelText(value: string) {
   return Array.from(
@@ -42,7 +35,7 @@ function parseModelText(value: string) {
   ).sort((a, b) => a.localeCompare(b));
 }
 
-function parseStoredExternalModels(value: string): Record<string, string> {
+function parseStoredExternalModels(value: string, routes: Route[] = []): Record<string, string> {
   const trimmed = value.trim();
   if (!trimmed) return { [UNCATEGORIZED_KEY]: '' };
 
@@ -54,9 +47,24 @@ function parseStoredExternalModels(value: string): Record<string, string> {
     if (parsed && typeof parsed === 'object') {
       const setting = parsed as CategorizedExternalModelListSetting;
       const next: Record<string, string> = {};
-      for (const [routeID, models] of Object.entries(setting.routes ?? {})) {
-        next[routeID] = parseModelText(Array.isArray(models) ? models.join('\n') : '').join('\n');
+      for (const clientType of ROUTE_GROUP_ORDER) {
+        const models = setting.clientTypes?.[clientType];
+        if (Array.isArray(models)) {
+          next[clientType] = parseModelText(models.join('\n')).join('\n');
+        }
       }
+
+      const routeClientTypeByID = new Map(
+        routes.map((route) => [String(route.id), route.clientType]),
+      );
+      for (const [routeID, models] of Object.entries(setting.routes ?? {})) {
+        const clientType = routeClientTypeByID.get(routeID);
+        if (!clientType) continue;
+        next[clientType] = parseModelText(
+          [next[clientType] ?? '', ...(Array.isArray(models) ? models : [])].join('\n'),
+        ).join('\n');
+      }
+
       next[UNCATEGORIZED_KEY] = parseModelText((setting.uncategorized ?? []).join('\n')).join('\n');
       return next;
     }
@@ -67,42 +75,20 @@ function parseStoredExternalModels(value: string): Record<string, string> {
   return { [UNCATEGORIZED_KEY]: parseModelText(trimmed).join('\n') };
 }
 
-function buildRouteGroups({
-  routes,
-  providers,
-  projects,
-}: {
-  routes: Route[];
-  providers: Provider[];
-  projects: Project[];
-}): RouteGroup[] {
-  const providerByID = new Map(providers.map((provider) => [provider.id, provider]));
-  const projectByID = new Map(projects.map((project) => [project.id, project]));
-
-  return routes
-    .filter((route) => route.isEnabled)
-    .sort((a, b) => {
-      if (a.projectID !== b.projectID) return a.projectID - b.projectID;
-      if (a.clientType !== b.clientType) return a.clientType.localeCompare(b.clientType);
-      return a.position - b.position;
-    })
-    .flatMap((route) => {
-      const provider = providerByID.get(route.providerID);
-      if (!provider) return [];
-      return [
-        {
-          key: String(route.id),
-          route,
-          provider,
-          project: route.projectID ? projectByID.get(route.projectID) : undefined,
-        },
-      ];
-    });
+function buildRouteGroups(routes: Route[]): RouteGroup[] {
+  const enabledClientTypes = new Set(
+    routes.filter((route) => route.isEnabled).map((route) => route.clientType),
+  );
+  return ROUTE_GROUP_ORDER.filter((clientType) => enabledClientTypes.has(clientType)).map(
+    (key) => ({
+      key,
+    }),
+  );
 }
 
 function normalizeDraftForSave(draft: Record<string, string>, groups: RouteGroup[]) {
   const routes: Record<string, string[]> = {};
-  const usedKeys = new Set(groups.map((group) => group.key));
+  const usedKeys = new Set<string>(groups.map((group) => group.key));
 
   for (const group of groups) {
     const models = parseModelText(draft[group.key] ?? '');
@@ -118,8 +104,8 @@ function normalizeDraftForSave(draft: Record<string, string>, groups: RouteGroup
 
   return JSON.stringify(
     {
-      version: 1,
-      routes,
+      version: 2,
+      clientTypes: routes,
       uncategorized,
     },
     null,
@@ -139,17 +125,12 @@ export function ExternalModelsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useSettings();
-  const { data: providers = [] } = useProviders();
   const { data: routes = [] } = useRoutes();
-  const { data: projects = [] } = useProjects();
   const updateSetting = useUpdateSetting();
   const storedList = settings?.[EXTERNAL_MODEL_LIST_SETTING_KEY] ?? '';
-  const routeGroups = useMemo(
-    () => buildRouteGroups({ routes, providers, projects }),
-    [routes, providers, projects],
-  );
+  const routeGroups = useMemo(() => buildRouteGroups(routes), [routes]);
   const [draft, setDraft] = useState<Record<string, string>>(() =>
-    parseStoredExternalModels(storedList),
+    parseStoredExternalModels(storedList, routes),
   );
   const [saved, setSaved] = useState(false);
   const normalizedValue = useMemo(
@@ -157,15 +138,15 @@ export function ExternalModelsPage() {
     [draft, routeGroups],
   );
   const storedNormalizedValue = useMemo(() => {
-    const parsed = parseStoredExternalModels(storedList);
+    const parsed = parseStoredExternalModels(storedList, routes);
     return normalizeDraftForSave(parsed, routeGroups);
-  }, [storedList, routeGroups]);
+  }, [storedList, routeGroups, routes]);
   const modelCount = useMemo(() => countModels(draft), [draft]);
   const hasChanges = normalizedValue !== storedNormalizedValue;
 
   useEffect(() => {
-    setDraft(parseStoredExternalModels(storedList));
-  }, [storedList]);
+    setDraft(parseStoredExternalModels(storedList, routes));
+  }, [storedList, routes]);
 
   const setGroupValue = (key: string, value: string) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -180,7 +161,7 @@ export function ExternalModelsPage() {
       ...(settings ?? {}),
       [EXTERNAL_MODEL_LIST_SETTING_KEY]: normalizedValue,
     });
-    setDraft(parseStoredExternalModels(normalizedValue));
+    setDraft(parseStoredExternalModels(normalizedValue, routes));
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1600);
   };
@@ -205,10 +186,7 @@ export function ExternalModelsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">{t('externalModels.editorDesc')}</p>
-              <p className="text-xs text-muted-foreground">{t('externalModels.saveHint')}</p>
-            </div>
+            <p className="text-sm text-muted-foreground">{t('externalModels.editorDesc')}</p>
 
             {routeGroups.length > 0 ? (
               <div className="space-y-3">
@@ -222,14 +200,7 @@ export function ExternalModelsPage() {
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-foreground">
-                            {group.provider.name}
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            <span>{group.project?.name ?? t('externalModels.globalScope')}</span>
-                            <span>·</span>
-                            <span>{group.route.clientType}</span>
-                            <span>·</span>
-                            <span>route #{group.route.id}</span>
+                            {t(`externalModels.routeTypes.${group.key}`)}
                           </div>
                         </div>
                         <Badge variant="secondary">
@@ -259,9 +230,6 @@ export function ExternalModelsPage() {
                   <div className="text-sm font-medium text-foreground">
                     {t('externalModels.uncategorizedTitle')}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('externalModels.uncategorizedDesc')}
-                  </p>
                 </div>
                 <Badge variant="outline">
                   {t('externalModels.modelCount', {
@@ -278,8 +246,7 @@ export function ExternalModelsPage() {
               />
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-muted-foreground">{t('externalModels.saveFormatHint')}</p>
+            <div className="flex justify-end">
               <Button
                 className="gap-2"
                 onClick={handleSave}

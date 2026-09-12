@@ -259,8 +259,7 @@ export function UserPanelPage() {
     if (typeof window === 'undefined') return 'main';
     const params = new URLSearchParams(window.location.search);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     return resolveUserPanelTab({
       urlTab: params.get('tab'),
@@ -351,8 +350,7 @@ export function UserPanelPage() {
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     const storedTab = window.localStorage.getItem(tabStorageKey);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     setActiveTab(resolveUserPanelTab({ urlTab, storedTab, allowStoredTab }));
   }, [tabStorageKey]);
@@ -655,19 +653,21 @@ export function UserPanelPage() {
                     <div className="mt-3 space-y-3">
                       {modelRouteGroups.map((group) => (
                         <div
-                          key={group.routeID}
+                          key={`${group.clientType}-${group.routeID}`}
                           className="rounded-lg border border-border bg-background p-3"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-foreground">
-                                {group.providerName}
+                                {group.providerName ||
+                                  t(`externalModels.routeTypes.${group.clientType}`)}
                               </p>
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {group.projectID > 0
                                   ? t('userPanel.projectRouteScope', { projectID: group.projectID })
                                   : t('userPanel.globalRouteScope')}{' '}
-                                · {group.clientType} · route #{group.routeID}
+                                · {group.clientType}
+                                {group.routeID > 0 ? ` · route #${group.routeID}` : ''}
                               </p>
                             </div>
                             <Badge variant="secondary">
