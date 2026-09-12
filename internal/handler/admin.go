@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	adapterprovider "github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	"github.com/awsl-project/maxx/internal/adapter/provider/zai"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
@@ -123,6 +124,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleSettings(w, r, parts)
 	case "proxy-status":
 		h.handleProxyStatus(w, r)
+	case "proxy-check":
+		h.handleProxyCheck(w, r)
 	case "provider-stats":
 		h.handleProviderStats(w, r)
 	case "cooldowns":
@@ -1644,6 +1647,33 @@ func (h *AdminHandler) handleSettings(w http.ResponseWriter, r *http.Request, pa
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (h *AdminHandler) handleProxyCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(body.URL) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "proxy URL required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	result := adapterprovider.TestProxyConnectivity(ctx, body.URL)
+	status := http.StatusOK
+	if !result.OK {
+		status = http.StatusBadGateway
+	}
+	writeJSON(w, status, result)
 }
 
 // Proxy status handler

@@ -27,6 +27,7 @@ import type {
   CursorPaginationParams,
   CursorPaginationResult,
   ProxyStatus,
+  ProxyConnectivityResult,
   ProviderStats,
   WSMessageType,
   EventCallback,
@@ -211,6 +212,7 @@ export interface Transport {
   // ===== Proxy Status API =====
   getProxyStatus(): Promise<ProxyStatus>;
   getPublicProxyStatus(): Promise<ProxyStatus>;
+  checkOutboundProxy(url: string, signal?: AbortSignal): Promise<ProxyConnectivityResult>;
 
   // ===== System API =====
   restartServer(): Promise<void>;
