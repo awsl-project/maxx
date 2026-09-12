@@ -471,8 +471,11 @@
     },
     "cleanupFailed": {
       "action": "清理失败记录",
+      "noisyErrorsAction": "清理连接噪音错误",
       "title": "清理失败请求记录？",
+      "noisyErrorsTitle": "清理连接噪音错误请求记录？",
       "description": "将删除当前筛选条件下 {{count}} 条失败/错误请求记录，并同步删除对应 upstream attempts。成功请求和活跃请求不会被删除。",
+      "noisyErrorsDescription": "将删除当前筛选条件下错误信息包含以下任一内容的 {{count}} 条失败/错误请求记录：{{errors}}，并同步删除对应 upstream attempts。其他失败记录、成功请求和活跃请求不会被删除。",
       "confirm": "清理失败记录",
       "cleaning": "清理中..."
     }

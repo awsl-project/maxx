@@ -23,6 +23,13 @@ var activeProxyRequestStatuses = []string{"PENDING", "IN_PROGRESS"}
 
 var proxyRequestErrorStatuses = []string{"FAILED", "REJECTED"}
 
+func escapeLikePattern(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	value = strings.ReplaceAll(value, `_`, `\_`)
+	return value
+}
+
 func cloneProxyRequestFilter(filter *repository.ProxyRequestFilter) *repository.ProxyRequestFilter {
 	if filter == nil {
 		return &repository.ProxyRequestFilter{}
@@ -77,9 +84,29 @@ func applyProxyRequestBaseFilter(query *gorm.DB, filter *repository.ProxyRequest
 
 func applyProxyRequestCleanupFailedFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
 	query = applyProxyRequestBaseFilter(query, filter)
-	return query.
+	query = query.
 		Where("status NOT IN ?", activeProxyRequestStatuses).
 		Where("status IN ? OR status_code >= ?", proxyRequestErrorStatuses, 400)
+	if filter != nil {
+		needles := append([]string{}, filter.ErrorContainsAny...)
+		if len(needles) == 0 && filter.ErrorContains != nil {
+			needles = append(needles, *filter.ErrorContains)
+		}
+		conditions := make([]string, 0, len(needles))
+		args := make([]any, 0, len(needles))
+		for _, needle := range needles {
+			needle = strings.TrimSpace(needle)
+			if needle == "" {
+				continue
+			}
+			conditions = append(conditions, "LOWER(error) LIKE ? ESCAPE '\\'")
+			args = append(args, "%"+escapeLikePattern(strings.ToLower(needle))+"%")
+		}
+		if len(conditions) > 0 {
+			query = query.Where("("+strings.Join(conditions, " OR ")+")", args...)
+		}
+	}
+	return query
 }
 
 func proxyRequestTrendBucketSize(startMs, endMs int64) int64 {

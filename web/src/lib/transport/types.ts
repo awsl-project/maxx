@@ -805,6 +805,8 @@ export interface CursorPaginationParams {
   endTime?: string;
   /** 错误请求过滤模式 */
   errorMode?: ProxyRequestErrorMode;
+  /** 按错误信息子串过滤 */
+  errorContains?: string | string[];
 }
 
 /** 游标分页响应 */
