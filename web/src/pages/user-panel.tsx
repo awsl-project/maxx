@@ -142,7 +142,7 @@ function ConsumptionLeaderboardCard({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('userPanel.username')}</TableHead>
+                <TableHead>{t('common.name')}</TableHead>
                 <TableHead className="text-right">{t('userPanel.amount')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -151,7 +151,7 @@ function ConsumptionLeaderboardCard({
                 const isCurrentUser = currentUserID === row.userID;
                 return (
                   <TableRow
-                    key={row.userID}
+                    key={row.tokenID || row.userID}
                     className={
                       isCurrentUser
                         ? 'bg-primary/10 ring-1 ring-inset ring-primary/25 hover:bg-primary/15'
@@ -159,7 +159,7 @@ function ConsumptionLeaderboardCard({
                     }
                   >
                     <TableCell className="font-medium text-foreground">
-                      {row.username || `#${row.userID}`}
+                      {row.tokenName || row.username || `#${row.tokenID || row.userID}`}
                     </TableCell>
                     <TableCell className="text-right font-mono font-semibold tabular-nums">
                       {formatCostAmount(row.cost)}

@@ -1703,9 +1703,11 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 }
 
 type userPanelConsumptionLeaderboardRow struct {
-	UserID   uint64 `json:"userID"`
-	Username string `json:"username"`
-	Cost     uint64 `json:"cost"`
+	UserID    uint64 `json:"userID"`
+	TokenID   uint64 `json:"tokenID"`
+	TokenName string `json:"tokenName"`
+	Username  string `json:"username"`
+	Cost      uint64 `json:"cost"`
 }
 
 type userPanelConsumptionLeaderboardResponse struct {
@@ -1741,45 +1743,28 @@ func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.Respon
 		return
 	}
 
-	users, err := h.userPanelLeaderboardUsers(tenantID)
-	if err != nil {
-		writeSelfServiceInternalError(w, "GetUserPanelLeaderboardUsers failed", err)
-		return
-	}
-
 	writeJSON(w, http.StatusOK, userPanelConsumptionLeaderboardResponse{
-		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, users, currentUserID),
-		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, users, currentUserID),
+		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, currentUserID),
+		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, currentUserID),
 	})
 }
 
-func (h *SelfServiceHandler) userPanelLeaderboardUsers(tenantID uint64) (map[uint64]string, error) {
-	if h.userRepo == nil {
-		return map[uint64]string{}, nil
-	}
-	users, err := h.userRepo.ListByTenant(tenantID)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[uint64]string, len(users))
-	for _, user := range users {
-		if user == nil {
-			continue
-		}
-		result[user.ID] = user.Username
-	}
-	return result, nil
-}
-
-func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, users map[uint64]string, currentUserID uint64) []userPanelConsumptionLeaderboardRow {
+func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, currentUserID uint64) []userPanelConsumptionLeaderboardRow {
 	tokenUsers := make(map[uint64]uint64, len(tokens))
+	tokenNames := make(map[uint64]string, len(tokens))
+	var currentUserTokenID uint64
 	for _, token := range tokens {
 		if token == nil || !strings.HasPrefix(token.Description, userPanelAPITokenDescriptionPrefix) {
 			continue
 		}
-		id, err := strconv.ParseUint(strings.TrimPrefix(token.Description, userPanelAPITokenDescriptionPrefix), 10, 64)
-		if err == nil && id > 0 {
-			tokenUsers[token.ID] = id
+		userID, err := strconv.ParseUint(strings.TrimPrefix(token.Description, userPanelAPITokenDescriptionPrefix), 10, 64)
+		if err != nil || userID == 0 {
+			continue
+		}
+		tokenUsers[token.ID] = userID
+		tokenNames[token.ID] = token.Name
+		if currentUserID > 0 && userID == currentUserID && currentUserTokenID == 0 {
+			currentUserTokenID = token.ID
 		}
 	}
 
@@ -1788,26 +1773,25 @@ func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*
 		if item == nil {
 			continue
 		}
-		userID := tokenUsers[item.APITokenID]
-		if userID == 0 {
+		if tokenUsers[item.APITokenID] == 0 {
 			continue
 		}
-		costs[userID] += item.Cost
+		costs[item.APITokenID] += item.Cost
 	}
 
-	if currentUserID > 0 {
-		if _, ok := costs[currentUserID]; !ok {
-			costs[currentUserID] = 0
+	if currentUserTokenID > 0 {
+		if _, ok := costs[currentUserTokenID]; !ok {
+			costs[currentUserTokenID] = 0
 		}
 	}
 
 	rows := make([]userPanelConsumptionLeaderboardRow, 0, len(costs))
-	for userID, cost := range costs {
-		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: userID, Username: users[userID], Cost: cost})
+	for tokenID, cost := range costs {
+		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: tokenUsers[tokenID], TokenID: tokenID, TokenName: tokenNames[tokenID], Cost: cost})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Cost == rows[j].Cost {
-			return rows[i].UserID < rows[j].UserID
+			return rows[i].TokenID < rows[j].TokenID
 		}
 		return rows[i].Cost > rows[j].Cost
 	})
