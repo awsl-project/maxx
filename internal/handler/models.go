@@ -224,6 +224,12 @@ func (h *ModelsHandler) matchAvailableModelRoutes(tenantID uint64, clientType do
 }
 
 func (h *ModelsHandler) collectAvailableModelRouteGroups(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, userAgent string) ([]modelRouteGroup, error) {
+	if groups, enabled, err := h.collectConfiguredExternalModelRouteGroups(tenantID, clientType, projectID, providerID); err != nil {
+		return nil, err
+	} else if enabled {
+		return groups, nil
+	}
+
 	candidates, err := h.collectCandidateModelNames(tenantID, userAgent)
 	if err != nil {
 		return nil, err
@@ -337,6 +343,67 @@ func isProviderModelExposed(provider *domain.Provider, model string) bool {
 	return false
 }
 
+func (h *ModelsHandler) collectConfiguredExternalModelRouteGroups(tenantID uint64, clientType domain.ClientType, projectID, providerID uint64) ([]modelRouteGroup, bool, error) {
+	if h == nil || h.settingsRepo == nil || h.router == nil {
+		return nil, false, nil
+	}
+	enabledValue, err := h.settingsRepo.Get(domain.SettingKeyExternalModelListEnabled)
+	if err != nil {
+		return nil, false, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(enabledValue), "true") {
+		return nil, false, nil
+	}
+	value, err := h.settingsRepo.Get(domain.SettingKeyExternalModelList)
+	if err != nil {
+		return nil, false, err
+	}
+	routeModels, categorized := parseExternalModelRouteSetting(value)
+	if !categorized {
+		return nil, false, nil
+	}
+
+	groups := make([]modelRouteGroup, 0, len(routeModels))
+	for routeID, models := range routeModels {
+		route, provider, err := h.router.GetRouteProviderByID(tenantID, routeID)
+		if err != nil || route == nil || provider == nil || !route.IsEnabled {
+			continue
+		}
+		if clientType != "" && route.ClientType != clientType {
+			continue
+		}
+		if projectID != 0 && route.ProjectID != projectID {
+			continue
+		}
+		if providerID != 0 && provider.ID != providerID {
+			continue
+		}
+		normalizedModels := normalizeExternalModelList(models)
+		sort.Strings(normalizedModels)
+		if len(normalizedModels) == 0 {
+			continue
+		}
+		groups = append(groups, modelRouteGroup{
+			RouteID:      route.ID,
+			ProviderID:   provider.ID,
+			ProviderName: provider.Name,
+			ClientType:   route.ClientType,
+			ProjectID:    route.ProjectID,
+			Models:       normalizedModels,
+		})
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].ProjectID != groups[j].ProjectID {
+			return groups[i].ProjectID < groups[j].ProjectID
+		}
+		if groups[i].ClientType != groups[j].ClientType {
+			return groups[i].ClientType < groups[j].ClientType
+		}
+		return groups[i].RouteID < groups[j].RouteID
+	})
+	return groups, true, nil
+}
+
 func (h *ModelsHandler) collectConfiguredExternalModelList() (map[string]struct{}, bool, error) {
 	result := make(map[string]struct{})
 	if h == nil || h.settingsRepo == nil {
@@ -358,6 +425,30 @@ func (h *ModelsHandler) collectConfiguredExternalModelList() (map[string]struct{
 		addModelName(result, name)
 	}
 	return result, true, nil
+}
+
+func parseExternalModelRouteSetting(value string) (map[uint64][]string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil, false
+	}
+	var categorized struct {
+		Routes map[string][]string `json:"routes"`
+	}
+	if json.Unmarshal([]byte(trimmed), &categorized) != nil || len(categorized.Routes) == 0 {
+		return nil, false
+	}
+	result := make(map[uint64][]string, len(categorized.Routes))
+	for key, models := range categorized.Routes {
+		routeID, err := strconv.ParseUint(strings.TrimSpace(key), 10, 64)
+		if err != nil || routeID == 0 {
+			continue
+		}
+		if normalized := normalizeExternalModelList(models); len(normalized) > 0 {
+			result[routeID] = normalized
+		}
+	}
+	return result, true
 }
 
 func parseExternalModelListSetting(value string) []string {

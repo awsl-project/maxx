@@ -284,6 +284,45 @@ func TestModelsHandlerFiltersProjectScopedModelList(t *testing.T) {
 	}
 }
 
+func TestAvailableModelRouteGroupsUseCategorizedExternalModelList(t *testing.T) {
+	providers := []*domain.Provider{
+		testCustomProvider(10, "manual-openai", []string{"provider-model"}),
+	}
+	routes := []*domain.Route{
+		{ID: 21, TenantID: 1, ProviderID: 10, ClientType: domain.ClientTypeOpenAI, ProjectID: 0, IsEnabled: true, Position: 1, Weight: 1},
+	}
+	r, providerRepo := newModelAvailabilityRouter(t, providers, routes, nil)
+	handler := NewModelsHandler(nil, providerRepo, nil, r)
+	handler.SetSettingsRepository(&selfServiceSettingsRepo{values: map[string]string{
+		domain.SettingKeyExternalModelListEnabled: "true",
+		domain.SettingKeyExternalModelList: `{
+			"version": 1,
+			"routes": {"21": ["user-manual-fill-demo", "glm-4.5"]},
+			"uncategorized": ["manual-custom-model"]
+		}`,
+	}})
+
+	groups, err := handler.collectAvailableModelRouteGroups(1, domain.ClientTypeOpenAI, 0, 0, 0, "")
+	if err != nil {
+		t.Fatalf("collectAvailableModelRouteGroups: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("groups = %#v, want one manual route group", groups)
+	}
+	if groups[0].RouteID != 21 || groups[0].ProviderName != "manual-openai" {
+		t.Fatalf("group = %#v, want route 21 provider manual-openai", groups[0])
+	}
+	want := []string{"glm-4.5", "user-manual-fill-demo"}
+	if len(groups[0].Models) != len(want) {
+		t.Fatalf("models = %#v, want %#v", groups[0].Models, want)
+	}
+	for i := range want {
+		if groups[0].Models[i] != want[i] {
+			t.Fatalf("models = %#v, want %#v", groups[0].Models, want)
+		}
+	}
+}
+
 func TestUserPanelAvailableModelsIncludesCodexOnlyVisibleRoute(t *testing.T) {
 	providers := []*domain.Provider{{
 		ID:                   10,
