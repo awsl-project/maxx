@@ -3062,30 +3062,30 @@ func TestUserPanelModelClientTypesFollowVisibleRoutes(t *testing.T) {
 	}
 }
 
-func TestBuildUserPanelConsumptionLeaderboard_IncludesCurrentUserWithoutUsage(t *testing.T) {
+func TestBuildUserPanelConsumptionLeaderboard_IncludesCurrentUserTokenWithoutUsage(t *testing.T) {
 	rows := buildUserPanelConsumptionLeaderboard(
 		[]*domain.UsageStats{
 			{APITokenID: 201, Cost: 300},
 		},
 		[]*domain.APIToken{
+			{ID: 101, Name: "current-user-token", Description: userPanelAPITokenDescription(9)},
 			{ID: 201, Name: "other-user-token", Description: userPanelAPITokenDescription(42)},
 		},
-		map[uint64]string{9: "user9", 42: "user42"},
 		9,
 	)
 
 	if len(rows) != 2 {
-		t.Fatalf("expected current user plus consuming user rows, got %d", len(rows))
+		t.Fatalf("expected current token plus consuming token rows, got %d", len(rows))
 	}
-	if rows[0].UserID != 42 || rows[0].Username != "user42" || rows[0].Cost != 300 {
-		t.Fatalf("expected consuming user first, got %+v", rows[0])
+	if rows[0].UserID != 42 || rows[0].TokenID != 201 || rows[0].TokenName != "other-user-token" || rows[0].Cost != 300 {
+		t.Fatalf("expected consuming token first, got %+v", rows[0])
 	}
-	if rows[1].UserID != 9 || rows[1].Username != "user9" || rows[1].Cost != 0 {
-		t.Fatalf("expected current user with zero cost, got %+v", rows[1])
+	if rows[1].UserID != 9 || rows[1].TokenID != 101 || rows[1].TokenName != "current-user-token" || rows[1].Cost != 0 {
+		t.Fatalf("expected current user token with zero cost, got %+v", rows[1])
 	}
 }
 
-func TestBuildUserPanelConsumptionLeaderboard_ExposesUsernameAndCost(t *testing.T) {
+func TestBuildUserPanelConsumptionLeaderboard_ExposesTokenNameAndCost(t *testing.T) {
 	rows := buildUserPanelConsumptionLeaderboard(
 		[]*domain.UsageStats{
 			{APITokenID: 101, Cost: 300},
@@ -3094,33 +3094,35 @@ func TestBuildUserPanelConsumptionLeaderboard_ExposesUsernameAndCost(t *testing.
 			{APITokenID: 999, Cost: 999},
 		},
 		[]*domain.APIToken{
-			{ID: 101, Name: "private-alice-token", Description: userPanelAPITokenDescription(77)},
-			{ID: 102, Name: "private-alice-token-2", Description: userPanelAPITokenDescription(77)},
-			{ID: 201, Name: "private-bob-token", Description: userPanelAPITokenDescription(42)},
+			{ID: 101, Name: "alice-token", Description: userPanelAPITokenDescription(77)},
+			{ID: 102, Name: "alice-token-2", Description: userPanelAPITokenDescription(77)},
+			{ID: 201, Name: "bob-token", Description: userPanelAPITokenDescription(42)},
 			{ID: 999, Name: "ordinary-token", Description: "not-user-panel-managed"},
 		},
-		map[uint64]string{77: "user77", 42: "user42"},
 		0,
 	)
 
-	if len(rows) != 2 {
-		t.Fatalf("expected two user-panel leaderboard rows, got %d", len(rows))
+	if len(rows) != 3 {
+		t.Fatalf("expected three user-panel token leaderboard rows, got %d", len(rows))
 	}
-	if rows[0].UserID != 77 || rows[0].Username != "user77" || rows[0].Cost != 400 {
-		t.Fatalf("expected highest cost row for user77, got %+v", rows[0])
+	if rows[0].UserID != 77 || rows[0].TokenID != 101 || rows[0].TokenName != "alice-token" || rows[0].Cost != 300 {
+		t.Fatalf("expected highest cost row for alice-token, got %+v", rows[0])
 	}
-	if rows[1].UserID != 42 || rows[1].Username != "user42" || rows[1].Cost != 300 {
-		t.Fatalf("expected second row for user42, got %+v", rows[1])
+	if rows[1].UserID != 42 || rows[1].TokenID != 201 || rows[1].TokenName != "bob-token" || rows[1].Cost != 300 {
+		t.Fatalf("expected tie to sort by token id, got %+v", rows[1])
+	}
+	if rows[2].UserID != 77 || rows[2].TokenID != 102 || rows[2].TokenName != "alice-token-2" || rows[2].Cost != 100 {
+		t.Fatalf("expected third row for alice-token-2, got %+v", rows[2])
 	}
 
 	body, err := json.Marshal(userPanelConsumptionLeaderboardResponse{Today: rows, All: rows})
 	if err != nil {
 		t.Fatalf("marshal leaderboard response: %v", err)
 	}
-	if !strings.Contains(string(body), "user77") || !strings.Contains(string(body), "user42") {
-		t.Fatalf("leaderboard response missing usernames: %s", body)
+	if !strings.Contains(string(body), "alice-token") || !strings.Contains(string(body), "bob-token") {
+		t.Fatalf("leaderboard response missing token names: %s", body)
 	}
-	if strings.Contains(string(body), "private-") {
-		t.Fatalf("leaderboard response leaked private token data: %s", body)
+	if strings.Contains(string(body), "ordinary-token") {
+		t.Fatalf("leaderboard response leaked non-user-panel token data: %s", body)
 	}
 }
