@@ -3061,3 +3061,38 @@ func TestUserPanelModelClientTypesFollowVisibleRoutes(t *testing.T) {
 		t.Fatalf("client types = %v, want %v", got, want)
 	}
 }
+
+func TestBuildUserPanelConsumptionLeaderboard_ExposesOnlyUserIDAndCost(t *testing.T) {
+	rows := buildUserPanelConsumptionLeaderboard(
+		[]*domain.UsageStats{
+			{APITokenID: 101, Cost: 300},
+			{APITokenID: 102, Cost: 100},
+			{APITokenID: 201, Cost: 300},
+			{APITokenID: 999, Cost: 999},
+		},
+		[]*domain.APIToken{
+			{ID: 101, Name: "private-alice-token", Description: userPanelAPITokenDescription(77)},
+			{ID: 102, Name: "private-alice-token-2", Description: userPanelAPITokenDescription(77)},
+			{ID: 201, Name: "private-bob-token", Description: userPanelAPITokenDescription(42)},
+			{ID: 999, Name: "ordinary-token", Description: "not-user-panel-managed"},
+		},
+	)
+
+	if len(rows) != 2 {
+		t.Fatalf("expected two user-panel leaderboard rows, got %d", len(rows))
+	}
+	if rows[0].UserID != 77 || rows[0].Cost != 400 {
+		t.Fatalf("expected highest cost row for user 77 without username data, got %+v", rows[0])
+	}
+	if rows[1].UserID != 42 || rows[1].Cost != 300 {
+		t.Fatalf("expected second row for user 42 without username data, got %+v", rows[1])
+	}
+
+	body, err := json.Marshal(userPanelConsumptionLeaderboardResponse{Today: rows, All: rows})
+	if err != nil {
+		t.Fatalf("marshal leaderboard response: %v", err)
+	}
+	if strings.Contains(string(body), "username") || strings.Contains(string(body), "private-") {
+		t.Fatalf("leaderboard response leaked username/private token data: %s", body)
+	}
+}

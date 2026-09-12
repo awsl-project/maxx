@@ -142,7 +142,7 @@ function ConsumptionLeaderboardCard({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('userPanel.username')}</TableHead>
+                <TableHead>{t('userPanel.userId')}</TableHead>
                 <TableHead className="text-right">{t('userPanel.amount')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -158,7 +158,9 @@ function ConsumptionLeaderboardCard({
                         : undefined
                     }
                   >
-                    <TableCell className="font-medium text-foreground">{row.username}</TableCell>
+                    <TableCell className="font-mono font-medium text-foreground">
+                      #{row.userID}
+                    </TableCell>
                     <TableCell className="text-right font-mono font-semibold tabular-nums">
                       {formatCostAmount(row.cost)}
                     </TableCell>

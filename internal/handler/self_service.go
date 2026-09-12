@@ -1703,9 +1703,8 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 }
 
 type userPanelConsumptionLeaderboardRow struct {
-	UserID   uint64 `json:"userID"`
-	Username string `json:"username"`
-	Cost     uint64 `json:"cost"`
+	UserID uint64 `json:"userID"`
+	Cost   uint64 `json:"cost"`
 }
 
 type userPanelConsumptionLeaderboardResponse struct {
@@ -1718,17 +1717,7 @@ func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.Respon
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if h.userRepo == nil {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "user management not available"})
-		return
-	}
-
 	tenantID := maxxctx.GetTenantID(r.Context())
-	users, err := h.userRepo.ListByTenant(tenantID)
-	if err != nil {
-		writeSelfServiceInternalError(w, "ListUsers failed", err)
-		return
-	}
 	tokens, err := h.svc.GetAPITokens(tenantID)
 	if err != nil {
 		writeSelfServiceInternalError(w, "GetAPITokens failed", err)
@@ -1751,19 +1740,12 @@ func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.Respon
 	}
 
 	writeJSON(w, http.StatusOK, userPanelConsumptionLeaderboardResponse{
-		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, users),
-		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, users),
+		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens),
+		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens),
 	})
 }
 
-func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, users []*domain.User) []userPanelConsumptionLeaderboardRow {
-	usernames := make(map[uint64]string, len(users))
-	for _, user := range users {
-		if user != nil {
-			usernames[user.ID] = user.Username
-		}
-	}
-
+func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken) []userPanelConsumptionLeaderboardRow {
 	tokenUsers := make(map[uint64]uint64, len(tokens))
 	for _, token := range tokens {
 		if token == nil || !strings.HasPrefix(token.Description, userPanelAPITokenDescriptionPrefix) {
@@ -1789,15 +1771,11 @@ func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*
 
 	rows := make([]userPanelConsumptionLeaderboardRow, 0, len(costs))
 	for userID, cost := range costs {
-		username := usernames[userID]
-		if username == "" {
-			username = userPanelAPITokenName(userID)
-		}
-		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: userID, Username: username, Cost: cost})
+		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: userID, Cost: cost})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Cost == rows[j].Cost {
-			return rows[i].Username < rows[j].Username
+			return rows[i].UserID < rows[j].UserID
 		}
 		return rows[i].Cost > rows[j].Cost
 	})
