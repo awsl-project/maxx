@@ -838,10 +838,10 @@
       "multiplierHelper": "仅作用于支持所选客户端的 custom provider。1.00 表示使用默认价格。",
       "multiplierClient": "客户端类型",
       "multiplierValue": "价格倍率",
-      "multiplierSkipped": "{{name}} 不是该客户端可更新的 custom provider，已跳过倍率。",
+      "multiplierSkipped": "{{name}} 不是该客户端可用的 custom provider，已跳过倍率。",
       "currentProxy": "代理：{{proxy}}",
       "currentMultiplier": "{{client}} 倍率：{{multiplier}}×",
-      "noTargets": "没有可更新的 provider。黑盒 provider 会被跳过。",
+      "noTargets": "没有选中的 provider。",
       "result": "已更新 {{count}} 个 provider",
       "submit": "更新"
     }

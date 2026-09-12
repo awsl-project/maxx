@@ -371,6 +371,22 @@ export interface ProviderBulkDeleteResult {
   modelMappingDeletedCount: number;
 }
 
+export interface ProviderBulkUpdateRequest {
+  ids: number[];
+  updateProxy?: boolean;
+  proxyURL?: string;
+  updateClientMultiplier?: boolean;
+  multiplierClient?: ClientType;
+  multiplier?: number;
+}
+
+export interface ProviderBulkUpdateResult {
+  updatedCount: number;
+  updatedIDs: number[];
+  notFoundIDs: number[];
+  skipped: string[];
+}
+
 export type CreateRouteData = Omit<Route, 'id' | 'createdAt' | 'updatedAt' | 'isNative'>;
 
 export type UpdateRouteData = Partial<CreateRouteData>;
@@ -627,7 +643,12 @@ export interface ResponseInfo {
 }
 
 export type ProxyRequestStatus =
-  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
+  | 'PENDING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'REJECTED';
 
 export type ProxyRequestErrorMode = 'all' | 'only' | 'exclude';
 
@@ -716,7 +737,11 @@ export interface ProxyRequest {
 // ===== ProxyUpstreamAttempt =====
 
 export type ProxyUpstreamAttemptStatus =
-  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  | 'PENDING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
 
 export interface ProxyUpstreamAttempt {
   id: number;

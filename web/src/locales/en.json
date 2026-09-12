@@ -841,10 +841,10 @@
       "multiplierHelper": "Applies to custom providers that support the selected client. 1.00 keeps default pricing.",
       "multiplierClient": "Client type",
       "multiplierValue": "Price multiplier",
-      "multiplierSkipped": "{{name}} was skipped for multiplier because it is not an editable custom provider for that client.",
+      "multiplierSkipped": "{{name}} was skipped for multiplier because it is not a custom provider for that client.",
       "currentProxy": "Proxy: {{proxy}}",
       "currentMultiplier": "{{client}} multiplier: {{multiplier}}×",
-      "noTargets": "No editable providers selected. Black-box providers are skipped.",
+      "noTargets": "No providers selected.",
       "result": "Updated {{count}} providers",
       "submit": "Update"
     }

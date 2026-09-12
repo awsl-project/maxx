@@ -540,6 +540,24 @@ type ProviderBulkDeleteResult struct {
 	ModelMappingDeletedCount int      `json:"modelMappingDeletedCount"`
 }
 
+// ProviderBulkUpdateRequest updates selected safe runtime fields without requiring config disclosure.
+type ProviderBulkUpdateRequest struct {
+	IDs                    []uint64   `json:"ids"`
+	UpdateProxy            bool       `json:"updateProxy,omitempty"`
+	ProxyURL               string     `json:"proxyURL,omitempty"`
+	UpdateClientMultiplier bool       `json:"updateClientMultiplier,omitempty"`
+	MultiplierClient       ClientType `json:"multiplierClient,omitempty"`
+	Multiplier             uint64     `json:"multiplier,omitempty"`
+}
+
+// ProviderBulkUpdateResult reports changed and skipped providers.
+type ProviderBulkUpdateResult struct {
+	UpdatedCount int      `json:"updatedCount"`
+	UpdatedIDs   []uint64 `json:"updatedIDs"`
+	NotFoundIDs  []uint64 `json:"notFoundIDs"`
+	Skipped      []string `json:"skipped"`
+}
+
 type Project struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`

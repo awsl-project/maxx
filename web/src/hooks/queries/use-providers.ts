@@ -7,6 +7,7 @@ import {
   getTransport,
   type Provider,
   type CreateProviderData,
+  type ProviderBulkUpdateRequest,
   type ProviderRuntimeModelsPreviewRequest,
   type ProviderModelCheckRequest,
 } from '@/lib/transport';
@@ -108,6 +109,18 @@ export function useUpdateProvider() {
     },
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: providerKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: providerKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+    },
+  });
+}
+
+export function useBulkUpdateProviders() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: ProviderBulkUpdateRequest) => getTransport().bulkUpdateProviders(data),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: providerKeys.lists() });
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
     },

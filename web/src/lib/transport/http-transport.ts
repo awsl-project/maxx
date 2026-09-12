@@ -10,6 +10,8 @@ import type {
   CreateProviderData,
   ProviderBulkDeleteRequest,
   ProviderBulkDeleteResult,
+  ProviderBulkUpdateRequest,
+  ProviderBulkUpdateResult,
   Project,
   CreateProjectData,
   ProjectArchiveInactiveResult,
@@ -373,6 +375,14 @@ export class HttpTransport implements Transport {
     return result;
   }
 
+  async bulkUpdateProviders(data: ProviderBulkUpdateRequest): Promise<ProviderBulkUpdateResult> {
+    const { data: result } = await this.client.post<ProviderBulkUpdateResult>(
+      '/providers/bulk-update',
+      data,
+    );
+    return result;
+  }
+
   async exportProviders(): Promise<Provider[]> {
     const { data } = await this.client.get<Provider[]>('/providers/export');
     return this.expectArray<Provider>(data, '/providers/export');
@@ -698,7 +708,11 @@ export class HttpTransport implements Transport {
   }
 
   async checkOutboundProxy(url: string, signal?: AbortSignal): Promise<ProxyConnectivityResult> {
-    const { data } = await this.adminClient.post<ProxyConnectivityResult>('/proxy-check', { url }, { signal });
+    const { data } = await this.adminClient.post<ProxyConnectivityResult>(
+      '/proxy-check',
+      { url },
+      { signal },
+    );
     return this.expectObject<ProxyConnectivityResult>(data, '/admin/proxy-check');
   }
 

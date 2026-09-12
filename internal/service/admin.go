@@ -199,6 +199,92 @@ func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider
 	return nil
 }
 
+func (s *AdminService) BulkUpdateProviders(tenantID uint64, req domain.ProviderBulkUpdateRequest) (*domain.ProviderBulkUpdateResult, error) {
+	if len(req.IDs) == 0 {
+		return nil, fmt.Errorf("ids required")
+	}
+	if !req.UpdateProxy && !req.UpdateClientMultiplier {
+		return nil, fmt.Errorf("no fields selected")
+	}
+
+	seen := make(map[uint64]struct{}, len(req.IDs))
+	result := &domain.ProviderBulkUpdateResult{
+		UpdatedIDs:  []uint64{},
+		NotFoundIDs: []uint64{},
+		Skipped:     []string{},
+	}
+
+	for _, id := range req.IDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+
+		provider, err := s.providerRepo.GetByID(tenantID, id)
+		if err != nil {
+			result.NotFoundIDs = append(result.NotFoundIDs, id)
+			continue
+		}
+
+		changed := false
+		if req.UpdateProxy {
+			if provider.Config == nil {
+				provider.Config = &domain.ProviderConfig{}
+			}
+			provider.Config.ProxyURL = req.ProxyURL
+			changed = true
+		}
+
+		if req.UpdateClientMultiplier {
+			if provider.Config == nil || provider.Config.Custom == nil || !clientTypeSupported(provider.SupportedClientTypes, req.MultiplierClient) {
+				result.Skipped = append(result.Skipped, fmt.Sprintf("%s: multiplier not applicable", provider.Name))
+			} else {
+				if provider.Config.Custom.ClientMultiplier == nil {
+					provider.Config.Custom.ClientMultiplier = map[domain.ClientType]uint64{}
+				}
+				if req.Multiplier == 10000 {
+					delete(provider.Config.Custom.ClientMultiplier, req.MultiplierClient)
+				} else {
+					provider.Config.Custom.ClientMultiplier[req.MultiplierClient] = req.Multiplier
+				}
+				if len(provider.Config.Custom.ClientMultiplier) == 0 {
+					provider.Config.Custom.ClientMultiplier = nil
+				}
+				changed = true
+			}
+		}
+
+		if !changed {
+			continue
+		}
+		if err := s.providerRepo.Update(provider); err != nil {
+			return nil, err
+		}
+		if s.adapterRefresher != nil {
+			s.adapterRefresher.RefreshAdapter(provider)
+		}
+		if err := s.reconcileProviderRouteNative(tenantID, provider); err != nil {
+			log.Printf("[Admin] reconcile provider %d route native flags: %v", provider.ID, err)
+		}
+		result.UpdatedIDs = append(result.UpdatedIDs, provider.ID)
+	}
+
+	result.UpdatedCount = len(result.UpdatedIDs)
+	return result, nil
+}
+
+func clientTypeSupported(clientTypes []domain.ClientType, target domain.ClientType) bool {
+	for _, clientType := range clientTypes {
+		if clientType == target {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *AdminService) DeleteProvider(tenantID uint64, id uint64) error {
 	// Delete related routes first
 	routes, _ := s.routeRepo.List(tenantID)

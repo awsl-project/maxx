@@ -95,6 +95,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "providers":
 		if len(parts) == 3 && parts[2] == "bulk-delete" {
 			h.handleBulkDeleteProviders(w, r)
+		} else if len(parts) == 3 && parts[2] == "bulk-update" {
+			h.handleBulkUpdateProviders(w, r)
 		} else {
 			h.handleProviders(w, r, id)
 		}
@@ -489,6 +491,27 @@ func (h *AdminHandler) handleBulkDeleteProviders(w http.ResponseWriter, r *http.
 	result, err := h.svc.BulkDeleteProviders(tenantID, req)
 	if err != nil {
 		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *AdminHandler) handleBulkUpdateProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req domain.ProviderBulkUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result, err := h.svc.BulkUpdateProviders(maxxctx.GetTenantID(r.Context()), req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 

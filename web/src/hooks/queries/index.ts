@@ -14,6 +14,7 @@ export {
   useUpdateProvider,
   useDeleteProvider,
   useBulkDeleteProviders,
+  useBulkUpdateProviders,
   useProviderStats,
   useAllProviderStats,
   useAntigravityQuota,

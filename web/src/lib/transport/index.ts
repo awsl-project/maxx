@@ -24,6 +24,8 @@ export type {
   CreateProviderData,
   ProviderBulkDeleteRequest,
   ProviderBulkDeleteResult,
+  ProviderBulkUpdateRequest,
+  ProviderBulkUpdateResult,
   Project,
   CreateProjectData,
   ProjectArchiveInactiveResult,

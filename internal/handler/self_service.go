@@ -99,6 +99,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleProviders(w, r, 0)
 		case len(parts) == 3 && parts[2] == "bulk-delete":
 			h.handleBulkDeleteProviders(w, r)
+		case len(parts) == 3 && parts[2] == "bulk-update":
+			h.handleBulkUpdateProviders(w, r)
 		case len(parts) == 3 && parts[2] == "export":
 			h.handleProvidersExport(w, r)
 		case len(parts) == 3 && parts[2] == "import":
@@ -658,6 +660,27 @@ func (h *SelfServiceHandler) handleProjectBySlug(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, project)
+}
+
+func (h *SelfServiceHandler) handleBulkUpdateProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+	var req domain.ProviderBulkUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	result, err := h.svc.BulkUpdateProviders(maxxctx.GetTenantID(r.Context()), req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *SelfServiceHandler) handleBulkDeleteProviders(w http.ResponseWriter, r *http.Request) {
