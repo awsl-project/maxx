@@ -1719,6 +1719,7 @@ func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.Respon
 		return
 	}
 	tenantID := maxxctx.GetTenantID(r.Context())
+	currentUserID := maxxctx.GetUserID(r.Context())
 	tokens, err := h.svc.GetAPITokens(tenantID)
 	if err != nil {
 		writeSelfServiceInternalError(w, "GetAPITokens failed", err)
@@ -1747,8 +1748,8 @@ func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.Respon
 	}
 
 	writeJSON(w, http.StatusOK, userPanelConsumptionLeaderboardResponse{
-		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, users),
-		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, users),
+		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, users, currentUserID),
+		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, users, currentUserID),
 	})
 }
 
@@ -1770,7 +1771,7 @@ func (h *SelfServiceHandler) userPanelLeaderboardUsers(tenantID uint64) (map[uin
 	return result, nil
 }
 
-func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, users map[uint64]string) []userPanelConsumptionLeaderboardRow {
+func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, users map[uint64]string, currentUserID uint64) []userPanelConsumptionLeaderboardRow {
 	tokenUsers := make(map[uint64]uint64, len(tokens))
 	for _, token := range tokens {
 		if token == nil || !strings.HasPrefix(token.Description, userPanelAPITokenDescriptionPrefix) {
@@ -1792,6 +1793,12 @@ func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*
 			continue
 		}
 		costs[userID] += item.Cost
+	}
+
+	if currentUserID > 0 {
+		if _, ok := costs[currentUserID]; !ok {
+			costs[currentUserID] = 0
+		}
 	}
 
 	rows := make([]userPanelConsumptionLeaderboardRow, 0, len(costs))

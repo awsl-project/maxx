@@ -3062,6 +3062,29 @@ func TestUserPanelModelClientTypesFollowVisibleRoutes(t *testing.T) {
 	}
 }
 
+func TestBuildUserPanelConsumptionLeaderboard_IncludesCurrentUserWithoutUsage(t *testing.T) {
+	rows := buildUserPanelConsumptionLeaderboard(
+		[]*domain.UsageStats{
+			{APITokenID: 201, Cost: 300},
+		},
+		[]*domain.APIToken{
+			{ID: 201, Name: "other-user-token", Description: userPanelAPITokenDescription(42)},
+		},
+		map[uint64]string{9: "user9", 42: "user42"},
+		9,
+	)
+
+	if len(rows) != 2 {
+		t.Fatalf("expected current user plus consuming user rows, got %d", len(rows))
+	}
+	if rows[0].UserID != 42 || rows[0].Username != "user42" || rows[0].Cost != 300 {
+		t.Fatalf("expected consuming user first, got %+v", rows[0])
+	}
+	if rows[1].UserID != 9 || rows[1].Username != "user9" || rows[1].Cost != 0 {
+		t.Fatalf("expected current user with zero cost, got %+v", rows[1])
+	}
+}
+
 func TestBuildUserPanelConsumptionLeaderboard_ExposesUsernameAndCost(t *testing.T) {
 	rows := buildUserPanelConsumptionLeaderboard(
 		[]*domain.UsageStats{
@@ -3077,6 +3100,7 @@ func TestBuildUserPanelConsumptionLeaderboard_ExposesUsernameAndCost(t *testing.
 			{ID: 999, Name: "ordinary-token", Description: "not-user-panel-managed"},
 		},
 		map[uint64]string{77: "user77", 42: "user42"},
+		0,
 	)
 
 	if len(rows) != 2 {
