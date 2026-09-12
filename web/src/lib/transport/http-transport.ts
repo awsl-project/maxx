@@ -87,6 +87,7 @@ import type {
   UserPanelDailyCheckInResult,
   UserPanelAvailableModelRouteGroup,
   UserPanelConsumptionLeaderboardResult,
+  UserPanelModelStatusRow,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -111,6 +112,22 @@ import type {
   ModelPrice,
   ModelPriceInput,
 } from './types';
+
+export function serializeQueryParams(params: Record<string, unknown>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item === undefined || item === null) continue;
+        search.append(key, String(item));
+      }
+      continue;
+    }
+    search.append(key, String(value));
+  }
+  return search.toString();
+}
 
 type TransportRuntimeConfig = Required<Omit<TransportConfig, 'adminBaseURL'>> & {
   adminBaseURL: string;
@@ -153,6 +170,9 @@ export class HttpTransport implements Transport {
       baseURL,
       headers: {
         'Content-Type': 'application/json',
+      },
+      paramsSerializer: {
+        serialize: serializeQueryParams,
       },
     });
 
@@ -1236,6 +1256,13 @@ export class HttpTransport implements Transport {
       data,
       '/user-panel/consumption-leaderboard',
     );
+  }
+
+  async getUserPanelModelStatus(hours = 24): Promise<UserPanelModelStatusRow[]> {
+    const { data } = await this.client.get<UserPanelModelStatusRow[]>('/user-panel/model-status', {
+      params: { hours },
+    });
+    return this.expectArray<UserPanelModelStatusRow>(data, '/user-panel/model-status');
   }
 
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {

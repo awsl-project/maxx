@@ -10,7 +10,7 @@ describe('user-panel-tabs', () => {
   it('validates only supported user panel tabs', () => {
     expect(isUserPanelTab('main')).toBe(true);
     expect(isUserPanelTab('requests')).toBe(false);
-    expect(isUserPanelTab('model-status')).toBe(false);
+    expect(isUserPanelTab('model-status')).toBe(true);
     expect(isUserPanelTab('usage')).toBe(false);
     expect(isUserPanelTab('')).toBe(false);
     expect(isUserPanelTab(null)).toBe(false);

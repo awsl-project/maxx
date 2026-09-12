@@ -10,6 +10,7 @@ export const userPanelTokenKeys = {
   dailyCheckInStatus: (dayKey?: string) =>
     [...userPanelTokenKeys.all, 'daily-check-in-status', dayKey] as const,
   consumptionLeaderboard: () => [...userPanelTokenKeys.all, 'consumption-leaderboard'] as const,
+  modelStatus: (hours: number) => [...userPanelTokenKeys.all, 'model-status', hours] as const,
 };
 
 async function refreshUserPanelTokenDependents(queryClient: QueryClient) {
@@ -91,6 +92,14 @@ export function useUserPanelConsumptionLeaderboard(enabled = true) {
   return useQuery({
     queryKey: userPanelTokenKeys.consumptionLeaderboard(),
     queryFn: () => getTransport().getUserPanelConsumptionLeaderboard(),
+    enabled,
+  });
+}
+
+export function useUserPanelModelStatus(enabled = true, hours = 24) {
+  return useQuery({
+    queryKey: userPanelTokenKeys.modelStatus(hours),
+    queryFn: () => getTransport().getUserPanelModelStatus(hours),
     enabled,
   });
 }

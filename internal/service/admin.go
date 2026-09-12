@@ -1410,6 +1410,10 @@ func (s *AdminService) CleanupFailedProxyRequests(tenantID uint64, filter *repos
 	}, nil
 }
 
+func (s *AdminService) GetUserPanelModelStatus(tenantID uint64, apiTokenIDs []uint64, since time.Time, ignoredErrorContains []string) ([]repository.UserPanelModelStatusRow, error) {
+	return s.proxyRequestRepo.GetUserPanelModelStatus(tenantID, apiTokenIDs, since, ignoredErrorContains)
+}
+
 func (s *AdminService) GetProxyRequest(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
 	return s.proxyRequestRepo.GetByID(tenantID, id)
 }
