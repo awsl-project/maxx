@@ -2282,9 +2282,15 @@
     "empty": "No proxies yet. Add one to bind providers to it.",
     "name": "Name",
     "url": "Proxy URL",
+    "placeholder": "socks5h://127.0.0.1:10808 or vless://...",
     "preview": "Preview",
-    "hint": "Supported schemes: http, https, socks5, socks5h. Passwords are masked in the UI preview.",
+    "check": "Test connection",
+    "checking": "Testing",
+    "checkSuccess": "Connection works. Outbound IP: {{ip}}. Took {{duration}}ms.",
+    "checkError": "Connection unavailable: {{error}}",
+    "checkFailed": "Failed to test proxy connection.",
+    "hint": "Supported schemes: http, https, socks5, socks5h, plus vmess, vless, trojan, and ss node links. Node links run through Maxx's bundled or configured sing-box. Passwords are masked in the UI preview.",
     "saveFailed": "Failed to save proxy settings.",
-    "invalidURL": "Proxy URL must start with http://, https://, socks5://, or socks5h://."
+    "invalidURL": "Proxy URL must start with http://, https://, socks5://, socks5h://, vmess://, vless://, trojan://, or ss://."
   }
 }

@@ -834,6 +834,13 @@ export interface ProxyStatus {
   commit: string;
 }
 
+export interface ProxyConnectivityResult {
+  ok: boolean;
+  outboundIP?: string;
+  durationMs: number;
+  error?: string;
+}
+
 // ===== Provider Stats =====
 
 export interface ProviderStats {

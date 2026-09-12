@@ -45,7 +45,11 @@ func NewHTTPTransport(p *domain.Provider, inheritEnvProxy bool) (*http.Transport
 		return transport, nil
 	}
 
-	proxyURL, err := url.Parse(rawProxy)
+	resolvedProxy, err := resolveProviderProxyURL(rawProxy)
+	if err != nil {
+		return nil, err
+	}
+	proxyURL, err := url.Parse(resolvedProxy)
 	if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
 		return nil, fmt.Errorf("invalid provider proxy URL")
 	}

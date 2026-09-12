@@ -27,6 +27,7 @@ import type {
   ProxyRequestCleanupFailedResult,
   ProxyUpstreamAttempt,
   ProxyStatus,
+  ProxyConnectivityResult,
   ProviderStats,
   CursorPaginationParams,
   CursorPaginationResult,
@@ -694,6 +695,11 @@ export class HttpTransport implements Transport {
   async getPublicProxyStatus(): Promise<ProxyStatus> {
     const { data } = await this.client.get<ProxyStatus>('/proxy-status');
     return this.expectObject<ProxyStatus>(data, '/proxy-status');
+  }
+
+  async checkOutboundProxy(url: string, signal?: AbortSignal): Promise<ProxyConnectivityResult> {
+    const { data } = await this.adminClient.post<ProxyConnectivityResult>('/proxy-check', { url }, { signal });
+    return this.expectObject<ProxyConnectivityResult>(data, '/admin/proxy-check');
   }
 
   // ===== System API =====

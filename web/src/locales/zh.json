@@ -2278,9 +2278,15 @@
     "empty": "还没有代理。新增后可以绑定到 provider。",
     "name": "名称",
     "url": "代理 URL",
+    "placeholder": "socks5h://127.0.0.1:10808 或 vless://...",
     "preview": "预览",
-    "hint": "支持协议：http、https、socks5、socks5h。UI 预览会遮蔽密码。",
+    "check": "测试连接",
+    "checking": "测试中",
+    "checkSuccess": "连接可用，出口 IP：{{ip}}，耗时 {{duration}}ms。",
+    "checkError": "连接不可用：{{error}}",
+    "checkFailed": "测试代理连接失败。",
+    "hint": "支持协议：http、https、socks5、socks5h，也可直接填 vmess、vless、trojan、ss 节点链接；节点链接会通过 Maxx 内置或配置的 sing-box 运行，UI 预览会遮蔽密码。",
     "saveFailed": "保存代理设置失败。",
-    "invalidURL": "代理 URL 必须以 http://、https://、socks5:// 或 socks5h:// 开头。"
+    "invalidURL": "代理 URL 必须以 http://、https://、socks5://、socks5h://、vmess://、vless://、trojan:// 或 ss:// 开头。"
   }
 }

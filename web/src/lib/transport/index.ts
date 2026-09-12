@@ -61,6 +61,7 @@ export type {
   ProxyRequestErrorStats,
   ProxyRequestCleanupFailedResult,
   ProxyRequestStatus,
+  ProxyConnectivityResult,
   ProxyUpstreamAttempt,
   ProxyUpstreamAttemptStatus,
   RequestInfo,
