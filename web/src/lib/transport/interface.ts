@@ -84,6 +84,7 @@ import type {
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
   UserPanelDailyCheckInResult,
+  UserPanelAvailableModelRouteGroup,
   UserPanelConsumptionLeaderboardResult,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
@@ -336,6 +337,7 @@ export interface Transport {
   regenerateUserPanelAPIToken(): Promise<APITokenCreateResult>;
   revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult>;
   getUserPanelAvailableModels(): Promise<string[]>;
+  getUserPanelAvailableModelRoutes(): Promise<UserPanelAvailableModelRouteGroup[]>;
   getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult>;
   checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult>;
   getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult>;

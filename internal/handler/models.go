@@ -14,6 +14,15 @@ import (
 	"github.com/awsl-project/maxx/internal/router"
 )
 
+type modelRouteGroup struct {
+	RouteID      uint64            `json:"routeID"`
+	ProviderID   uint64            `json:"providerID"`
+	ProviderName string            `json:"providerName"`
+	ClientType   domain.ClientType `json:"clientType"`
+	ProjectID    uint64            `json:"projectID"`
+	Models       []string          `json:"models"`
+}
+
 // ModelsHandler serves model-list endpoints with a lightweight model list.
 type ModelsHandler struct {
 	responseModelRepo repository.ResponseModelRepository
@@ -177,8 +186,12 @@ func (h *ModelsHandler) collectCandidateModelNames(tenantID uint64, userAgent st
 }
 
 func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, model string) bool {
+	return len(h.matchAvailableModelRoutes(tenantID, clientType, projectID, providerID, apiTokenID, model)) > 0
+}
+
+func (h *ModelsHandler) matchAvailableModelRoutes(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, model string) []*router.MatchedRoute {
 	if h.router == nil || clientType == "" || model == "" {
-		return false
+		return nil
 	}
 	result, err := h.router.Match(&router.MatchContext{
 		TenantID:     tenantID,
@@ -192,10 +205,11 @@ func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.Clie
 		StrictSupportModels: true,
 	})
 	if err != nil || result == nil {
-		return false
+		return nil
 	}
+	matchedRoutes := make([]*router.MatchedRoute, 0, len(result.Routes))
 	for _, matched := range result.Routes {
-		if matched == nil || matched.Provider == nil {
+		if matched == nil || matched.Route == nil || matched.Provider == nil {
 			continue
 		}
 		if providerID != 0 && matched.Provider.ID != providerID {
@@ -203,10 +217,64 @@ func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.Clie
 		}
 		candidates := h.modelCandidatesForRoute(tenantID, model, matched.Route, matched.Provider, clientType, projectID, apiTokenID)
 		if isProviderAnyModelExposed(matched.Provider, append([]string{model}, candidates...)) {
-			return true
+			matchedRoutes = append(matchedRoutes, matched)
 		}
 	}
-	return false
+	return matchedRoutes
+}
+
+func (h *ModelsHandler) collectAvailableModelRouteGroups(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, userAgent string) ([]modelRouteGroup, error) {
+	candidates, err := h.collectCandidateModelNames(tenantID, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	if h.router == nil {
+		return nil, nil
+	}
+
+	type routeKey struct {
+		routeID    uint64
+		providerID uint64
+	}
+	groupsByKey := make(map[routeKey]*modelRouteGroup)
+	modelSets := make(map[routeKey]map[string]struct{})
+
+	for name := range candidates {
+		for _, matched := range h.matchAvailableModelRoutes(tenantID, clientType, projectID, providerID, apiTokenID, name) {
+			key := routeKey{routeID: matched.Route.ID, providerID: matched.Provider.ID}
+			group := groupsByKey[key]
+			if group == nil {
+				group = &modelRouteGroup{
+					RouteID:      matched.Route.ID,
+					ProviderID:   matched.Provider.ID,
+					ProviderName: matched.Provider.Name,
+					ClientType:   matched.Route.ClientType,
+					ProjectID:    matched.Route.ProjectID,
+				}
+				groupsByKey[key] = group
+				modelSets[key] = make(map[string]struct{})
+			}
+			modelSets[key][name] = struct{}{}
+		}
+	}
+
+	groups := make([]modelRouteGroup, 0, len(groupsByKey))
+	for key, group := range groupsByKey {
+		group.Models = sortedModelNames(modelSets[key])
+		if len(group.Models) > 0 {
+			groups = append(groups, *group)
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].ProjectID != groups[j].ProjectID {
+			return groups[i].ProjectID < groups[j].ProjectID
+		}
+		if groups[i].ClientType != groups[j].ClientType {
+			return groups[i].ClientType < groups[j].ClientType
+		}
+		return groups[i].RouteID < groups[j].RouteID
+	})
+	return groups, nil
 }
 
 func (h *ModelsHandler) modelCandidatesForRoute(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID, apiTokenID uint64) []string {

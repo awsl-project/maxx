@@ -33,9 +33,9 @@ func TestUserPanelModelsIncludesCodexOnlyVisibleRoute(t *testing.T) {
 		ProviderID: 10,
 		ClientType: domain.ClientTypeCodex,
 		ProjectID:  0,
-		IsEnabled: true,
-		Position:  1,
-		Weight:    1,
+		IsEnabled:  true,
+		Position:   1,
+		Weight:     1,
 	}
 	r, providerRepo := newModelAvailabilityRouter(t, []*domain.Provider{provider}, []*domain.Route{route}, nil)
 
@@ -77,5 +77,24 @@ func TestUserPanelModelsIncludesCodexOnlyVisibleRoute(t *testing.T) {
 	}
 	if len(models) != 1 || models[0] != "codex-visible-model" {
 		t.Fatalf("models = %#v, want codex-visible-model", models)
+	}
+
+	rec = httptest.NewRecorder()
+	req = newSelfServiceRequest(http.MethodGet, "/user-panel/model-routes")
+	req = req.WithContext(maxxctx.WithUserID(req.Context(), 9))
+	handler.handleUserPanelModelRoutes(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("route status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var groups []modelRouteGroup
+	if err := json.Unmarshal(rec.Body.Bytes(), &groups); err != nil {
+		t.Fatalf("decode route body: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("groups = %#v, want 1 group", groups)
+	}
+	if groups[0].RouteID != 1 || groups[0].ProviderName != "codex-only-provider" || len(groups[0].Models) != 1 || groups[0].Models[0] != "codex-visible-model" {
+		t.Fatalf("group = %#v, want codex route with visible model", groups[0])
 	}
 }

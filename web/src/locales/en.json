@@ -204,6 +204,8 @@
     "availableModelsLoadFailed": "Failed to load available models",
     "noAvailableModels": "No available models. Contact an administrator to configure routes or models.",
     "moreAvailableModels": "+{{count}} more",
+    "globalRouteScope": "Global route",
+    "projectRouteScope": "Project #{{projectID}} route",
     "routeCodex": "Codex",
     "modelStatusTab": "Model Status",
     "modelStatusSummary": "User-facing model availability",
