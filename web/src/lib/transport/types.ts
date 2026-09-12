@@ -378,6 +378,8 @@ export interface ProviderBulkUpdateRequest {
   updateClientMultiplier?: boolean;
   multiplierClient?: ClientType;
   multiplier?: number;
+  updateQuotaEnabled?: boolean;
+  quotaEnabled?: boolean;
 }
 
 export interface ProviderBulkUpdateResult {

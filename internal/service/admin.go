@@ -203,7 +203,7 @@ func (s *AdminService) BulkUpdateProviders(tenantID uint64, req domain.ProviderB
 	if len(req.IDs) == 0 {
 		return nil, fmt.Errorf("ids required")
 	}
-	if !req.UpdateProxy && !req.UpdateClientMultiplier {
+	if !req.UpdateProxy && !req.UpdateClientMultiplier && !req.UpdateQuotaEnabled {
 		return nil, fmt.Errorf("no fields selected")
 	}
 
@@ -235,6 +235,14 @@ func (s *AdminService) BulkUpdateProviders(tenantID uint64, req domain.ProviderB
 				provider.Config = &domain.ProviderConfig{}
 			}
 			provider.Config.ProxyURL = req.ProxyURL
+			changed = true
+		}
+
+		if req.UpdateQuotaEnabled {
+			if provider.Config == nil {
+				provider.Config = &domain.ProviderConfig{}
+			}
+			provider.Config.QuotaEnabled = req.QuotaEnabled
 			changed = true
 		}
 

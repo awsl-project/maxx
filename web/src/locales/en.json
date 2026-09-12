@@ -829,7 +829,7 @@
     "bulkProxyUpdate": {
       "open": "Bulk update",
       "title": "Bulk update providers",
-      "description": "Update enabled fields for {{count}} editable provider(s). Fields left off are not changed.",
+      "description": "Update enabled fields for {{count}} selected provider(s). Fields left off are not changed.",
       "selected": "Selected",
       "updatable": "Updatable",
       "multiplierTargets": "Multiplier targets",
@@ -842,8 +842,12 @@
       "multiplierClient": "Client type",
       "multiplierValue": "Price multiplier",
       "multiplierSkipped": "{{name}} was skipped for multiplier because it is not a custom provider for that client.",
+      "quotaLabel": "Update quota check",
+      "quotaHelper": "Toggle whether requests through each selected provider require API token quota.",
+      "quotaValue": "Enable quota check",
       "currentProxy": "Proxy: {{proxy}}",
       "currentMultiplier": "{{client}} multiplier: {{multiplier}}×",
+      "currentQuota": "Quota check: {{status}}",
       "noTargets": "No providers selected.",
       "result": "Updated {{count}} providers",
       "submit": "Update"
