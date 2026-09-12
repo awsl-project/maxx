@@ -826,7 +826,7 @@
     "bulkProxyUpdate": {
       "open": "批量更新",
       "title": "批量更新提供商",
-      "description": "只更新 {{count}} 个可编辑 provider 中已打开的字段；未打开字段保持原样。",
+      "description": "只更新 {{count}} 个选中 provider 中已打开的字段；未打开字段保持原样。",
       "selected": "已选择",
       "updatable": "可更新",
       "multiplierTargets": "倍率可更新",
@@ -839,8 +839,12 @@
       "multiplierClient": "客户端类型",
       "multiplierValue": "价格倍率",
       "multiplierSkipped": "{{name}} 不是该客户端可用的 custom provider，已跳过倍率。",
+      "quotaLabel": "更新额度检查",
+      "quotaHelper": "批量设置选中 provider 是否要求 API 令牌具备额度。",
+      "quotaValue": "启用额度检查",
       "currentProxy": "代理：{{proxy}}",
       "currentMultiplier": "{{client}} 倍率：{{multiplier}}×",
+      "currentQuota": "额度检查：{{status}}",
       "noTargets": "没有选中的 provider。",
       "result": "已更新 {{count}} 个 provider",
       "submit": "更新"

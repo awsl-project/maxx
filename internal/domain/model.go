@@ -548,6 +548,8 @@ type ProviderBulkUpdateRequest struct {
 	UpdateClientMultiplier bool       `json:"updateClientMultiplier,omitempty"`
 	MultiplierClient       ClientType `json:"multiplierClient,omitempty"`
 	Multiplier             uint64     `json:"multiplier,omitempty"`
+	UpdateQuotaEnabled     bool       `json:"updateQuotaEnabled,omitempty"`
+	QuotaEnabled           bool       `json:"quotaEnabled,omitempty"`
 }
 
 // ProviderBulkUpdateResult reports changed and skipped providers.

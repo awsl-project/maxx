@@ -148,7 +148,7 @@ type ProviderBulkDeletePreviewItem = {
   streamingCount: number;
 };
 
-type BulkUpdateField = 'proxy' | 'multiplier';
+type BulkUpdateField = 'proxy' | 'multiplier' | 'quota';
 
 const BULK_UPDATE_CLIENT_TYPES: ClientType[] = ['claude', 'openai', 'codex', 'gemini'];
 const DEFAULT_BULK_UPDATE_MULTIPLIER = '1.00';
@@ -179,6 +179,7 @@ export function ProvidersPage() {
   const [bulkProxyURL, setBulkProxyURL] = useState('');
   const [bulkMultiplierClient, setBulkMultiplierClient] = useState<ClientType>('claude');
   const [bulkMultiplierValue, setBulkMultiplierValue] = useState(DEFAULT_BULK_UPDATE_MULTIPLIER);
+  const [bulkQuotaEnabled, setBulkQuotaEnabled] = useState(true);
   const [bulkProxyUpdateStatus, setBulkProxyUpdateStatus] = useState<{
     updated: number;
     skipped: string[];
@@ -337,6 +338,7 @@ export function ProvidersPage() {
   const bulkProxyUpdateTargets = selectedProviders;
   const bulkUpdateProxyEnabled = bulkUpdateEnabledFields.has('proxy');
   const bulkUpdateMultiplierEnabled = bulkUpdateEnabledFields.has('multiplier');
+  const bulkUpdateQuotaEnabled = bulkUpdateEnabledFields.has('quota');
   const hasBulkUpdateFields = bulkUpdateEnabledFields.size > 0;
   const bulkMultiplierTargets = useMemo(
     () =>
@@ -618,6 +620,7 @@ export function ProvidersPage() {
       setBulkUpdateEnabledFields(new Set());
       setBulkProxyURL('');
       setBulkMultiplierValue(DEFAULT_BULK_UPDATE_MULTIPLIER);
+      setBulkQuotaEnabled(true);
     }
   };
 
@@ -660,6 +663,8 @@ export function ProvidersPage() {
         updateClientMultiplier: bulkUpdateMultiplierEnabled,
         multiplierClient: bulkMultiplierClient,
         multiplier: nextMultiplier,
+        updateQuotaEnabled: bulkUpdateQuotaEnabled,
+        quotaEnabled: bulkQuotaEnabled,
       });
       setIsBulkProxyUpdating(false);
       setBulkProxyUpdateStatus({ updated: result.updatedCount, skipped: result.skipped });
@@ -1381,6 +1386,38 @@ export function ProvidersPage() {
               )}
             </div>
 
+            <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.bulkProxyUpdate.quotaLabel')}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('providers.bulkProxyUpdate.quotaHelper')}
+                  </p>
+                </div>
+                <Switch
+                  checked={bulkUpdateQuotaEnabled}
+                  onCheckedChange={(checked) => toggleBulkUpdateField('quota', checked)}
+                  disabled={isBulkProxyUpdating}
+                  aria-label={t('providers.bulkProxyUpdate.quotaLabel')}
+                />
+              </div>
+              {bulkUpdateQuotaEnabled && (
+                <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
+                  <span className="text-sm text-muted-foreground">
+                    {t('providers.bulkProxyUpdate.quotaValue')}
+                  </span>
+                  <Switch
+                    checked={bulkQuotaEnabled}
+                    onCheckedChange={setBulkQuotaEnabled}
+                    disabled={isBulkProxyUpdating}
+                    aria-label={t('providers.bulkProxyUpdate.quotaValue')}
+                  />
+                </div>
+              )}
+            </div>
+
             <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-border p-3 text-sm">
               {bulkProxyUpdateTargets.map((provider) => (
                 <div key={provider.id} className="rounded-md bg-muted/40 p-2">
@@ -1397,6 +1434,13 @@ export function ProvidersPage() {
                         (provider.config?.custom?.clientMultiplier?.[bulkMultiplierClient] ??
                           10000) / 10000
                       ).toFixed(2),
+                    })}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {t('providers.bulkProxyUpdate.currentQuota', {
+                      status: provider.config?.quotaEnabled
+                        ? t('common.enabled')
+                        : t('common.disabled'),
                     })}
                   </div>
                 </div>
