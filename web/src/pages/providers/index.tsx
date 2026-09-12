@@ -21,7 +21,7 @@ import {
   useUpdateSetting,
   useProxyRequestUpdates,
   useCreateProvider,
-  useUpdateProvider,
+  useBulkUpdateProviders,
   useCreateModelMapping,
   useBulkDeleteProviders,
   useRoutes,
@@ -196,7 +196,7 @@ export function ProvidersPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const createProvider = useCreateProvider();
-  const updateProvider = useUpdateProvider();
+  const bulkUpdateProviders = useBulkUpdateProviders();
   const createModelMapping = useCreateModelMapping();
   const bulkDeleteProviders = useBulkDeleteProviders();
   const canManageProviderSettings = user?.role === 'admin';
@@ -334,15 +334,7 @@ export function ProvidersPage() {
     (sum, item) => sum + item.streamingCount,
     0,
   );
-  const bulkProxyUpdateTargets = useMemo(
-    () => selectedProviders.filter((provider) => !provider.blackBox),
-    [selectedProviders],
-  );
-  const bulkProxyUpdateSkipped = useMemo(
-    () =>
-      selectedProviders.filter((provider) => provider.blackBox).map((provider) => provider.name),
-    [selectedProviders],
-  );
+  const bulkProxyUpdateTargets = selectedProviders;
   const bulkUpdateProxyEnabled = bulkUpdateEnabledFields.has('proxy');
   const bulkUpdateMultiplierEnabled = bulkUpdateEnabledFields.has('multiplier');
   const hasBulkUpdateFields = bulkUpdateEnabledFields.size > 0;
@@ -659,74 +651,32 @@ export function ProvidersPage() {
     }
 
     setIsBulkProxyUpdating(true);
-    const skipped = [...bulkProxyUpdateSkipped];
-    const failed: string[] = [];
-    let updated = 0;
 
-    for (const provider of bulkProxyUpdateTargets) {
-      const nextConfig = { ...(provider.config ?? {}) };
-      let shouldUpdateProvider = false;
-      let skippedMultiplier = false;
+    try {
+      const result = await bulkUpdateProviders.mutateAsync({
+        ids: bulkProxyUpdateTargets.map((provider) => provider.id),
+        updateProxy: bulkUpdateProxyEnabled,
+        proxyURL: selectedProxy?.url,
+        updateClientMultiplier: bulkUpdateMultiplierEnabled,
+        multiplierClient: bulkMultiplierClient,
+        multiplier: nextMultiplier,
+      });
+      setIsBulkProxyUpdating(false);
+      setBulkProxyUpdateStatus({ updated: result.updatedCount, skipped: result.skipped });
 
-      if (bulkUpdateProxyEnabled) {
-        nextConfig.proxyURL = selectedProxy?.url;
-        shouldUpdateProvider = true;
+      if (result.skipped.length === 0) {
+        setSelectedProviderIds(new Set());
+        setTimeout(() => {
+          setIsBulkProxyUpdateOpen(false);
+          setBulkProxyUpdateStatus(null);
+        }, 900);
       }
-
-      if (bulkUpdateMultiplierEnabled) {
-        if (
-          provider.config?.custom &&
-          provider.supportedClientTypes.includes(bulkMultiplierClient)
-        ) {
-          const nextClientMultiplier = { ...(provider.config.custom.clientMultiplier ?? {}) };
-          if (nextMultiplier === 10000) {
-            delete nextClientMultiplier[bulkMultiplierClient];
-          } else {
-            nextClientMultiplier[bulkMultiplierClient] = nextMultiplier;
-          }
-          nextConfig.custom = {
-            ...provider.config.custom,
-            clientMultiplier:
-              Object.keys(nextClientMultiplier).length > 0 ? nextClientMultiplier : undefined,
-          };
-          shouldUpdateProvider = true;
-        } else {
-          skippedMultiplier = true;
-        }
-      }
-
-      if (!shouldUpdateProvider) {
-        if (skippedMultiplier) {
-          skipped.push(t('providers.bulkProxyUpdate.multiplierSkipped', { name: provider.name }));
-        }
-        continue;
-      }
-
-      try {
-        await updateProvider.mutateAsync({
-          id: provider.id,
-          data: {
-            config: nextConfig,
-          },
-        });
-        updated += 1;
-        if (skippedMultiplier) {
-          skipped.push(t('providers.bulkProxyUpdate.multiplierSkipped', { name: provider.name }));
-        }
-      } catch (error) {
-        failed.push(`${provider.name}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    setIsBulkProxyUpdating(false);
-    setBulkProxyUpdateStatus({ updated, skipped: [...skipped, ...failed] });
-
-    if (failed.length === 0) {
-      setSelectedProviderIds(new Set());
-      setTimeout(() => {
-        setIsBulkProxyUpdateOpen(false);
-        setBulkProxyUpdateStatus(null);
-      }, 900);
+    } catch (error) {
+      setIsBulkProxyUpdating(false);
+      setBulkProxyUpdateStatus({
+        updated: 0,
+        skipped: [error instanceof Error ? error.message : String(error)],
+      });
     }
   };
 
