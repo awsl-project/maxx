@@ -1703,8 +1703,9 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 }
 
 type userPanelConsumptionLeaderboardRow struct {
-	UserID uint64 `json:"userID"`
-	Cost   uint64 `json:"cost"`
+	UserID   uint64 `json:"userID"`
+	Username string `json:"username"`
+	Cost     uint64 `json:"cost"`
 }
 
 type userPanelConsumptionLeaderboardResponse struct {
@@ -1739,13 +1740,37 @@ func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.Respon
 		return
 	}
 
+	users, err := h.userPanelLeaderboardUsers(tenantID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelLeaderboardUsers failed", err)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, userPanelConsumptionLeaderboardResponse{
-		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens),
-		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens),
+		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, users),
+		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, users),
 	})
 }
 
-func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken) []userPanelConsumptionLeaderboardRow {
+func (h *SelfServiceHandler) userPanelLeaderboardUsers(tenantID uint64) (map[uint64]string, error) {
+	if h.userRepo == nil {
+		return map[uint64]string{}, nil
+	}
+	users, err := h.userRepo.ListByTenant(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[uint64]string, len(users))
+	for _, user := range users {
+		if user == nil {
+			continue
+		}
+		result[user.ID] = user.Username
+	}
+	return result, nil
+}
+
+func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, users map[uint64]string) []userPanelConsumptionLeaderboardRow {
 	tokenUsers := make(map[uint64]uint64, len(tokens))
 	for _, token := range tokens {
 		if token == nil || !strings.HasPrefix(token.Description, userPanelAPITokenDescriptionPrefix) {
@@ -1771,7 +1796,7 @@ func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*
 
 	rows := make([]userPanelConsumptionLeaderboardRow, 0, len(costs))
 	for userID, cost := range costs {
-		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: userID, Cost: cost})
+		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: userID, Username: users[userID], Cost: cost})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Cost == rows[j].Cost {

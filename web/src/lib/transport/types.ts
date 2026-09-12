@@ -1376,6 +1376,7 @@ export interface UserPanelAvailableModelRouteGroup {
 
 export interface UserPanelConsumptionLeaderboardRow {
   userID: number;
+  username: string;
   cost: number;
 }
 
