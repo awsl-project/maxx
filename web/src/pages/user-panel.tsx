@@ -52,9 +52,9 @@ import type {
   UsageStatsFilter,
   UsageStats,
   UserPanelConsumptionLeaderboardRow,
-  UserPanelAvailableModelRouteGroup,
 } from '@/lib/transport';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
+import { visibleUserPanelModelRouteGroups } from '@/lib/user-panel-model-routes';
 import {
   getUserPanelTabStorageKey,
   resolveUserPanelTab,
@@ -85,16 +85,6 @@ function getLocalDayBounds(now = new Date()) {
     start: start.toISOString(),
     end: now.toISOString(),
   };
-}
-
-function visibleModelRouteGroups(groups: UserPanelAvailableModelRouteGroup[]) {
-  return groups
-    .filter((group) => group.models.length > 0)
-    .map((group) => ({
-      ...group,
-      visibleModels: group.models.slice(0, 8),
-      hiddenModelCount: Math.max(group.models.length - 8, 0),
-    }));
 }
 
 function totalTokens(stats?: UsageStats[]) {
@@ -220,6 +210,7 @@ export function UserPanelPage() {
     enabled: Boolean(user),
   });
   const { data: publicSettings } = usePublicSettings();
+  const externalModelListEnabled = publicSettings?.external_model_list_enabled === 'true';
   const {
     data: availableModels,
     isLoading: availableModelsLoading,
@@ -229,7 +220,7 @@ export function UserPanelPage() {
     data: availableModelRoutes,
     isLoading: availableModelRoutesLoading,
     isError: availableModelRoutesError,
-  } = useUserPanelAvailableModelRoutes(Boolean(user));
+  } = useUserPanelAvailableModelRoutes(Boolean(user) && externalModelListEnabled);
   const {
     data: consumptionLeaderboard,
     isLoading: consumptionLeaderboardLoading,
@@ -259,7 +250,8 @@ export function UserPanelPage() {
     if (typeof window === 'undefined') return 'main';
     const params = new URLSearchParams(window.location.search);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      PerformanceNavigationTiming | undefined;
+      | PerformanceNavigationTiming
+      | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     return resolveUserPanelTab({
       urlTab: params.get('tab'),
@@ -290,7 +282,9 @@ export function UserPanelPage() {
             ? t('userPanel.routeClaude')
             : t('userPanel.routeGemini'),
   }));
-  const modelRouteGroups = visibleModelRouteGroups(availableModelRoutes ?? []);
+  const modelRouteGroups = externalModelListEnabled
+    ? visibleUserPanelModelRouteGroups(availableModelRoutes ?? [])
+    : [];
   const availableModelCount = availableModels?.length ?? 0;
 
   useEffect(() => {
@@ -350,7 +344,8 @@ export function UserPanelPage() {
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     const storedTab = window.localStorage.getItem(tabStorageKey);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      PerformanceNavigationTiming | undefined;
+      | PerformanceNavigationTiming
+      | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     setActiveTab(resolveUserPanelTab({ urlTab, storedTab, allowStoredTab }));
   }, [tabStorageKey]);
@@ -643,13 +638,15 @@ export function UserPanelPage() {
                       </Badge>
                     ) : null}
                   </div>
-                  {availableModelsLoading || availableModelRoutesLoading ? (
+                  {availableModelsLoading ||
+                  (externalModelListEnabled && availableModelRoutesLoading) ? (
                     <p className="mt-3 text-sm text-muted-foreground">{t('common.loading')}</p>
-                  ) : availableModelsError || availableModelRoutesError ? (
+                  ) : availableModelsError ||
+                    (externalModelListEnabled && availableModelRoutesError && !availableModels) ? (
                     <p className="mt-3 text-sm text-destructive">
                       {t('userPanel.availableModelsLoadFailed')}
                     </p>
-                  ) : modelRouteGroups.length > 0 ? (
+                  ) : externalModelListEnabled && modelRouteGroups.length > 0 ? (
                     <div className="mt-3 space-y-3">
                       {modelRouteGroups.map((group) => (
                         <div
@@ -657,19 +654,9 @@ export function UserPanelPage() {
                           className="rounded-lg border border-border bg-background p-3"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-foreground">
-                                {group.providerName ||
-                                  t(`externalModels.routeTypes.${group.clientType}`)}
-                              </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {group.projectID > 0
-                                  ? t('userPanel.projectRouteScope', { projectID: group.projectID })
-                                  : t('userPanel.globalRouteScope')}{' '}
-                                · {group.clientType}
-                                {group.routeID > 0 ? ` · route #${group.routeID}` : ''}
-                              </p>
-                            </div>
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {t(`externalModels.routeTypes.${group.clientType}`)}
+                            </p>
                             <Badge variant="secondary">
                               {t('userPanel.availableModelsCount', { count: group.models.length })}
                             </Badge>
