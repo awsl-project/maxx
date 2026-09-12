@@ -303,6 +303,21 @@ func (r *Router) GetAdapter(providerID uint64) (provider.ProviderAdapter, bool) 
 
 // Match returns matched routes for a client type and project, plus optional
 // sticky write-back context.
+func (r *Router) GetRouteProviderByID(tenantID, routeID uint64) (*domain.Route, *domain.Provider, error) {
+	if r == nil || r.routeRepo == nil || r.providerRepo == nil {
+		return nil, nil, domain.ErrNoRoutes
+	}
+	route, err := r.routeRepo.GetByID(tenantID, routeID)
+	if err != nil || route == nil {
+		return nil, nil, err
+	}
+	provider, err := r.providerRepo.GetByID(tenantID, route.ProviderID)
+	if err != nil || provider == nil {
+		return route, nil, err
+	}
+	return route, provider, nil
+}
+
 func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	tenantID := ctx.TenantID
 	clientType := ctx.ClientType

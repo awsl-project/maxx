@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment, useId, useMemo } from 'react';
+import { useState, useEffect, useRef, Fragment, useId } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Settings,
@@ -38,32 +38,15 @@ import {
   TabsList,
   TabsTrigger,
   TabsContent,
-  Badge,
 } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { BackendAddressControl } from '@/components/backend-address-control';
-import {
-  settingsKeys,
-  useSettings,
-  useUpdateSetting,
-  useDeleteSetting,
-  useProviders,
-  useProjects,
-  useRoutes,
-  useModelMappings,
-} from '@/hooks/queries';
+import { settingsKeys, useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
 import { buildPprofUrl } from '@/lib/backend-config';
 import { useTransport } from '@/lib/transport/context';
-import type {
-  BackupFile,
-  BackupImportResult,
-  ModelMapping,
-  Project,
-  Provider,
-  Route,
-} from '@/lib/transport/types';
+import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes, isLuxuryTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import {
@@ -1225,114 +1208,13 @@ function TestFieldTabSection() {
   );
 }
 
-type PublicModelRouteGroup = {
-  route: Route;
-  provider: Provider;
-  project?: Project;
-  models: string[];
-};
-
-function isConcretePublicModelName(value: string): boolean {
-  const model = value.trim();
-  return model.length > 0 && !model.includes('*');
-}
-
-function addPublicModelName(target: Set<string>, value: string) {
-  const model = value.trim();
-  if (!model || model.includes('*')) return;
-  target.add(model);
-}
-
-function mappingAppliesToRoute(mapping: ModelMapping, route: Route, provider: Provider): boolean {
-  if (!mapping.isEnabled) return false;
-  if (mapping.clientType && mapping.clientType !== route.clientType) return false;
-  if (mapping.providerType && mapping.providerType !== provider.type) return false;
-  if (mapping.providerID && mapping.providerID !== provider.id) return false;
-  if (mapping.projectID && mapping.projectID !== route.projectID) return false;
-  if (mapping.routeID && mapping.routeID !== route.id) return false;
-  return true;
-}
-
-function routePublicModels(route: Route, provider: Provider, mappings: ModelMapping[]): string[] {
-  const models = new Set<string>();
-
-  if (provider.exposedModelsEnabled) {
-    for (const model of provider.exposedModels ?? []) {
-      addPublicModelName(models, model);
-    }
-    return Array.from(models).sort((a, b) => a.localeCompare(b));
-  }
-
-  for (const model of provider.supportModels ?? []) {
-    addPublicModelName(models, model);
-  }
-
-  for (const mapping of mappings) {
-    if (!mappingAppliesToRoute(mapping, route, provider)) continue;
-    if (isConcretePublicModelName(mapping.pattern)) {
-      addPublicModelName(models, mapping.pattern);
-    }
-  }
-
-  return Array.from(models).sort((a, b) => a.localeCompare(b));
-}
-
-function buildPublicModelRouteGroups({
-  routes,
-  providers,
-  projects,
-  mappings,
-}: {
-  routes: Route[];
-  providers: Provider[];
-  projects: Project[];
-  mappings: ModelMapping[];
-}): PublicModelRouteGroup[] {
-  const providerByID = new Map(providers.map((provider) => [provider.id, provider]));
-  const projectByID = new Map(projects.map((project) => [project.id, project]));
-
-  return routes
-    .filter((route) => route.isEnabled)
-    .sort((a, b) => {
-      if (a.projectID !== b.projectID) return a.projectID - b.projectID;
-      if (a.clientType !== b.clientType) return a.clientType.localeCompare(b.clientType);
-      return a.position - b.position;
-    })
-    .flatMap((route) => {
-      const provider = providerByID.get(route.providerID);
-      if (!provider) return [];
-      const models = routePublicModels(route, provider, mappings);
-      if (models.length === 0) return [];
-      return [
-        {
-          route,
-          provider,
-          project: route.projectID ? projectByID.get(route.projectID) : undefined,
-          models,
-        },
-      ];
-    });
-}
-
 export function ExternalModelListSection() {
   const { data: settings, isLoading } = useSettings();
-  const { data: providers = [] } = useProviders();
-  const { data: routes = [] } = useRoutes();
-  const { data: projects = [] } = useProjects();
-  const { data: mappings = [] } = useModelMappings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
   const enabled = settings?.[EXTERNAL_MODEL_LIST_ENABLED_SETTING_KEY] === 'true';
   const [localEnabled, setLocalEnabled] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
-  const routeGroups = useMemo(
-    () => buildPublicModelRouteGroups({ routes, providers, projects, mappings }),
-    [routes, providers, projects, mappings],
-  );
-  const publicModelCount = useMemo(
-    () => new Set(routeGroups.flatMap((group) => group.models)).size,
-    [routeGroups],
-  );
 
   useEffect(() => {
     setLocalEnabled(enabled);
@@ -1358,110 +1240,28 @@ export function ExternalModelListSection() {
   return (
     <Card className="border-border bg-card">
       <CardHeader className="border-b border-border">
-        <CardTitle className="text-base font-medium flex items-center gap-2">
-          <Eye className="h-4 w-4 text-muted-foreground" />
-          {t('settings.externalModelList')}
-        </CardTitle>
+        <div className="flex items-center justify-between gap-4">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
+            <Eye className="h-4 w-4 text-muted-foreground" />
+            {t('settings.externalModelList')}
+          </CardTitle>
+          <Switch
+            aria-label={t('settings.externalModelListLabel')}
+            checked={localEnabled}
+            onCheckedChange={handleToggle}
+            disabled={updateSetting.isPending}
+          />
+        </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="p-6 space-y-2">
         {error && (
           <p role="alert" className="text-xs text-destructive">
             {error}
           </p>
         )}
-
-        <div className="rounded-lg border border-border bg-muted/20 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium text-foreground">
-                {t('settings.externalModelRoutePreviewTitle')}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('settings.externalModelRoutePreviewDesc')}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline">
-                {t('settings.externalModelRouteCount', { count: routeGroups.length })}
-              </Badge>
-              <Badge variant="outline">
-                {t('settings.externalModelPublicCount', { count: publicModelCount })}
-              </Badge>
-            </div>
-          </div>
-
-          {enabled && (
-            <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
-              {t('settings.externalModelManualListActive')}
-            </div>
-          )}
-
-          {routeGroups.length === 0 ? (
-            <div className="mt-4 rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-              {t('settings.externalModelRoutePreviewEmpty')}
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {routeGroups.map((group) => (
-                <div
-                  key={group.route.id}
-                  className="rounded-lg border border-border bg-background p-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">
-                        {group.provider.name}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        <span>{group.project?.name ?? t('settings.externalModelGlobalScope')}</span>
-                        <span>·</span>
-                        <span>{group.route.clientType}</span>
-                        <span>·</span>
-                        <span>route #{group.route.id}</span>
-                      </div>
-                    </div>
-                    <Badge variant="secondary">
-                      {t('settings.externalModelRouteModelCount', { count: group.models.length })}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {group.models.map((model) => (
-                      <span
-                        key={model}
-                        className="rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground"
-                      >
-                        {model}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-dashed border-border bg-background p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium text-foreground">
-                {t('settings.externalModelListLabel')}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('settings.externalModelListDesc')}
-              </p>
-            </div>
-            <Switch
-              aria-label={t('settings.externalModelListLabel')}
-              checked={localEnabled}
-              onCheckedChange={handleToggle}
-              disabled={updateSetting.isPending}
-            />
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            {t('settings.externalModelListHint')}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
-        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.externalModelListDesc')}</p>
+        <p className="text-xs text-muted-foreground">{t('settings.externalModelListHint')}</p>
+        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
       </CardContent>
     </Card>
   );
