@@ -10,6 +10,7 @@ import {
   Github,
   Settings2,
   RefreshCw,
+  StopCircle,
   LogOut,
   KeyRound,
   Loader2,
@@ -159,6 +160,29 @@ export function NavUser() {
 
   const handleToggleLanguage = () => {
     i18n.changeLanguage(currentLanguage === 'zh' ? 'en' : 'zh');
+  };
+
+  const handleStopActiveRequests = async () => {
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('nav.stopActiveRequestsConfirm'),
+      confirmText: t('nav.stopActiveRequests'),
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await transport.cancelActiveProxyRequests();
+      await alert({
+        title: t('nav.notifications'),
+        description: t('nav.stopActiveRequestsSuccess', { count: result.cancelledCount }),
+      });
+    } catch (error) {
+      console.error('Stop active requests failed:', error);
+      await alert({
+        title: t('nav.notifications'),
+        description: t('nav.stopActiveRequestsFailed'),
+      });
+    }
   };
 
   const handleRestartServer = async () => {
@@ -450,6 +474,10 @@ export function NavUser() {
             </DropdownMenuSubContent>
           </DropdownMenuPortal>
         </DropdownMenuSub>
+        <DropdownMenuItem onClick={handleStopActiveRequests}>
+          <StopCircle />
+          <span>{t('nav.stopActiveRequests')}</span>
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={handleRestartServer}>
           <RefreshCw />
           <span>{t('nav.restartServer')}</span>

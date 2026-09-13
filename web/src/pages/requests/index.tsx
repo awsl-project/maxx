@@ -171,7 +171,8 @@ function dateToISOString(value: Date | undefined): string | undefined {
 }
 
 function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'>): boolean {
-  return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
+  const error = request.error.trim();
+  return request.status === 'FAILED' && (error === 'Server restarted' || error === 'Stopped by admin');
 }
 
 /** Reads a positive numeric value from localStorage, returning undefined if absent or invalid. */

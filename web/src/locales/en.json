@@ -114,7 +114,11 @@
     "dataManagement": "Data Management",
     "proxyAccess": "Proxy Access",
     "externalModels": "External Models",
-    "proxies": "Proxies"
+    "proxies": "Proxies",
+    "stopActiveRequests": "Stop Active Requests",
+    "stopActiveRequestsConfirm": "Stop all active proxy requests? This will interrupt in-flight responses but will not restart the server.",
+    "stopActiveRequestsSuccess": "Requested stop for {{count}} active request(s).",
+    "stopActiveRequestsFailed": "Failed to stop active requests. Please check the server status."
   },
   "userPanel": {
     "title": "User Console",

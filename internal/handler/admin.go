@@ -26,12 +26,17 @@ import (
 
 // AdminHandler handles admin API requests over HTTP
 // Delegates business logic to AdminService
+type activeRequestCanceller interface {
+	CancelActive(cause error) int
+}
+
 type AdminHandler struct {
 	svc                  *service.AdminService
 	backupSvc            *service.BackupService
 	userRepo             repository.UserRepository
 	logPath              string
 	restartFn            func() error
+	activeCanceller      activeRequestCanceller
 	authEnabled          bool
 	providerProxyHandler *ProviderProxyHandler
 }
@@ -54,6 +59,11 @@ func (h *AdminHandler) SetUserRepo(repo repository.UserRepository) {
 // SetRestartFunc sets the restart callback for admin restart endpoint.
 func (h *AdminHandler) SetRestartFunc(fn func() error) {
 	h.restartFn = fn
+}
+
+// SetActiveRequestCanceller wires the admin stop-active-requests endpoint.
+func (h *AdminHandler) SetActiveRequestCanceller(canceller activeRequestCanceller) {
+	h.activeCanceller = canceller
 }
 
 // SetAuthEnabled sets whether auth is enabled for this handler.
@@ -1319,6 +1329,12 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check for active cancel endpoint: /admin/requests/active/cancel
+	if len(parts) > 3 && parts[2] == "active" && parts[3] == "cancel" {
+		h.handleCancelActiveProxyRequests(w, r)
+		return
+	}
+
 	// Check for active endpoint: /admin/requests/active
 	if len(parts) > 2 && parts[2] == "active" {
 		h.handleActiveProxyRequests(w, r)
@@ -1545,6 +1561,24 @@ func (h *AdminHandler) handleProxyRequestsErrorStats(w http.ResponseWriter, r *h
 }
 
 // ActiveProxyRequests handler - returns all requests with PENDING or IN_PROGRESS status
+type cancelActiveProxyRequestsResult struct {
+	CancelledCount int `json:"cancelledCount"`
+}
+
+func (h *AdminHandler) handleCancelActiveProxyRequests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if h.activeCanceller == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "active request cancellation not supported"})
+		return
+	}
+	cancelled := h.activeCanceller.CancelActive(domain.ErrActiveRequestStoppedByAdmin)
+	writeJSON(w, http.StatusAccepted, cancelActiveProxyRequestsResult{CancelledCount: cancelled})
+}
+
 func (h *AdminHandler) handleActiveProxyRequests(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
