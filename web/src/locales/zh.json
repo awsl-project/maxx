@@ -118,7 +118,6 @@
   },
   "userPanel": {
     "title": "用户控制台",
-    "description": "查看用量与 Key。",
     "accountCard": "账号信息",
     "username": "用户名",
     "role": "角色",
@@ -153,7 +152,6 @@
     "topModel": "常用模型",
     "tokens": "Token 数",
     "estimatedCost": "预估成本",
-    "securityHint": "仅显示当前租户数据。",
     "keyStatus": {
       "active": "正常",
       "expired": "已过期",
