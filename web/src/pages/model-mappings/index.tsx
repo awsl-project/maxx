@@ -43,14 +43,8 @@ import {
 import type { ModelMapping, ModelMappingInput } from '@/lib/transport/types';
 import { Zap, Plus, Trash2, ArrowRight, RotateCcw, GripVertical, Search } from 'lucide-react';
 import { useDialog } from '@/contexts/dialog-context';
-import { PROVIDER_TYPE_CONFIGS, PROVIDER_TYPE_ORDER } from '@/pages/providers/types';
 
 const MODEL_MAPPING_DEBUGGER_SETTING_KEY = 'ui_model_mapping_debugger_enabled';
-
-export const MODEL_MAPPING_PROVIDER_TYPE_OPTIONS = PROVIDER_TYPE_ORDER.map((type) => ({
-  value: type,
-  label: PROVIDER_TYPE_CONFIGS[type].label,
-}));
 
 function matchWildcard(pattern: string, input: string): boolean {
   const trimmedPattern = pattern.trim();
@@ -234,7 +228,7 @@ export function ModelMappingsPage() {
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
   const [newClientType, setNewClientType] = useState('claude');
-  const [newProviderType, setNewProviderType] = useState('');
+  const [newProviderType, setNewProviderType] = useState('antigravity');
   const [debugModel, setDebugModel] = useState('');
   const debuggerEnabled = publicSettings?.[MODEL_MAPPING_DEBUGGER_SETTING_KEY] === 'true';
 
@@ -319,7 +313,7 @@ export function ModelMappingsPage() {
     setNewPattern('');
     setNewTarget('');
     setNewClientType('claude');
-    setNewProviderType('');
+    setNewProviderType('antigravity');
   };
 
   const handleRemoveRule = async (id: number) => {
@@ -644,11 +638,9 @@ export function ModelMappingsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">{t('modelMappings.allProviderTypes')}</SelectItem>
-                    {MODEL_MAPPING_PROVIDER_TYPE_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="antigravity">antigravity</SelectItem>
+                    <SelectItem value="kiro">kiro</SelectItem>
+                    <SelectItem value="custom">custom</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button
