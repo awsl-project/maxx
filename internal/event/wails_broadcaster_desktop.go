@@ -54,6 +54,7 @@ func (w *WailsBroadcaster) BroadcastProxyRequest(req *domain.ProxyRequest) {
 	}
 	// Also emit via Wails Events
 	w.emitWailsEvent("proxy_request_update", req)
+	w.emitWailsEvent(UserPanelConsumptionLeaderboardDirtyEvent, nil)
 }
 
 // BroadcastProxyUpstreamAttempt broadcasts a proxy upstream attempt update

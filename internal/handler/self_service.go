@@ -1804,6 +1804,7 @@ type userPanelConsumptionLeaderboardRow struct {
 	TokenName string `json:"tokenName"`
 	Username  string `json:"username"`
 	Cost      uint64 `json:"cost"`
+	Active    bool   `json:"active"`
 }
 
 type userPanelConsumptionLeaderboardResponse struct {
@@ -1838,14 +1839,42 @@ func (h *SelfServiceHandler) handleUserPanelConsumptionLeaderboard(w http.Respon
 		writeSelfServiceInternalError(w, "GetAllConsumptionStats failed", err)
 		return
 	}
+	activeTokenIDs := h.userPanelActiveTokenIDs(tenantID, tokens)
 
 	writeJSON(w, http.StatusOK, userPanelConsumptionLeaderboardResponse{
-		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, currentUserID),
-		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, currentUserID),
+		Today: buildUserPanelConsumptionLeaderboard(todayStats, tokens, currentUserID, activeTokenIDs),
+		All:   buildUserPanelConsumptionLeaderboard(allStats, tokens, currentUserID, activeTokenIDs),
 	})
 }
 
-func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, currentUserID uint64) []userPanelConsumptionLeaderboardRow {
+func (h *SelfServiceHandler) userPanelActiveTokenIDs(tenantID uint64, tokens []*domain.APIToken) map[uint64]bool {
+	userPanelTokenIDs := make(map[uint64]bool, len(tokens))
+	for _, token := range tokens {
+		if token == nil || !strings.HasPrefix(token.Description, userPanelAPITokenDescriptionPrefix) {
+			continue
+		}
+		userPanelTokenIDs[token.ID] = true
+	}
+	if len(userPanelTokenIDs) == 0 {
+		return nil
+	}
+
+	activeRequests, err := h.svc.GetActiveProxyRequests(tenantID)
+	if err != nil {
+		log.Printf("[SelfServiceHandler] GetActiveProxyRequests for consumption leaderboard failed: %v", err)
+		return nil
+	}
+	activeTokenIDs := make(map[uint64]bool)
+	for _, req := range activeRequests {
+		if req == nil || req.APITokenID == 0 || !userPanelTokenIDs[req.APITokenID] {
+			continue
+		}
+		activeTokenIDs[req.APITokenID] = true
+	}
+	return activeTokenIDs
+}
+
+func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*domain.APIToken, currentUserID uint64, activeTokenIDs map[uint64]bool) []userPanelConsumptionLeaderboardRow {
 	tokenUsers := make(map[uint64]uint64, len(tokens))
 	tokenNames := make(map[uint64]string, len(tokens))
 	var currentUserTokenID uint64
@@ -1883,7 +1912,7 @@ func buildUserPanelConsumptionLeaderboard(stats []*domain.UsageStats, tokens []*
 
 	rows := make([]userPanelConsumptionLeaderboardRow, 0, len(costs))
 	for tokenID, cost := range costs {
-		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: tokenUsers[tokenID], TokenID: tokenID, TokenName: tokenNames[tokenID], Cost: cost})
+		rows = append(rows, userPanelConsumptionLeaderboardRow{UserID: tokenUsers[tokenID], TokenID: tokenID, TokenName: tokenNames[tokenID], Cost: cost, Active: activeTokenIDs[tokenID]})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Cost == rows[j].Cost {

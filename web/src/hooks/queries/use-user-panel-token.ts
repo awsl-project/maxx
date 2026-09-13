@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { apiTokenKeys } from './use-api-tokens';
 import { getTransport } from '@/lib/transport';
@@ -89,6 +90,37 @@ export function useUserPanelAvailableModelRoutes(enabled = true) {
 }
 
 export function useUserPanelConsumptionLeaderboard(enabled = true) {
+  const queryClient = useQueryClient();
+  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const transport = getTransport();
+    const invalidateLeaderboard = () => {
+      void queryClient.invalidateQueries({
+        queryKey: userPanelTokenKeys.consumptionLeaderboard(),
+      });
+    };
+    const unsubscribeDirty = transport.subscribe('user_panel_consumption_leaderboard_dirty', () => {
+      if (refetchTimerRef.current) return;
+      refetchTimerRef.current = setTimeout(() => {
+        refetchTimerRef.current = null;
+        invalidateLeaderboard();
+      }, 1000);
+    });
+    const unsubscribeReconnect = transport.subscribe('_ws_reconnected', invalidateLeaderboard);
+
+    return () => {
+      unsubscribeDirty();
+      unsubscribeReconnect();
+      if (refetchTimerRef.current) {
+        clearTimeout(refetchTimerRef.current);
+        refetchTimerRef.current = null;
+      }
+    };
+  }, [enabled, queryClient]);
+
   return useQuery({
     queryKey: userPanelTokenKeys.consumptionLeaderboard(),
     queryFn: () => getTransport().getUserPanelConsumptionLeaderboard(),

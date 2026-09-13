@@ -177,7 +177,17 @@ function ConsumptionLeaderboardCard({
                     }
                   >
                     <TableCell className="font-medium text-foreground">
-                      {row.tokenName || row.username || `#${row.tokenID || row.userID}`}
+                      <span className="flex min-w-0 items-center gap-2">
+                        {row.active ? (
+                          <span
+                            aria-label="active"
+                            className="size-2 shrink-0 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
+                          />
+                        ) : null}
+                        <span className="truncate">
+                          {row.tokenName || row.username || `#${row.tokenID || row.userID}`}
+                        </span>
+                      </span>
                     </TableCell>
                     <TableCell className="text-right font-mono font-semibold tabular-nums">
                       {formatCostAmount(row.cost)}
