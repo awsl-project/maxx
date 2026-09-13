@@ -235,7 +235,7 @@ func TestProxyRequestListCursorDerivesSummaryFromFinalAttempt(t *testing.T) {
 	}
 }
 
-func TestProxyRequestListCursorPreservesZeroValuesFromFinalAttempt(t *testing.T) {
+func TestProxyRequestListCursorPreservesZeroValuesFromFinalAttemptAndFallsBackToRequestTTFT(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
@@ -290,8 +290,8 @@ func TestProxyRequestListCursorPreservesZeroValuesFromFinalAttempt(t *testing.T)
 	if got.InputTokenCount != 0 || got.OutputTokenCount != 0 || got.CacheReadCount != 0 || got.CacheWriteCount != 0 || got.Cache5mWriteCount != 0 || got.Cache1hWriteCount != 0 || got.Cost != 0 {
 		t.Fatalf("usage summary did not preserve zero attempt values: %+v", got)
 	}
-	if got.TTFT != 0 || got.Duration != 0 {
-		t.Fatalf("timing = (%v, %v), want zero values from final attempt", got.TTFT, got.Duration)
+	if got.TTFT != 350*time.Millisecond || got.Duration != 0 {
+		t.Fatalf("timing = (%v, %v), want request TTFT fallback and zero duration from final attempt", got.TTFT, got.Duration)
 	}
 }
 
@@ -317,6 +317,7 @@ func TestProxyRequestListActiveUsesLatestAttemptMappedModelBeforeFinalAttempt(t 
 		Status:         "IN_PROGRESS",
 		RequestModel:   "claude-3-5-sonnet",
 		MappedModel:    "openrouter/anthropic/claude-3.5-sonnet",
+		TTFT:           275 * time.Millisecond,
 	}
 	if err := attemptRepo.Create(attempt); err != nil {
 		t.Fatalf("create attempt: %v", err)
@@ -331,6 +332,9 @@ func TestProxyRequestListActiveUsesLatestAttemptMappedModelBeforeFinalAttempt(t 
 	}
 	if got := items[0].MappedModel; got != "openrouter/anthropic/claude-3.5-sonnet" {
 		t.Fatalf("MappedModel = %q, want openrouter/anthropic/claude-3.5-sonnet", got)
+	}
+	if got := items[0].TTFT; got != 275*time.Millisecond {
+		t.Fatalf("TTFT = %v, want 275ms from latest active attempt", got)
 	}
 }
 
