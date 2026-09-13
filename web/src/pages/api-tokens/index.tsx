@@ -757,7 +757,6 @@ export function APITokensPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('apiTokens.createDialog.title')}</DialogTitle>
-            <DialogDescription>{t('apiTokens.createDialog.description')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
@@ -851,7 +850,6 @@ export function APITokensPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('apiTokens.editDialog.title')}</DialogTitle>
-            <DialogDescription>{t('apiTokens.editDialog.description')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdate} className="space-y-4">
             <div className="space-y-2">
@@ -1270,7 +1268,6 @@ export function APITokensPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('apiTokens.projectDialog.title')}</DialogTitle>
-            <DialogDescription>{t('apiTokens.projectDialog.description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 max-h-64 overflow-auto">
             {projects?.map((project) => (

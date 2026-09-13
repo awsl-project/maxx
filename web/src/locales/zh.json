@@ -462,7 +462,7 @@
     "cleanupFailed": {
       "action": "清理失败记录",
       "title": "清理失败请求记录？",
-      "description": "将删除当前筛选条件下 {{count}} 条失败/错误请求记录，并同步删除对应 upstream attempts。成功请求和活跃请求不会被删除。",
+      "description": "删除当前筛选下 {{count}} 条失败/错误请求及 upstream attempts；不影响成功和活跃请求。",
       "autoNoisyErrorsLabel": "自动清理噪音",
       "autoNoisyErrorsDescription": "当前筛选有 {{count}} 条噪音错误；每 {{seconds}} 秒清理。",
       "confirm": "清理失败记录",
@@ -488,7 +488,7 @@
     "bulkImport": {
       "open": "批量添加",
       "title": "批量添加自定义提供商",
-      "description": "每行粘贴一条 provider add 命令。写入前会预览并校验客户端、支持模型、请求模型映射、响应模型映射和错误行。",
+      "description": "粘贴 provider add 命令，写入前先预览校验。",
       "exampleTitle": "示例",
       "placeholder": "provider add --name \"Mimo\" --base-url \"https://api.example.com\" --api-key \"sk-...\" --clients claude,openai --models claude-sonnet-4,gpt-5 --map \"*=mimo-v2.5-pro\"",
       "preview": "预览",
@@ -514,7 +514,7 @@
       "selectedCount": "已选择 {{count}} 个提供商",
       "selectProvider": "选择提供商 {{name}}",
       "dialogTitle": "删除选中的提供商？",
-      "dialogDescription": "将删除 {{count}} 个提供商。此操作不可撤销。",
+      "dialogDescription": "将删除 {{count}} 个提供商，操作不可撤销。",
       "routeWarning": "有 {{count}} 条路由正在引用选中的提供商。确认后会一并清理这些路由。",
       "streamingWarning": "当前有 {{count}} 个活跃流式请求正在使用选中的提供商。",
       "providers": "提供商",
@@ -618,7 +618,7 @@
     },
     "deleteConfirm": {
       "title": "删除提供商？",
-      "description": "确定要删除「{{name}}」吗？此操作无法撤销。"
+      "description": "删除「{{name}}」后不可撤销。"
     },
     "oauthAuthentication": "OAuth 认证",
     "antigravityOauthComingSoon": "Antigravity OAuth 认证将在后续版本提供。",
@@ -820,7 +820,7 @@
     "bulkProxyUpdate": {
       "open": "批量更新",
       "title": "批量更新提供商",
-      "description": "只更新 {{count}} 个选中 provider 中已打开的字段；未打开字段保持原样。",
+      "description": "只更新已打开字段，未打开字段保持原样。",
       "selected": "已选择",
       "updatable": "可更新",
       "multiplierTargets": "倍率可更新",
@@ -901,7 +901,7 @@
     "archiveInactive": "归档闲置项目",
     "archiveInactiveDialog": {
       "title": "归档闲置项目？",
-      "description": "将归档 {{count}} 个从未使用或 {{days}} 天未使用的项目。项目会软删除，成功/失败请求记录不会被删除。",
+      "description": "将软归档 {{count}} 个从未使用或 {{days}} 天未使用的项目。",
       "confirm": "归档项目",
       "archiving": "归档中..."
     }
@@ -998,7 +998,7 @@
     "selectRoute": "选择 {{name}} 的路由",
     "bulkDeleteDialog": {
       "title": "删除所选路由？",
-      "description": "这只会从 {{scope}} 删除 {{count}} 条 {{client}} 路由绑定，不会删除 Provider 本体或凭据。",
+      "description": "仅从 {{scope}} 移除 {{count}} 条 {{client}} 路由绑定，不删除 Provider 或凭据。",
       "providersPreview": "提供商",
       "moreProviders": "以及 {{count}} 个",
       "streamingWarning": "当前有 {{count}} 个流式请求正在使用选中的提供商。删除路由可能影响后续路由决策。",
@@ -1008,7 +1008,7 @@
     "syncFromProject": "从项目同步",
     "syncDialog": {
       "title": "从其他项目同步路由",
-      "description": "将 {{client}} 路由配置复制到 {{target}}。",
+      "description": "复制 {{client}} 路由到 {{target}}。",
       "source": "来源",
       "mode": "模式",
       "defaultRoutes": "默认路由（全局）",
@@ -1027,7 +1027,7 @@
     "claudeBatchTest": {
       "button": "批量测试提供商",
       "title": "Claude 提供商批量测试",
-      "description": "仅作用于当前 Claude 路由页。先预览，再并发限流测试；新配置只有通过测试才会自动保存并按选项创建 Claude route；已存在 provider 失败后需手动确认移除。",
+      "description": "先预览再测试；新配置通过后才保存。",
       "candidateTitle": "待测试 provider 配置",
       "parserBadge": "复用 provider add 解析",
       "parseErrorLine": "第 {{line}} 行：{{message}}",
@@ -1080,9 +1080,9 @@
         "unsupportedProvider": "不支持",
         "notTested": "未测试"
       },
-      "autoSavePassedHint": "规则固定：待测试配置仅通过后自动添加；已存在 provider 只测试，不会静默删除。",
+      "autoSavePassedHint": "新配置通过后才添加；已存在 provider 只测试。",
       "failedExistingTitle": "待确认移除的已存在 provider",
-      "failedExistingDescription": "这些已存在 Claude provider 未通过测试。勾选后确认移除，会从 Providers tab 全局删除，并清理引用它们的 route/project 配置。",
+      "failedExistingDescription": "移除会全局删除这些 provider，并清理引用它们的路由/项目配置。",
       "selectAllFailedExisting": "全选失败项",
       "clearFailedExistingSelection": "取消全选失败项",
       "removeSelectedFailedExisting": "移除选中失败项（{{count}}）",
@@ -1207,7 +1207,7 @@
     "verifyFailed": "验证密码失败",
     "forgotPassword": "忘记密码？",
     "forgotPasswordTitle": "忘记密码",
-    "forgotPasswordDescription": "当前页面暂不支持直接重置密码，请联系管理员协助处理。",
+    "forgotPasswordDescription": "请联系管理员重置密码。",
     "forgotPasswordTip": "如果账号仍处于待审批状态，请先等待审批通过后再尝试登录。",
     "forgotPasswordContactHint": "如果你使用的是共享环境，请联系该实例的负责管理员进行密码重置或账号核验。",
     "register": "注册",
@@ -1306,7 +1306,7 @@
     "passwordMismatch": "两次输入的密码不一致",
     "passkeyManagement": "Passkey 管理",
     "passkeyManagementDescription": "查看并移除已注册的 Passkey 设备。",
-    "passkeyFallbackHint": "若设备丢失，仍可先用密码登录，再在此移除旧 Passkey。",
+    "passkeyFallbackHint": "设备丢失时，可先用密码登录再移除旧 Passkey。",
     "passkeyListEmpty": "暂无已注册的 Passkey 设备",
     "passkeyAttachment": "附着类型",
     "passkeyTransport": "传输方式",
@@ -1675,10 +1675,10 @@
     "noData": "暂无模型价格配置",
     "createTitle": "添加模型价格",
     "editTitle": "编辑模型价格",
-    "confirmDelete": "确定要删除此价格吗？这可能会影响成本计算。",
+    "confirmDelete": "删除此价格后可能影响成本计算。",
     "upstreamImportResult": "上游价格导入完成：新增 {{created}}，更新 {{updated}}，失败 {{failed}}，跳过 {{skipped}}。",
     "resetToDefaults": "重置为默认",
-    "confirmReset": "确定要重置为默认价格吗？这将用内置的默认价格替换所有当前价格。"
+    "confirmReset": "将用内置默认价格替换当前价格。"
   },
   "clientRoutes": {
     "claude": "Claude",
@@ -1732,12 +1732,12 @@
     },
     "deleteDialog": {
       "title": "删除 API 令牌",
-      "description": "确定要删除「{{name}}」吗？此操作无法撤销。使用此令牌的任何应用程序将无法再进行身份验证。"
+      "description": "删除「{{name}}」后，使用此令牌的应用将无法认证。"
     },
     "cleanupExpired": {
       "button": "清理已过期令牌 ({{count}})",
       "title": "清理已过期令牌",
-      "description": "将删除 {{count}} 个已过期 API 令牌。此操作无法撤销，使用这些令牌的应用将无法再通过身份验证。",
+      "description": "将删除 {{count}} 个已过期 API 令牌，操作不可撤销。",
       "confirm": "清理 {{count}} 个令牌",
       "more": "以及另外 {{count}} 个令牌",
       "lastResult": "上次已清理 {{count}} 个已过期令牌。"
@@ -1748,7 +1748,7 @@
     },
     "newTokenDialog": {
       "title": "令牌创建成功",
-      "description": "请立即复制您的新 API 令牌。",
+      "description": "令牌仅显示一次，请立即复制。",
       "tokenName": "令牌名称",
       "apiToken": "API 令牌",
       "warning": "此令牌仅显示一次。请确保现在复制它。",
@@ -1762,7 +1762,7 @@
     },
     "codexConfigDialog": {
       "title": "Codex 配置自动生成",
-      "description": "基于令牌「{{name}}」生成全局代理配置。",
+      "description": "为「{{name}}」生成全局代理配置。",
       "modeGlobal": "全局代理",
       "configToml": "config.toml",
       "authJson": "auth.json",

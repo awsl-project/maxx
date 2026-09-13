@@ -463,7 +463,7 @@
     "cleanupFailed": {
       "action": "Clean failed records",
       "title": "Clean failed request records?",
-      "description": "This will delete {{count}} failed/error request records matching the current filters and their upstream attempts. Successful and active requests are not deleted.",
+      "description": "Delete {{count}} failed/error requests matching the current filters and their upstream attempts. Successful and active requests stay.",
       "autoNoisyErrorsLabel": "Auto clean noise",
       "autoNoisyErrorsDescription": "{{count}} noisy errors match current filters; cleans every {{seconds}}s.",
       "confirm": "Clean failed records",
@@ -489,7 +489,7 @@
     "bulkImport": {
       "open": "Batch Add",
       "title": "Batch add custom providers",
-      "description": "Paste one provider add command per line. Preview validates clients, models, request mappings, response mappings, and error lines before writing.",
+      "description": "Paste provider add commands; preview validates them before writing.",
       "exampleTitle": "Examples",
       "placeholder": "provider add --name \"Mimo\" --base-url \"https://api.example.com\" --api-key \"sk-...\" --clients claude,openai --models claude-sonnet-4,gpt-5 --map \"*=mimo-v2.5-pro\"",
       "preview": "Preview",
@@ -517,7 +517,7 @@
       "selectedCount": "{{count}} provider(s) selected",
       "selectProvider": "Select provider {{name}}",
       "dialogTitle": "Delete selected providers?",
-      "dialogDescription": "This will delete {{count}} provider(s). This action cannot be undone.",
+      "dialogDescription": "Delete {{count}} provider(s). This cannot be undone.",
       "routeWarning": "{{count}} route(s) reference the selected provider(s). Confirming will remove those routes too.",
       "streamingWarning": "{{count}} active streaming request(s) are currently using selected provider(s).",
       "providers": "Providers",
@@ -621,7 +621,7 @@
     },
     "deleteConfirm": {
       "title": "Delete Provider?",
-      "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone."
+      "description": "Deleting \"{{name}}\" cannot be undone."
     },
     "oauthAuthentication": "OAuth Authentication",
     "antigravityOauthComingSoon": "Antigravity OAuth authentication will be available in a future update.",
@@ -823,7 +823,7 @@
     "bulkProxyUpdate": {
       "open": "Bulk update",
       "title": "Bulk update providers",
-      "description": "Update enabled fields for {{count}} selected provider(s). Fields left off are not changed.",
+      "description": "Only enabled fields are updated; disabled fields stay unchanged.",
       "selected": "Selected",
       "updatable": "Updatable",
       "multiplierTargets": "Multiplier targets",
@@ -904,7 +904,7 @@
     "archiveInactive": "Archive inactive projects",
     "archiveInactiveDialog": {
       "title": "Archive inactive projects?",
-      "description": "This will archive {{count}} projects that were never used or have been idle for {{days}} days. Projects are soft-deleted; successful/failed request records are not deleted.",
+      "description": "Soft-archive {{count}} projects never used or idle for {{days}} days.",
       "confirm": "Archive projects",
       "archiving": "Archiving..."
     }
@@ -1001,7 +1001,7 @@
     "selectRoute": "Select route for {{name}}",
     "bulkDeleteDialog": {
       "title": "Delete selected routes?",
-      "description": "This will remove {{count}} {{client}} route binding(s) from {{scope}} only. Provider records and credentials will not be deleted.",
+      "description": "Remove {{count}} {{client}} route binding(s) from {{scope}} only. Providers and credentials stay.",
       "providersPreview": "Providers",
       "moreProviders": "and {{count}} more",
       "streamingWarning": "{{count}} active streaming request(s) are currently using selected provider(s). Deleting routes may interrupt new routing decisions.",
@@ -1011,7 +1011,7 @@
     "syncFromProject": "Sync from project",
     "syncDialog": {
       "title": "Sync routes from another project",
-      "description": "Copy {{client}} route settings into {{target}}.",
+      "description": "Copy {{client}} routes into {{target}}.",
       "source": "Source",
       "mode": "Mode",
       "defaultRoutes": "Default routes (global)",
@@ -1030,7 +1030,7 @@
     "claudeBatchTest": {
       "button": "Batch test providers",
       "title": "Claude provider batch test",
-      "description": "Only affects the current Claude routes page. Preview first, then run rate-limited concurrent tests; new configs are saved only after passing, while failed existing providers require explicit removal confirmation.",
+      "description": "Preview first, then test; new configs save only after passing.",
       "candidateTitle": "Provider configs to test",
       "parserBadge": "Uses provider add parsing",
       "parseErrorLine": "Line {{line}}: {{message}}",
@@ -1083,9 +1083,9 @@
         "unsupportedProvider": "Unsupported",
         "notTested": "Not tested"
       },
-      "autoSavePassedHint": "Fixed rule: new configs are added only after passing; existing providers are tested only and are never silently deleted.",
+      "autoSavePassedHint": "New configs are added only after passing; existing providers are tested only.",
       "failedExistingTitle": "Existing providers pending removal confirmation",
-      "failedExistingDescription": "These existing Claude providers failed the test. Select and confirm removal to delete them globally from the Providers tab and clean up routes/project references that use them.",
+      "failedExistingDescription": "Removal deletes these providers globally and cleans route/project references.",
       "selectAllFailedExisting": "Select all failed items",
       "clearFailedExistingSelection": "Clear failed selection",
       "removeSelectedFailedExisting": "Remove selected failed items ({{count}})",
@@ -1210,7 +1210,7 @@
     "verifyFailed": "Failed to verify password",
     "forgotPassword": "Forgot password?",
     "forgotPasswordTitle": "Forgot Password",
-    "forgotPasswordDescription": "This page does not support direct password reset. Please contact your admin or approver for help.",
+    "forgotPasswordDescription": "Contact an admin to reset your password.",
     "forgotPasswordTip": "If your account is still pending approval, wait for approval before trying again.",
     "forgotPasswordContactHint": "For shared environments, contact the administrator responsible for this Maxx instance to reset or verify your account.",
     "register": "Register",
@@ -1309,7 +1309,7 @@
     "passwordMismatch": "Passwords do not match",
     "passkeyManagement": "Passkey Management",
     "passkeyManagementDescription": "View and remove registered Passkey devices.",
-    "passkeyFallbackHint": "If a device is lost, you can still log in with password and remove old Passkeys here.",
+    "passkeyFallbackHint": "If a device is lost, log in with password and remove the old Passkey.",
     "passkeyListEmpty": "No Passkey devices registered",
     "passkeyAttachment": "Attachment",
     "passkeyTransport": "Transport",
@@ -1678,10 +1678,10 @@
     "noData": "No model prices configured",
     "createTitle": "Add Model Price",
     "editTitle": "Edit Model Price",
-    "confirmDelete": "Are you sure you want to delete this price? This may affect cost calculations.",
+    "confirmDelete": "Deleting this price may affect cost calculations.",
     "upstreamImportResult": "Upstream price import complete: {{created}} created, {{updated}} updated, {{failed}} failed, {{skipped}} skipped.",
     "resetToDefaults": "Reset to Defaults",
-    "confirmReset": "Are you sure you want to reset to default prices? This will replace all current prices with the built-in defaults."
+    "confirmReset": "Replace current prices with built-in defaults."
   },
   "clientRoutes": {
     "claude": "Claude",
@@ -1735,12 +1735,12 @@
     },
     "deleteDialog": {
       "title": "Delete API Token",
-      "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone. Any applications using this token will no longer be able to authenticate."
+      "description": "After deleting \"{{name}}\", apps using this token can no longer authenticate."
     },
     "cleanupExpired": {
       "button": "Clean up expired tokens ({{count}})",
       "title": "Clean Up Expired Tokens",
-      "description": "This will delete {{count}} expired API token(s). This action cannot be undone, and applications using these tokens will no longer authenticate.",
+      "description": "Delete {{count}} expired API token(s). This cannot be undone.",
       "confirm": "Clean up {{count}} token(s)",
       "more": "and {{count}} more token(s)",
       "lastResult": "Last cleanup removed {{count}} expired token(s)."
@@ -1751,7 +1751,7 @@
     },
     "newTokenDialog": {
       "title": "Token Created Successfully",
-      "description": "Copy your new API token now. ",
+      "description": "This token is shown once. Copy it now.",
       "tokenName": "Token Name",
       "apiToken": "API Token",
       "warning": "This token will only be shown once. Make sure to copy it now.",
@@ -1765,7 +1765,7 @@
     },
     "codexConfigDialog": {
       "title": "Codex Config Generator",
-      "description": "Generate global proxy config from token \"{{name}}\".",
+      "description": "Generate global proxy config for \"{{name}}\".",
       "modeGlobal": "Global Proxy",
       "configToml": "config.toml",
       "authJson": "auth.json",
