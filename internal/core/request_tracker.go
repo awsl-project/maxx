@@ -10,10 +10,13 @@ import (
 
 // RequestTracker tracks active proxy requests for graceful shutdown
 type RequestTracker struct {
-	activeCount int64
-	wg          sync.WaitGroup
-	shutdownCh  chan struct{}
-	isShutdown  atomic.Bool
+	activeCount  int64
+	wg           sync.WaitGroup
+	shutdownCh   chan struct{}
+	isShutdown   atomic.Bool
+	cancelMu     sync.Mutex
+	nextCancelID uint64
+	cancels      map[uint64]func(error)
 	// notifyCh is used to notify when a request completes during shutdown
 	notifyCh chan struct{}
 	notifyMu sync.Mutex
@@ -23,6 +26,7 @@ type RequestTracker struct {
 func NewRequestTracker() *RequestTracker {
 	return &RequestTracker{
 		shutdownCh: make(chan struct{}),
+		cancels:    make(map[uint64]func(error)),
 	}
 }
 
@@ -35,6 +39,46 @@ func (t *RequestTracker) Add() bool {
 	t.wg.Add(1)
 	atomic.AddInt64(&t.activeCount, 1)
 	return true
+}
+
+// RegisterActiveCancel records a per-request cancel function for admin-triggered stops.
+// The returned function removes the registration and must be called when the request exits.
+func (t *RequestTracker) RegisterActiveCancel(cancel func(error)) func() {
+	if cancel == nil {
+		return func() {}
+	}
+	id := atomic.AddUint64(&t.nextCancelID, 1)
+	t.cancelMu.Lock()
+	if t.cancels == nil {
+		t.cancels = make(map[uint64]func(error))
+	}
+	t.cancels[id] = cancel
+	t.cancelMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			t.cancelMu.Lock()
+			delete(t.cancels, id)
+			t.cancelMu.Unlock()
+		})
+	}
+}
+
+// CancelActive cancels all currently registered active requests without marking
+// the server itself as shutting down. It returns the number of cancel functions invoked.
+func (t *RequestTracker) CancelActive(cause error) int {
+	t.cancelMu.Lock()
+	cancels := make([]func(error), 0, len(t.cancels))
+	for _, cancel := range t.cancels {
+		cancels = append(cancels, cancel)
+	}
+	t.cancelMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel(cause)
+	}
+	return len(cancels)
 }
 
 // Done decrements the active request count

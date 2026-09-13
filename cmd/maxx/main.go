@@ -481,6 +481,7 @@ func main() {
 	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, settingRepo, tokenAuthMiddleware)
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
+	adminHandler.SetActiveRequestCanceller(requestTracker)
 	adminHandler.SetUserRepo(userRepo)
 	adminHandler.SetAuthEnabled(authEnabled)
 	authHandler := handler.NewAuthHandler(
