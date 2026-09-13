@@ -1,7 +1,12 @@
 package executor
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/awsl-project/maxx/internal/converter"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
@@ -75,5 +80,54 @@ func TestGetPreferredTargetType(t *testing.T) {
 					tc.supported, tc.original, tc.providerType, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestConvertingResponseWriterDefersStreamHeadersUntilConvertedBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writer := NewConvertingResponseWriter(
+		rec,
+		converter.GetGlobalRegistry(),
+		domain.ClientTypeClaude,
+		domain.ClientTypeOpenAI,
+		true,
+		nil,
+	)
+
+	writer.WriteHeader(http.StatusOK)
+	writer.Flush()
+
+	if rec.Flushed {
+		t.Fatal("header-only stream setup must not flush/commit downstream response")
+	}
+	if writer.WroteBodyToClient() {
+		t.Fatal("header-only stream setup must not count as body delivery")
+	}
+	if body := rec.Body.String(); body != "" {
+		t.Fatalf("body after header-only flush = %q, want empty", body)
+	}
+}
+
+func TestConvertingResponseWriterMarksBodyAfterConvertedStreamOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writer := NewConvertingResponseWriter(
+		rec,
+		converter.GetGlobalRegistry(),
+		domain.ClientTypeClaude,
+		domain.ClientTypeOpenAI,
+		true,
+		nil,
+	)
+
+	chunk := []byte("data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":null}]}\n\n")
+	if _, err := writer.Write(chunk); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	if !writer.WroteBodyToClient() {
+		t.Fatal("converted stream output should count as downstream body delivery")
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "text_delta") || !strings.Contains(body, "hi") {
+		t.Fatalf("converted body = %q, want Claude text delta", body)
 	}
 }

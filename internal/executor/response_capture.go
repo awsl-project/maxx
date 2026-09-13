@@ -90,6 +90,13 @@ func (rc *ResponseCapture) WroteToClient() bool {
 	return rc.wrote
 }
 
+// WroteBodyToClient reports whether at least one downstream body byte was
+// accepted. Unlike WroteToClient, it does not treat headers/flush as token
+// delivery, so TTFT is not recorded for header-only stream setup.
+func (rc *ResponseCapture) WroteBodyToClient() bool {
+	return rc.total > 0
+}
+
 // captureBounded appends b to the snapshot buffer without exceeding maxBytes.
 func (rc *ResponseCapture) captureBounded(b []byte) {
 	rc.total += int64(len(b))

@@ -144,6 +144,7 @@ type ConvertingResponseWriter struct {
 	buffer       bytes.Buffer // Buffer for non-streaming responses
 	streamState  *converter.TransformState
 	headersSent  bool
+	bodySent     bool
 }
 
 // NewConvertingResponseWriter creates a new ConvertingResponseWriter
@@ -178,11 +179,9 @@ func (c *ConvertingResponseWriter) Header() http.Header {
 // WriteHeader captures the status code
 func (c *ConvertingResponseWriter) WriteHeader(code int) {
 	c.statusCode = code
-	if c.isStream {
-		// For streaming, write headers immediately
-		c.underlying.WriteHeader(code)
-		c.headersSent = true
-	}
+	// For streaming conversion, defer forwarding headers until the first
+	// converted byte is available. This keeps failover safe when conversion
+	// fails before anything client-visible has been emitted.
 	// For non-streaming, defer header writing until we have the converted response
 }
 
@@ -204,10 +203,15 @@ func (c *ConvertingResponseWriter) writeStream(b []byte) (int, error) {
 	}
 
 	if len(converted) > 0 {
+		if !c.headersSent {
+			c.underlying.WriteHeader(c.statusCode)
+			c.headersSent = true
+		}
 		_, writeErr := c.underlying.Write(converted)
 		if writeErr != nil {
 			return 0, writeErr
 		}
+		c.bodySent = true
 	}
 
 	return len(b), nil
@@ -215,9 +219,18 @@ func (c *ConvertingResponseWriter) writeStream(b []byte) (int, error) {
 
 // Flush implements http.Flusher for streaming support
 func (c *ConvertingResponseWriter) Flush() {
+	if !c.headersSent {
+		return
+	}
 	if f, ok := c.underlying.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// WroteBodyToClient reports whether stream conversion emitted at least one
+// downstream body byte. It intentionally ignores deferred headers.
+func (c *ConvertingResponseWriter) WroteBodyToClient() bool {
+	return c.bodySent
 }
 
 // Finalize converts and writes buffered non-streaming response
