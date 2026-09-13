@@ -824,6 +824,7 @@ export interface CursorPaginationResult<T> {
 export type WSMessageType =
   | 'proxy_request_update'
   | 'proxy_upstream_attempt_update'
+  | 'user_panel_consumption_leaderboard_dirty'
   | 'stats_update'
   | 'log_message'
   | 'antigravity_oauth_result'
@@ -1382,6 +1383,7 @@ export interface UserPanelConsumptionLeaderboardRow {
   tokenName: string;
   username?: string;
   cost: number;
+  active?: boolean;
 }
 
 export interface UserPanelConsumptionLeaderboardResult {

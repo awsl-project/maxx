@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
-  Clock3,
   Copy,
   Eye,
   EyeOff,
@@ -177,7 +176,17 @@ function ConsumptionLeaderboardCard({
                     }
                   >
                     <TableCell className="font-medium text-foreground">
-                      {row.tokenName || row.username || `#${row.tokenID || row.userID}`}
+                      <span className="flex min-w-0 items-center gap-2">
+                        {row.active ? (
+                          <span
+                            aria-label="active"
+                            className="size-2 shrink-0 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
+                          />
+                        ) : null}
+                        <span className="truncate">
+                          {row.tokenName || row.username || `#${row.tokenID || row.userID}`}
+                        </span>
+                      </span>
                     </TableCell>
                     <TableCell className="text-right font-mono font-semibold tabular-nums">
                       {formatCostAmount(row.cost)}
@@ -192,7 +201,6 @@ function ConsumptionLeaderboardCard({
     </Card>
   );
 }
-
 
 function ModelStatusCard({
   rows,
@@ -232,7 +240,9 @@ function ModelStatusCard({
                 <TableHead>{t('userPanel.model')}</TableHead>
                 <TableHead className="text-right">{t('userPanel.modelStatusTps')}</TableHead>
                 <TableHead className="text-right">{t('userPanel.modelStatusLatency')}</TableHead>
-                <TableHead className="text-right">{t('userPanel.modelStatusSuccessRate')}</TableHead>
+                <TableHead className="text-right">
+                  {t('userPanel.modelStatusSuccessRate')}
+                </TableHead>
                 <TableHead className="text-right">{t('userPanel.modelStatusRequests')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -514,10 +524,7 @@ export function UserPanelPage() {
             <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
               <UserRound className="size-5" />
             </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">{t('userPanel.title')}</h1>
-              <p className="text-sm text-muted-foreground">{t('userPanel.description')}</p>
-            </div>
+            <h1 className="text-xl font-semibold tracking-tight">{t('userPanel.title')}</h1>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-center">
             <LanguageToggle />
@@ -858,11 +865,6 @@ export function UserPanelPage() {
             />
           </TabsContent>
         </Tabs>
-
-        <footer className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-          <Clock3 className="size-3.5" />
-          <span>{t('userPanel.securityHint')}</span>
-        </footer>
       </div>
     </main>
   );

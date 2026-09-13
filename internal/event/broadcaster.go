@@ -2,6 +2,8 @@ package event
 
 import "github.com/awsl-project/maxx/internal/domain"
 
+const UserPanelConsumptionLeaderboardDirtyEvent = "user_panel_consumption_leaderboard_dirty"
+
 // Broadcaster 事件广播接口
 // WebSocket 和 Wails 都实现此接口
 type Broadcaster interface {

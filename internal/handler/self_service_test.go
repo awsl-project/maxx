@@ -3072,13 +3072,14 @@ func TestBuildUserPanelConsumptionLeaderboard_IncludesCurrentUserTokenWithoutUsa
 			{ID: 201, Name: "other-user-token", Description: userPanelAPITokenDescription(42)},
 		},
 		9,
+		map[uint64]bool{201: true},
 	)
 
 	if len(rows) != 2 {
 		t.Fatalf("expected current token plus consuming token rows, got %d", len(rows))
 	}
-	if rows[0].UserID != 42 || rows[0].TokenID != 201 || rows[0].TokenName != "other-user-token" || rows[0].Cost != 300 {
-		t.Fatalf("expected consuming token first, got %+v", rows[0])
+	if rows[0].UserID != 42 || rows[0].TokenID != 201 || rows[0].TokenName != "other-user-token" || rows[0].Cost != 300 || !rows[0].Active {
+		t.Fatalf("expected consuming active token first, got %+v", rows[0])
 	}
 	if rows[1].UserID != 9 || rows[1].TokenID != 101 || rows[1].TokenName != "current-user-token" || rows[1].Cost != 0 {
 		t.Fatalf("expected current user token with zero cost, got %+v", rows[1])
@@ -3100,6 +3101,7 @@ func TestBuildUserPanelConsumptionLeaderboard_ExposesTokenNameAndCost(t *testing
 			{ID: 999, Name: "ordinary-token", Description: "not-user-panel-managed"},
 		},
 		0,
+		map[uint64]bool{102: true, 999: true},
 	)
 
 	if len(rows) != 3 {
@@ -3113,6 +3115,9 @@ func TestBuildUserPanelConsumptionLeaderboard_ExposesTokenNameAndCost(t *testing
 	}
 	if rows[2].UserID != 77 || rows[2].TokenID != 102 || rows[2].TokenName != "alice-token-2" || rows[2].Cost != 100 {
 		t.Fatalf("expected third row for alice-token-2, got %+v", rows[2])
+	}
+	if !rows[2].Active || rows[0].Active || rows[1].Active {
+		t.Fatalf("active flags = [%v, %v, %v], want only token 102 active", rows[0].Active, rows[1].Active, rows[2].Active)
 	}
 
 	body, err := json.Marshal(userPanelConsumptionLeaderboardResponse{Today: rows, All: rows})

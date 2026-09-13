@@ -118,7 +118,6 @@
   },
   "userPanel": {
     "title": "User Console",
-    "description": "View usage and key.",
     "accountCard": "Account",
     "username": "Username",
     "role": "Role",
@@ -153,7 +152,6 @@
     "topModel": "Top model",
     "tokens": "Tokens",
     "estimatedCost": "Estimated cost",
-    "securityHint": "Tenant-scoped data only.",
     "keyStatus": {
       "active": "Active",
       "expired": "Expired",

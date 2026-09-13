@@ -78,15 +78,17 @@ func (h *WebSocketHub) run() {
 	}
 }
 
-func (h *WebSocketHub) tryEnqueueBroadcast(msg WSMessage, meta string) {
+func (h *WebSocketHub) tryEnqueueBroadcast(msg WSMessage, meta string) bool {
 	select {
 	case h.broadcast <- msg:
+		return true
 	default:
 		// Only increment counter; do NOT call log.Printf here.
 		// This function is called from within WebSocketLogWriter.Write(),
 		// which is invoked by log.Printf while holding the log mutex.
 		// Calling log.Printf again would deadlock (sync.Mutex is not reentrant).
 		h.broadcastDroppedTotal.Add(1)
+		return false
 	}
 }
 
@@ -134,7 +136,9 @@ func (h *WebSocketHub) BroadcastProxyRequest(req *domain.ProxyRequest) {
 		Type: "proxy_request_update",
 		Data: data,
 	}
-	h.tryEnqueueBroadcast(msg, meta)
+	if h.tryEnqueueBroadcast(msg, meta) {
+		h.tryEnqueueBroadcast(WSMessage{Type: event.UserPanelConsumptionLeaderboardDirtyEvent, Data: nil}, meta)
+	}
 }
 
 func (h *WebSocketHub) BroadcastProxyUpstreamAttempt(attempt *domain.ProxyUpstreamAttempt) {
