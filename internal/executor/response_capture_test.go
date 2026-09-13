@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/awsl-project/maxx/internal/converter"
+	"github.com/awsl-project/maxx/internal/domain"
 )
 
 // TestResponseCaptureBoundsSnapshotButForwardsFull 锁住核心契约:超过快照上限的
@@ -162,5 +165,28 @@ func TestResponseCaptureTruncationKeepsValidUTF8(t *testing.T) {
 	}
 	if !strings.Contains(body, "9 bytes total") {
 		t.Fatalf("snapshot missing accurate total: %q", body)
+	}
+}
+
+func TestConvertingStreamHeaderOnlyDoesNotMarkCaptureCommitted(t *testing.T) {
+	rec := httptest.NewRecorder()
+	capture := NewResponseCapture(rec)
+	writer := NewConvertingResponseWriter(
+		capture,
+		converter.GetGlobalRegistry(),
+		domain.ClientTypeClaude,
+		domain.ClientTypeOpenAI,
+		true,
+		nil,
+	)
+
+	writer.WriteHeader(http.StatusOK)
+	writer.Flush()
+
+	if capture.WroteToClient() {
+		t.Fatal("header-only converted stream must remain retryable because no downstream bytes were committed")
+	}
+	if capture.WroteBodyToClient() {
+		t.Fatal("header-only converted stream must not count as body delivery")
 	}
 }

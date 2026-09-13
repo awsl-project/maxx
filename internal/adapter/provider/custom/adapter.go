@@ -641,6 +641,15 @@ type streamReadResult struct {
 	err error
 }
 
+type bodyWriteTracker interface {
+	WroteBodyToClient() bool
+}
+
+func wroteBodyToClient(w http.ResponseWriter) bool {
+	tracker, ok := w.(bodyWriteTracker)
+	return !ok || tracker.WroteBodyToClient()
+}
+
 func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, clientType domain.ClientType, isOAuthToken bool) error {
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
@@ -806,8 +815,10 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			}
 			flusher.Flush()
 
-			// Track TTFT: send first token time on first successful write
-			if !firstChunkSent {
+			// Track TTFT only after at least one downstream body byte is actually
+			// emitted. A conversion writer can consume upstream SSE frames that do
+			// produce no client token yet.
+			if !firstChunkSent && wroteBodyToClient(c.Writer) {
 				firstChunkSent = true
 				if eventChan != nil {
 					eventChan.SendFirstToken(time.Now().UnixMilli())
