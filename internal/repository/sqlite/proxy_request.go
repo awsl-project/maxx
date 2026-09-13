@@ -99,8 +99,8 @@ func applyProxyRequestCleanupFailedFilter(query *gorm.DB, filter *repository.Pro
 			if needle == "" {
 				continue
 			}
-			conditions = append(conditions, `LOWER(error) LIKE ? ESCAPE '\'`)
-			args = append(args, "%"+escapeLikePattern(strings.ToLower(needle))+"%")
+			conditions = append(conditions, `LOWER(error) LIKE ? ESCAPE ?`)
+			args = append(args, "%"+escapeLikePattern(strings.ToLower(needle))+"%", `\`)
 		}
 		if len(conditions) > 0 {
 			query = query.Where("("+strings.Join(conditions, " OR ")+")", args...)
@@ -744,7 +744,7 @@ func (r *ProxyRequestRepository) GetUserPanelModelStatus(tenantID uint64, apiTok
 		if text == "" {
 			continue
 		}
-		query = query.Where(`COALESCE(error, '') NOT LIKE ? ESCAPE '\'`, "%"+escapeLikePattern(text)+"%")
+		query = query.Where(`COALESCE(error, '') NOT LIKE ? ESCAPE ?`, "%"+escapeLikePattern(text)+"%", `\`)
 	}
 
 	type row struct {
