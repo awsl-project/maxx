@@ -609,10 +609,7 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err := c.Writer.Write(body); err != nil {
 		if converter.IsResponseConversionError(err) {
-			proxyErr := domain.NewProxyErrorWithMessage(err, true, "response format conversion failed")
-			proxyErr.Scope = domain.ScopeProvider
-			proxyErr.Reason = domain.CooldownReasonServerError
-			return proxyErr
+			return newResponseConversionProxyError(err)
 		}
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "client disconnected")
 		proxyErr.Scope = domain.ScopeRequest
@@ -648,6 +645,17 @@ type bodyWriteTracker interface {
 func wroteBodyToClient(w http.ResponseWriter) bool {
 	tracker, ok := w.(bodyWriteTracker)
 	return !ok || tracker.WroteBodyToClient()
+}
+
+func newResponseConversionProxyError(err error) *domain.ProxyError {
+	proxyErr := domain.NewProxyErrorWithMessage(err, true, "response format conversion failed")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "unexpected end of json input") || strings.Contains(msg, "unexpected eof") || strings.Contains(msg, "premature eof") {
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+	}
+	return proxyErr
 }
 
 func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, clientType domain.ClientType, isOAuthToken bool) error {
@@ -803,10 +811,7 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			if writeErr != nil {
 				sendFinalEvents()
 				if converter.IsResponseConversionError(writeErr) {
-					proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
-					proxyErr.Scope = domain.ScopeProvider
-					proxyErr.Reason = domain.CooldownReasonServerError
-					return proxyErr
+					return newResponseConversionProxyError(writeErr)
 				}
 				// Client disconnected
 				proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
