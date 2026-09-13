@@ -47,6 +47,8 @@ func TestRegisterSelfServiceRoutes_RegistersUserPanelModelRoutes(t *testing.T) {
 		"/api/user-panel/models/",
 		"/api/user-panel/model-routes",
 		"/api/user-panel/model-routes/",
+		"/api/user-panel/model-status",
+		"/api/user-panel/model-status/",
 	} {
 		_, registeredPattern := mux.Handler(httptest.NewRequest(http.MethodGet, candidate, nil))
 		if registeredPattern != candidate {

@@ -101,6 +101,7 @@ import {
   DialogHeader,
   DialogTitle,
   Button,
+  Switch,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -130,6 +131,8 @@ const REQUEST_FILTER_MODE_STORAGE_KEY = 'maxx-requests-filter-mode';
 const REQUEST_PROVIDER_FILTER_STORAGE_KEY = 'maxx-requests-provider-filter';
 const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
+const REQUEST_AUTO_NOISY_ERROR_CLEANUP_STORAGE_KEY = 'maxx-requests-auto-noisy-error-cleanup';
+const REQUEST_AUTO_NOISY_ERROR_CLEANUP_INTERVAL_MS = 120_000;
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 const CLEANUP_ERROR_TEXTS = [
@@ -137,8 +140,6 @@ const CLEANUP_ERROR_TEXTS = [
   'client disconnected: context canceled',
   'Instance no longer alive',
 ];
-
-type CleanupFailedKind = 'all' | 'upstreamError';
 
 function ProtocolBadge({
   request,
@@ -196,6 +197,20 @@ function readStoredNumberWithLegacy(key: string, legacyKey?: string): number | u
     return scopedValue;
   }
   return readStoredNumber(legacyKey);
+}
+
+function readStoredBoolean(key: string): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return window.localStorage.getItem(key) === 'true';
+}
+
+function writeStoredBoolean(key: string, value: boolean): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(key, value ? 'true' : 'false');
 }
 
 function readStoredFilterMode(key: string, legacyKey?: string): RequestFilterMode {
@@ -321,6 +336,10 @@ export function RequestsPage() {
     () => buildScopedStorageKey(REQUEST_COLUMNS_STORAGE_KEY, user?.tenantID, user?.id),
     [user?.id, user?.tenantID],
   );
+  const autoNoisyErrorCleanupStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_AUTO_NOISY_ERROR_CLEANUP_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
   const columnPrefsSettingKey = useMemo(
     () => buildScopedSettingKey(REQUEST_COLUMNS_SETTING_KEY, user?.tenantID, user?.id),
     [user?.id, user?.tenantID],
@@ -354,7 +373,9 @@ export function RequestsPage() {
   const [errorMode, setErrorMode] = useState<ProxyRequestErrorMode>('all');
   const [errorStatsOpen, setErrorStatsOpen] = useState(false);
   const [cleanupFailedOpen, setCleanupFailedOpen] = useState(false);
-  const [cleanupFailedKind, setCleanupFailedKind] = useState<CleanupFailedKind>('all');
+  const [autoNoisyErrorCleanupEnabled, setAutoNoisyErrorCleanupEnabled] = useState(() =>
+    readStoredBoolean(autoNoisyErrorCleanupStorageKey),
+  );
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
@@ -447,6 +468,10 @@ export function RequestsPage() {
   const { data: upstreamErrorFailedCount, refetch: refetchUpstreamErrorFailedCount } =
     useCleanupFailedProxyRequestsCount(upstreamErrorCleanupParams, requestsQueryEnabled);
   const cleanupFailedRequests = useCleanupFailedProxyRequests();
+  const autoCleanupNoisyErrors = useCleanupFailedProxyRequests();
+  const autoCleanupNoisyErrorsInFlightRef = useRef(false);
+  const skipNextAutoNoisyErrorCleanupWriteRef = useRef(false);
+  const runAutoNoisyErrorCleanupRef = useRef<() => void>(() => {});
 
   // Check if API Token auth is enabled
   const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
@@ -611,15 +636,12 @@ export function RequestsPage() {
     errorStatsOpen && requestsQueryEnabled,
   );
 
-  const handleOpenCleanupFailedDialog = (kind: CleanupFailedKind) => {
-    setCleanupFailedKind(kind);
+  const handleOpenCleanupFailedDialog = () => {
     setCleanupFailedOpen(true);
   };
 
   const handleCleanupFailedRequests = () => {
-    const params =
-      cleanupFailedKind === 'upstreamError' ? upstreamErrorCleanupParams : cleanupFailedCountParams;
-    cleanupFailedRequests.mutate(params, {
+    cleanupFailedRequests.mutate(cleanupFailedCountParams, {
       onSuccess: () => {
         setCleanupFailedOpen(false);
         void refetch();
@@ -630,6 +652,78 @@ export function RequestsPage() {
     });
   };
 
+  useEffect(() => {
+    skipNextAutoNoisyErrorCleanupWriteRef.current = true;
+    setAutoNoisyErrorCleanupEnabled(readStoredBoolean(autoNoisyErrorCleanupStorageKey));
+  }, [autoNoisyErrorCleanupStorageKey]);
+
+  useEffect(() => {
+    if (skipNextAutoNoisyErrorCleanupWriteRef.current) {
+      skipNextAutoNoisyErrorCleanupWriteRef.current = false;
+      return;
+    }
+    writeStoredBoolean(autoNoisyErrorCleanupStorageKey, autoNoisyErrorCleanupEnabled);
+  }, [autoNoisyErrorCleanupEnabled, autoNoisyErrorCleanupStorageKey]);
+
+  const runAutoNoisyErrorCleanup = useCallback(() => {
+    if (
+      !autoNoisyErrorCleanupEnabled ||
+      errorMode === 'exclude' ||
+      !requestsQueryEnabled ||
+      waitingFilterValidation ||
+      cleanupFailedRequests.isPending ||
+      autoCleanupNoisyErrors.isPending ||
+      autoCleanupNoisyErrorsInFlightRef.current ||
+      (upstreamErrorFailedCount ?? 0) <= 0 ||
+      (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+    ) {
+      return;
+    }
+
+    autoCleanupNoisyErrorsInFlightRef.current = true;
+    autoCleanupNoisyErrors.mutate(upstreamErrorCleanupParams, {
+      onSuccess: () => {
+        void refetch();
+        void refetchCount();
+        void refetchFailedCount();
+        void refetchUpstreamErrorFailedCount();
+      },
+      onSettled: () => {
+        autoCleanupNoisyErrorsInFlightRef.current = false;
+      },
+    });
+  }, [
+    autoCleanupNoisyErrors,
+    autoNoisyErrorCleanupEnabled,
+    cleanupFailedRequests.isPending,
+    errorMode,
+    refetch,
+    refetchCount,
+    refetchFailedCount,
+    refetchUpstreamErrorFailedCount,
+    requestsQueryEnabled,
+    upstreamErrorCleanupParams,
+    upstreamErrorFailedCount,
+    waitingFilterValidation,
+  ]);
+
+  useEffect(() => {
+    runAutoNoisyErrorCleanupRef.current = runAutoNoisyErrorCleanup;
+  }, [runAutoNoisyErrorCleanup]);
+
+  useEffect(() => {
+    if (!autoNoisyErrorCleanupEnabled) {
+      return;
+    }
+
+    const interval = window.setInterval(
+      () => runAutoNoisyErrorCleanupRef.current(),
+      REQUEST_AUTO_NOISY_ERROR_CLEANUP_INTERVAL_MS,
+    );
+    return () => window.clearInterval(interval);
+  }, [autoNoisyErrorCleanupEnabled]);
+
+  const cleanupFailedBusy = cleanupFailedRequests.isPending || autoCleanupNoisyErrors.isPending;
   // 使用 totalCount
   const total = typeof totalCount === 'number' ? totalCount : 0;
 
@@ -1006,31 +1100,33 @@ export function RequestsPage() {
           type="button"
           variant="destructive"
           size="sm"
-          disabled={(failedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
-          onClick={() => handleOpenCleanupFailedDialog('all')}
+          disabled={(failedCount ?? 0) === 0 || cleanupFailedBusy}
+          onClick={handleOpenCleanupFailedDialog}
         >
-          {cleanupFailedRequests.isPending && cleanupFailedKind === 'all' ? (
+          {cleanupFailedRequests.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Trash2 className="mr-2 h-4 w-4" />
           )}
           {t('requests.cleanupFailed.action')}
         </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          disabled={(upstreamErrorFailedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
-          onClick={() => handleOpenCleanupFailedDialog('upstreamError')}
-          title={CLEANUP_ERROR_TEXTS.join('\n')}
-        >
-          {cleanupFailedRequests.isPending && cleanupFailedKind === 'upstreamError' ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Trash2 className="mr-2 h-4 w-4" />
+        <div
+          className={cn(
+            'flex h-8 items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-2 text-xs text-muted-foreground',
+            autoNoisyErrorCleanupEnabled && 'border-primary/40 bg-primary/10 text-foreground',
           )}
-          {t('requests.cleanupFailed.noisyErrorsAction')}
-        </Button>
+          title={t('requests.cleanupFailed.autoNoisyErrorsDescription', {
+            seconds: REQUEST_AUTO_NOISY_ERROR_CLEANUP_INTERVAL_MS / 1000,
+            count: upstreamErrorFailedCount ?? 0,
+          })}
+        >
+          <Switch
+            checked={autoNoisyErrorCleanupEnabled}
+            onCheckedChange={setAutoNoisyErrorCleanupEnabled}
+            aria-label={t('requests.cleanupFailed.autoNoisyErrorsLabel')}
+          />
+          <span>{t('requests.cleanupFailed.autoNoisyErrorsLabel')}</span>
+        </div>
         <TimeRangeFilter
           startDate={startDate}
           endDate={endDate}
@@ -1072,17 +1168,10 @@ export function RequestsPage() {
         <AlertDialogContent className="border-destructive/30 bg-card shadow-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-foreground">
-              {cleanupFailedKind === 'upstreamError'
-                ? t('requests.cleanupFailed.noisyErrorsTitle')
-                : t('requests.cleanupFailed.title')}
+              {t('requests.cleanupFailed.title')}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-foreground/90">
-              {cleanupFailedKind === 'upstreamError'
-                ? t('requests.cleanupFailed.noisyErrorsDescription', {
-                    count: upstreamErrorFailedCount ?? 0,
-                    errors: CLEANUP_ERROR_TEXTS.join(' / '),
-                  })
-                : t('requests.cleanupFailed.description', { count: failedCount ?? 0 })}
+              {t('requests.cleanupFailed.description', { count: failedCount ?? 0 })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1090,15 +1179,10 @@ export function RequestsPage() {
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={
-                cleanupFailedRequests.isPending ||
-                (cleanupFailedKind === 'upstreamError'
-                  ? (upstreamErrorFailedCount ?? 0) === 0
-                  : (failedCount ?? 0) === 0)
-              }
+              disabled={cleanupFailedBusy || (failedCount ?? 0) === 0}
               onClick={handleCleanupFailedRequests}
             >
-              {cleanupFailedRequests.isPending
+              {cleanupFailedBusy
                 ? t('requests.cleanupFailed.cleaning')
                 : t('requests.cleanupFailed.confirm')}
             </AlertDialogAction>

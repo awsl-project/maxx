@@ -1389,6 +1389,16 @@ export interface UserPanelConsumptionLeaderboardResult {
   all: UserPanelConsumptionLeaderboardRow[];
 }
 
+export interface UserPanelModelStatusRow {
+  model: string;
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  successRate: number;
+  averageLatencyMs: number;
+  tokensPerSecond: number;
+}
+
 export interface APITokenCleanupItem {
   id: number;
   name: string;

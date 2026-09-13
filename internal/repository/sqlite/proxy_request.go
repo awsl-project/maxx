@@ -99,7 +99,7 @@ func applyProxyRequestCleanupFailedFilter(query *gorm.DB, filter *repository.Pro
 			if needle == "" {
 				continue
 			}
-			conditions = append(conditions, "LOWER(error) LIKE ? ESCAPE '\\'")
+			conditions = append(conditions, `LOWER(error) LIKE ? ESCAPE '\'`)
 			args = append(args, "%"+escapeLikePattern(strings.ToLower(needle))+"%")
 		}
 		if len(conditions) > 0 {
@@ -720,6 +720,70 @@ func (r *ProxyRequestRepository) HasRecentRequests(since time.Time) (bool, error
 }
 
 // GetProjectUsageSummaries aggregates request activity by project for cleanup detection.
+
+func (r *ProxyRequestRepository) GetUserPanelModelStatus(tenantID uint64, apiTokenIDs []uint64, since time.Time, ignoredErrorContains []string) ([]repository.UserPanelModelStatusRow, error) {
+	if len(apiTokenIDs) == 0 {
+		return []repository.UserPanelModelStatusRow{}, nil
+	}
+
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select(`
+			COALESCE(NULLIF(response_model, ''), NULLIF(request_model, ''), 'unknown') AS model,
+			COUNT(*) AS request_count,
+			SUM(CASE WHEN status = 'COMPLETED' AND status_code < 400 THEN 1 ELSE 0 END) AS success_count,
+			SUM(CASE WHEN NOT (status = 'COMPLETED' AND status_code < 400) THEN 1 ELSE 0 END) AS failure_count,
+			SUM(duration_ms) AS total_duration_ms,
+			SUM(CASE WHEN status = 'COMPLETED' AND status_code < 400 THEN duration_ms ELSE 0 END) AS success_duration_ms,
+			SUM(CASE WHEN status = 'COMPLETED' AND status_code < 400 THEN output_token_count ELSE 0 END) AS success_output_tokens
+		`).Where("api_token_id IN ?", apiTokenIDs).
+		Where("created_at >= ?", toTimestamp(since)).
+		Where("status NOT IN ?", activeProxyRequestStatuses)
+
+	for _, text := range ignoredErrorContains {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		query = query.Where(`COALESCE(error, '') NOT LIKE ? ESCAPE '\'`, "%"+escapeLikePattern(text)+"%")
+	}
+
+	type row struct {
+		Model               string
+		RequestCount        uint64
+		SuccessCount        uint64
+		FailureCount        uint64
+		TotalDurationMs     uint64
+		SuccessDurationMs   uint64
+		SuccessOutputTokens uint64
+	}
+	var rows []row
+	if err := query.Group("model").Order("request_count DESC, model ASC").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]repository.UserPanelModelStatusRow, 0, len(rows))
+	for _, item := range rows {
+		if strings.TrimSpace(item.Model) == "" || item.RequestCount == 0 {
+			continue
+		}
+		status := repository.UserPanelModelStatusRow{
+			Model:            item.Model,
+			RequestCount:     item.RequestCount,
+			SuccessCount:     item.SuccessCount,
+			FailureCount:     item.FailureCount,
+			AverageLatencyMs: float64(item.TotalDurationMs) / float64(item.RequestCount),
+		}
+		if item.RequestCount > 0 {
+			status.SuccessRate = float64(item.SuccessCount) / float64(item.RequestCount) * 100
+		}
+		if item.SuccessDurationMs > 0 && item.SuccessOutputTokens > 0 {
+			status.TokensPerSecond = float64(item.SuccessOutputTokens) / (float64(item.SuccessDurationMs) / 1000)
+		}
+		result = append(result, status)
+	}
+	return result, nil
+}
+
 func (r *ProxyRequestRepository) GetProjectUsageSummaries(tenantID uint64, since time.Time, projectIDs ...uint64) (map[uint64]domain.ProjectUsageSummary, error) {
 	sinceTs := toTimestamp(since)
 	type usageRow struct {

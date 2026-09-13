@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Activity,
   Clock3,
   Copy,
   Eye,
@@ -44,6 +45,7 @@ import {
   useUserPanelDailyCheckIn,
   useUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
+  useUserPanelModelStatus,
   usePublicSettings,
   useUserPanelUsageStats,
 } from '@/hooks/queries';
@@ -52,6 +54,7 @@ import type {
   UsageStatsFilter,
   UsageStats,
   UserPanelConsumptionLeaderboardRow,
+  UserPanelModelStatusRow,
 } from '@/lib/transport';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import { visibleUserPanelModelRouteGroups } from '@/lib/user-panel-model-routes';
@@ -77,6 +80,21 @@ function formatQuotaAmount(value: number) {
 
 function formatCostAmount(value: number) {
   return `$${((value || 0) / 1_000_000_000).toFixed(4)}`;
+}
+
+function formatTokensPerSecond(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return `${value.toFixed(1)} t/s`;
+}
+
+function formatLatency(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return `${(value / 1000).toFixed(2)}s`;
+}
+
+function formatSuccessRate(value: number, requestCount: number) {
+  if (!requestCount || !Number.isFinite(value)) return '—';
+  return `${value.toFixed(2)}%`;
 }
 
 function getLocalDayBounds(now = new Date()) {
@@ -175,6 +193,77 @@ function ConsumptionLeaderboardCard({
   );
 }
 
+
+function ModelStatusCard({
+  rows,
+  isLoading,
+  isError,
+}: {
+  rows: UserPanelModelStatusRow[];
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <Card className="border-border bg-card shadow-sm">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Activity className="size-4 text-primary" />
+          {t('userPanel.modelStatusTitle')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-5">
+        <p className="mb-4 text-sm text-muted-foreground">{t('userPanel.modelStatusHint')}</p>
+        {isLoading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : isError ? (
+          <p className="py-8 text-center text-sm text-destructive">
+            {t('userPanel.modelStatusLoadFailed')}
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            {t('userPanel.modelStatusNoData')}
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('userPanel.model')}</TableHead>
+                <TableHead className="text-right">{t('userPanel.modelStatusTps')}</TableHead>
+                <TableHead className="text-right">{t('userPanel.modelStatusLatency')}</TableHead>
+                <TableHead className="text-right">{t('userPanel.modelStatusSuccessRate')}</TableHead>
+                <TableHead className="text-right">{t('userPanel.modelStatusRequests')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.model}>
+                  <TableCell className="max-w-[18rem] truncate font-mono text-xs font-medium text-foreground">
+                    {row.model}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatTokensPerSecond(row.tokensPerSecond)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatLatency(row.averageLatencyMs)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatSuccessRate(row.successRate, row.requestCount)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatNumber(row.requestCount)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function UserPanelPage() {
   const { t } = useTranslation();
   const { logout, user } = useAuth();
@@ -228,6 +317,11 @@ export function UserPanelPage() {
     isLoading: consumptionLeaderboardLoading,
     isError: consumptionLeaderboardError,
   } = useUserPanelConsumptionLeaderboard(Boolean(user));
+  const {
+    data: modelStatusRows,
+    isLoading: modelStatusLoading,
+    isError: modelStatusError,
+  } = useUserPanelModelStatus(Boolean(user), 24);
   const localUserPanelDayKey = useMemo(() => todayBounds.start.slice(0, 10), [todayBounds.start]);
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
   const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(
@@ -439,9 +533,10 @@ export function UserPanelPage() {
         </header>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          <TabsList className="grid w-full grid-cols-2 rounded-xl p-1">
+          <TabsList className="grid w-full grid-cols-3 rounded-xl p-1">
             <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
             <TabsTrigger value="consumption">{t('userPanel.consumptionTab')}</TabsTrigger>
+            <TabsTrigger value="model-status">{t('userPanel.modelStatusTab')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="main" className="space-y-5">
@@ -753,6 +848,14 @@ export function UserPanelPage() {
                 currentUserID={user?.id}
               />
             </div>
+          </TabsContent>
+
+          <TabsContent value="model-status" className="space-y-5">
+            <ModelStatusCard
+              rows={modelStatusRows ?? []}
+              isLoading={modelStatusLoading}
+              isError={modelStatusError}
+            />
           </TabsContent>
         </Tabs>
 

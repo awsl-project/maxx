@@ -144,6 +144,7 @@ export type {
   UserPanelAPITokenResponse,
   UserPanelConsumptionLeaderboardRow,
   UserPanelConsumptionLeaderboardResult,
+  UserPanelModelStatusRow,
   UserPanelAvailableModelRouteGroup,
   // Usage Stats
   UsageStats,

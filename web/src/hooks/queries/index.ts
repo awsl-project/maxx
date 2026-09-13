@@ -131,6 +131,7 @@ export {
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
+  useUserPanelModelStatus,
   useUserPanelAvailableModels,
   useUserPanelAvailableModelRoutes,
   useUserPanelDailyCheckInStatus,
