@@ -208,7 +208,7 @@
     "consumptionTab": "Consumption",
     "modelStatusTab": "Model status",
     "modelStatusTitle": "Model status",
-    "modelStatusHint": "Stats from the last 24 hours. Models with no valid samples show —.",
+    "modelStatusHint": "Stats from the last 24 hours.",
     "modelStatusLoadFailed": "Failed to load model status",
     "modelStatusNoData": "No model status data yet",
     "model": "Model",

@@ -208,7 +208,7 @@
     "consumptionTab": "消耗榜",
     "modelStatusTab": "模型状态",
     "modelStatusTitle": "模型状态",
-    "modelStatusHint": "近 24 小时统计；无有效样本显示 —。",
+    "modelStatusHint": "近 24 小时统计。",
     "modelStatusLoadFailed": "模型状态加载失败",
     "modelStatusNoData": "暂无模型状态数据",
     "model": "模型",
