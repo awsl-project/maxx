@@ -97,7 +97,6 @@ import {
   Input,
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   Button,
@@ -2231,7 +2230,6 @@ function ErrorStatsDialog({
       <DialogContent className="w-[max(72vw,96rem)] max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] overflow-y-auto grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>{t('requests.errorStats.title')}</DialogTitle>
-          <DialogDescription>{t('requests.errorStats.description')}</DialogDescription>
         </DialogHeader>
 
         {loading && !stats ? (

@@ -15,7 +15,6 @@ import {
   TableRow,
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -361,7 +360,6 @@ export function UsersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.addUser')}</DialogTitle>
-            <DialogDescription>{t('users.description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             {createFormError && (
@@ -503,7 +501,6 @@ export function UsersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.editUser')}</DialogTitle>
-            <DialogDescription>{t('users.description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">

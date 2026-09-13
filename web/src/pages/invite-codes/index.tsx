@@ -273,7 +273,6 @@ export function InviteCodesPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('inviteCodes.create')}</DialogTitle>
-            <DialogDescription>{t('inviteCodes.createDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">

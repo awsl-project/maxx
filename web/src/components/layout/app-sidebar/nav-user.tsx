@@ -37,7 +37,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -655,7 +654,6 @@ export function NavUser() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.changePassword')}</DialogTitle>
-            <DialogDescription>{t('users.changePasswordDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -771,7 +769,6 @@ export function NavUser() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.passkeyManagement')}</DialogTitle>
-            <DialogDescription>{t('users.passkeyManagementDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <p className="text-xs text-muted-foreground">{t('users.passkeyFallbackHint')}</p>
