@@ -542,6 +542,9 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 	if proxyErr == nil {
 		return false
 	}
+	if isResponseConversionUnexpectedEOF(proxyErr.Err) {
+		return true
+	}
 	if proxyErr.Scope != domain.ScopeProvider {
 		return false
 	}
@@ -571,6 +574,16 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 
 func shouldRetryCommittedResponseError(proxyErr *domain.ProxyError) bool {
 	return isCommittedStreamReadRetryableError(proxyErr)
+}
+
+func isResponseConversionUnexpectedEOF(err error) bool {
+	if !converter.IsResponseConversionError(err) {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unexpected end of json input") ||
+		strings.Contains(msg, "unexpected eof") ||
+		strings.Contains(msg, "premature eof")
 }
 
 func isBedrockAdaptiveThinkingSchemaError(proxyErr *domain.ProxyError) bool {

@@ -55,6 +55,7 @@ import type {
   UserPanelConsumptionLeaderboardRow,
   UserPanelModelStatusRow,
 } from '@/lib/transport';
+import { cn } from '@/lib/utils';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import { visibleUserPanelModelRouteGroups } from '@/lib/user-panel-model-routes';
 import {
@@ -169,22 +170,24 @@ function ConsumptionLeaderboardCard({
                 return (
                   <TableRow
                     key={row.tokenID || row.userID}
-                    className={
-                      isCurrentUser
-                        ? 'bg-primary/10 ring-1 ring-inset ring-primary/25 hover:bg-primary/15'
-                        : undefined
-                    }
+                    data-state={isCurrentUser ? 'selected' : undefined}
+                    className={cn(
+                      isCurrentUser &&
+                        'relative bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))] hover:bg-primary/10 data-[state=selected]:bg-primary/5',
+                    )}
                   >
                     <TableCell className="font-medium text-foreground">
-                      <span className="flex min-w-0 items-center gap-2">
-                        {row.active ? (
-                          <span
-                            aria-label="active"
-                            className="size-2 shrink-0 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
-                          />
-                        ) : null}
-                        <span className="truncate">
-                          {row.tokenName || row.username || `#${row.tokenID || row.userID}`}
+                      <span className="flex min-w-0 items-center">
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
+                          <span className="truncate">
+                            {row.tokenName || row.username || `#${row.tokenID || row.userID}`}
+                          </span>
+                          {row.active ? (
+                            <span
+                              aria-label="active"
+                              className="size-2 shrink-0 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
+                            />
+                          ) : null}
                         </span>
                       </span>
                     </TableCell>

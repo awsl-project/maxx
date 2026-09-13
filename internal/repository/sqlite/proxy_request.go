@@ -158,7 +158,7 @@ func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool)
 	if r.hasProxyUpstreamAttemptsTable {
 		mappedModelColumn = "COALESCE(NULLIF(final_attempt.mapped_model, ''), NULLIF(latest_attempt.mapped_model, ''), proxy_requests.response_model) AS mapped_model"
 		responseModelColumn = "COALESCE(NULLIF(final_attempt.response_model, ''), NULLIF(latest_attempt.response_model, ''), proxy_requests.response_model) AS response_model"
-		ttftColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.ttft_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.ttft_ms ELSE proxy_requests.ttft_ms END AS ttft_ms"
+		ttftColumn = "COALESCE(NULLIF(final_attempt.ttft_ms, 0), NULLIF(latest_attempt.ttft_ms, 0), proxy_requests.ttft_ms) AS ttft_ms"
 		durationColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.duration_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.duration_ms ELSE proxy_requests.duration_ms END AS duration_ms"
 		providerIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.provider_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.provider_id ELSE proxy_requests.provider_id END AS provider_id"
 		routeIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.route_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.route_id ELSE proxy_requests.route_id END AS route_id"
@@ -300,7 +300,7 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 
 // ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
 func (r *ProxyRequestRepository) ListActive(tenantID uint64) ([]*domain.ProxyRequest, error) {
-	selectColumns := r.proxyRequestListSelectColumns(false)
+	selectColumns := r.proxyRequestListSelectColumns(true)
 	query := r.joinProxyUpstreamAttemptModels(r.db.gorm.Model(&ProxyRequest{}).
 		Select(selectColumns)).
 		Where("proxy_requests.status IN ?", activeProxyRequestStatuses)

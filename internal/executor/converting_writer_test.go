@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,6 +106,34 @@ func TestConvertingResponseWriterDefersStreamHeadersUntilConvertedBody(t *testin
 	}
 	if body := rec.Body.String(); body != "" {
 		t.Fatalf("body after header-only flush = %q, want empty", body)
+	}
+}
+
+func TestResponseConversionUnexpectedEOFRemainsRetryableAfterHeaderCommit(t *testing.T) {
+	proxyErr := domain.NewProxyErrorWithMessage(
+		converter.NewResponseConversionError(errors.New("unexpected end of JSON input")),
+		true,
+		"response format conversion failed",
+	)
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+
+	if !shouldRetryCommittedResponseError(proxyErr) {
+		t.Fatal("unexpected EOF response conversion failures should keep failover open")
+	}
+}
+
+func TestResponseConversionSchemaErrorDoesNotBypassCommittedGuard(t *testing.T) {
+	proxyErr := domain.NewProxyErrorWithMessage(
+		converter.NewResponseConversionError(errors.New("missing required field choices")),
+		true,
+		"response format conversion failed",
+	)
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+
+	if shouldRetryCommittedResponseError(proxyErr) {
+		t.Fatal("ordinary conversion failures must not retry after client-visible body")
 	}
 }
 
