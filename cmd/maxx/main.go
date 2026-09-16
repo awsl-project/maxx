@@ -498,6 +498,7 @@ func main() {
 	codexHandler := handler.NewCodexHandler(adminService, codexQuotaRepo, wsHub)
 	codexHandler.SetTaskService(codexTaskSvc)
 	claudeHandler := handler.NewClaudeHandler(adminService, wsHub)
+	grokHandler := handler.NewGrokHandler()
 
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo, r)
@@ -526,6 +527,7 @@ func main() {
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", kiroHandler))
 	mux.Handle("/api/codex/", http.StripPrefix("/api", codexHandler))
 	mux.Handle("/api/claude/", http.StripPrefix("/api", claudeHandler))
+	mux.Handle("/api/grok/", http.StripPrefix("/api", grokHandler))
 
 	// Proxy routes - catch all AI API endpoints
 	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{

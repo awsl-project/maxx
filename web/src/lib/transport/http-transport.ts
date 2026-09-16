@@ -1023,6 +1023,23 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  // ===== Grok API =====
+
+  async startGrokOAuth(): Promise<import('./types').GrokOAuthStartResult> {
+    const { data } = await this.client.post<import('./types').GrokOAuthStartResult>(
+      '/grok/oauth/start',
+    );
+    return data;
+  }
+
+  async pollGrokOAuth(sessionID: string): Promise<import('./types').GrokOAuthPollResult> {
+    const { data } = await this.client.post<import('./types').GrokOAuthPollResult>(
+      '/grok/oauth/poll',
+      { sessionID },
+    );
+    return data;
+  }
+
   // ===== Cooldown API =====
 
   async getCooldowns(): Promise<Cooldown[]> {

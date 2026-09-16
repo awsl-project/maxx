@@ -2195,7 +2195,12 @@
     },
     "grok": {
       "name": "Grok",
-      "description": "Import CPA xAI OAuth JSON and proxy Grok through the OpenAI-compatible client.",
+      "description": "Import CPA xAI OAuth JSON or sign in with Grok OAuth, then proxy Grok through the OpenAI-compatible client.",
+      "oauthLogin": "Sign in with Grok",
+      "oauthLoginDesc": "Open xAI's device login, authorize this Maxx instance, then import the returned OAuth credential without deploying CPA.",
+      "oauthPendingTitle": "Finish authorization in the opened browser, then check the result.",
+      "oauthCheck": "Check authorization",
+      "oauthReady": "Grok OAuth credential is ready. Save to create the provider.",
       "jsonFiles": "JSON files",
       "selectedCount": "{{count}} credential selected",
       "selectedCount_plural": "{{count}} credentials selected",

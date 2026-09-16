@@ -97,6 +97,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
 	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))
 	mux.Handle("/api/claude/", http.StripPrefix("/api", components.ClaudeHandler))
+	mux.Handle("/api/grok/", http.StripPrefix("/api", components.GrokHandler))
 
 	modelsHandler := http.Handler(components.ModelsHandler)
 	if components.ProtectedModelsHandler != nil {

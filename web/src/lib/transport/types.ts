@@ -255,6 +255,23 @@ export interface ProviderModelCheckResponse {
   durationMs: number;
 }
 
+export interface GrokOAuthStartResult {
+  sessionID: string;
+  verificationURI: string;
+  verificationURIComplete: string;
+  userCode: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export interface GrokOAuthPollResult {
+  status: 'pending' | 'authorized';
+  retryAfter?: number;
+  config?: ProviderConfigGrok;
+  label?: string;
+  error?: string;
+}
+
 export interface ProviderConfig {
   quotaEnabled?: boolean;
   proxyURL?: string;
