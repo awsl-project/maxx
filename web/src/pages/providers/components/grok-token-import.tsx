@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, Check, ChevronLeft, FileJson, Plus, Trash2 } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, ExternalLink, FileJson, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { useCreateModelMapping, useCreateProvider } from '@/hooks/queries';
-import type { ClientType, CreateProviderData } from '@/lib/transport';
+import { getTransport } from '@/lib/transport';
+import type { ClientType, CreateProviderData, GrokOAuthStartResult } from '@/lib/transport';
 import type { ProviderConfigGrok } from '@/lib/transport/types';
 import { useProviderForm } from '../context/provider-form-context';
 import {
@@ -310,6 +311,9 @@ export function GrokTokenImport() {
   const createModelMapping = useCreateModelMapping();
   const [jsonText, setJsonText] = useState('');
   const [fileItems, setFileItems] = useState<GrokImportItem[]>([]);
+  const [oauthConfig, setOauthConfig] = useState<ProviderConfigGrok | null>(null);
+  const [oauthStart, setOauthStart] = useState<GrokOAuthStartResult | null>(null);
+  const [oauthPolling, setOauthPolling] = useState(false);
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
   const [blackBox, setBlackBox] = useState(false);
@@ -323,6 +327,8 @@ export function GrokTokenImport() {
       setFileItems([]);
       return;
     }
+    setOauthConfig(null);
+    setOauthStart(null);
     try {
       setFileItems(await parseImportItemsFromFiles(files));
     } catch (err) {
@@ -336,8 +342,12 @@ export function GrokTokenImport() {
     setSaveStatus('idle');
     setSubmitting(true);
     try {
-      const items = fileItems.length > 0 ? fileItems : parseImportItemsFromText(jsonText);
-      if (items.length === 0) throw new Error('Paste JSON or select files');
+      const items = oauthConfig
+        ? [{ source: 'Grok OAuth login', raw: { type: 'grok', config: { grok: oauthConfig } } }]
+        : fileItems.length > 0
+          ? fileItems
+          : parseImportItemsFromText(jsonText);
+      if (items.length === 0) throw new Error('Paste JSON, select files, or complete Grok OAuth login');
 
       const mappingEntries = Object.entries(modelMapping);
       for (const item of items) {
@@ -378,7 +388,42 @@ export function GrokTokenImport() {
       return jsonText.trim() ? 1 : 0;
     }
   }, [jsonText]);
-  const itemCount = fileItems.length > 0 ? fileItems.length : pastedItemCount;
+  const itemCount = oauthConfig ? 1 : fileItems.length > 0 ? fileItems.length : pastedItemCount;
+
+  const startOAuthLogin = async () => {
+    setError(null);
+    setSaveStatus('idle');
+    setOauthConfig(null);
+    try {
+      const result = await getTransport().startGrokOAuth();
+      setOauthStart(result);
+      const url = result.verificationURIComplete || result.verificationURI;
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const pollOAuthLogin = async () => {
+    if (!oauthStart?.sessionID || oauthPolling) return;
+    setError(null);
+    setOauthPolling(true);
+    try {
+      const result = await getTransport().pollGrokOAuth(oauthStart.sessionID);
+      if (result.status === 'authorized' && result.config) {
+        setOauthConfig(result.config);
+        setJsonText('');
+        setFileItems([]);
+        setOauthStart(null);
+      } else {
+        setError(result.retryAfter ? `Authorization is still pending. Try again in ${result.retryAfter}s.` : 'Authorization is still pending.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOauthPolling(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -414,6 +459,51 @@ export function GrokTokenImport() {
               {t('provider.basicInfo')}
             </h3>
             <div className="rounded-lg border bg-card p-4">
+              <div className="mb-4 rounded-xl border border-border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="pr-4">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('addProvider.grok.oauthLogin')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('addProvider.grok.oauthLoginDesc')}
+                    </p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={startOAuthLogin}>
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    {t('addProvider.grok.oauthLogin')}
+                  </Button>
+                </div>
+                {oauthStart && (
+                  <div className="mt-4 rounded-lg border border-border bg-background p-3 text-sm">
+                    <div className="font-medium text-foreground">
+                      {t('addProvider.grok.oauthPendingTitle')}
+                    </div>
+                    <div className="mt-2 break-all text-xs text-muted-foreground">
+                      {oauthStart.verificationURIComplete || oauthStart.verificationURI}
+                    </div>
+                    {oauthStart.userCode ? (
+                      <div className="mt-2 font-mono text-base font-semibold text-foreground">
+                        {oauthStart.userCode}
+                      </div>
+                    ) : null}
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="mt-3"
+                      onClick={pollOAuthLogin}
+                      disabled={oauthPolling}
+                    >
+                      {oauthPolling ? t('common.loading') : t('addProvider.grok.oauthCheck')}
+                    </Button>
+                  </div>
+                )}
+                {oauthConfig && (
+                  <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+                    {t('addProvider.grok.oauthReady')}
+                  </div>
+                )}
+              </div>
               <label
                 className="block text-sm font-medium text-foreground"
                 htmlFor="grok-json-files"
@@ -440,7 +530,10 @@ export function GrokTokenImport() {
               value={jsonText}
               onChange={(event) => {
                 setJsonText(event.target.value);
-                if (event.target.value.trim()) setFileItems([]);
+                if (event.target.value.trim()) {
+                  setFileItems([]);
+                  setOauthConfig(null);
+                }
               }}
               placeholder='{"type":"xai","auth_kind":"oauth",...}'
               className="min-h-64 font-mono text-xs"

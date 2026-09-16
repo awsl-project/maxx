@@ -99,6 +99,7 @@ type ServerComponents struct {
 	CodexOAuthServer       *CodexOAuthServer
 	ClaudeHandler          *handler.ClaudeHandler
 	ClaudeOAuthServer      *ClaudeOAuthServer
+	GrokHandler            *handler.GrokHandler
 	ProjectProxyHandler    *handler.ProjectProxyHandler
 	ProviderProxyHandler   *handler.ProviderProxyHandler
 	RequestTracker         *RequestTracker
@@ -476,6 +477,7 @@ func InitializeServerComponents(
 	claudeHandler := handler.NewClaudeHandler(adminService, wailsBroadcaster)
 	claudeOAuthServer := NewClaudeOAuthServer(claudeHandler)
 	claudeHandler.SetOAuthServer(claudeOAuthServer)
+	grokHandler := handler.NewGrokHandler()
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, protectedModelsHandler, repos.CachedProjectRepo, repos.SettingRepo)
 	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, protectedModelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo, repos.SettingRepo)
 	adminHandler.SetProviderProxyHandler(providerProxyHandler)
@@ -502,6 +504,7 @@ func InitializeServerComponents(
 		CodexOAuthServer:       codexOAuthServer,
 		ClaudeHandler:          claudeHandler,
 		ClaudeOAuthServer:      claudeOAuthServer,
+		GrokHandler:            grokHandler,
 		ProjectProxyHandler:    projectProxyHandler,
 		ProviderProxyHandler:   providerProxyHandler,
 		RequestTracker:         requestTracker,

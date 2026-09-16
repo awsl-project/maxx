@@ -103,6 +103,9 @@ export type {
   ProviderConfigClaude,
   ClaudeTokenValidationResult,
   ClaudeOAuthResult,
+  ProviderConfigGrok,
+  GrokOAuthStartResult,
+  GrokOAuthPollResult,
   // OpenRouter
   ProviderConfigOpenRouter,
   CodexUsageWindow,

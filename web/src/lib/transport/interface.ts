@@ -55,6 +55,8 @@ import type {
   CodexOAuthResult,
   ClaudeTokenValidationResult,
   ClaudeOAuthResult,
+  GrokOAuthStartResult,
+  GrokOAuthPollResult,
   AuthStatus,
   AuthLoginResult,
   PasskeyRegistrationOptionsResult,
@@ -285,6 +287,10 @@ export interface Transport {
   startClaudeOAuth(): Promise<{ authURL: string; state: string }>;
   exchangeClaudeOAuthCallback(code: string, state: string): Promise<ClaudeOAuthResult>;
   refreshClaudeProviderInfo(providerId: number): Promise<ClaudeTokenValidationResult>;
+
+  // ===== Grok API =====
+  startGrokOAuth(): Promise<GrokOAuthStartResult>;
+  pollGrokOAuth(sessionID: string): Promise<GrokOAuthPollResult>;
 
   // ===== Cooldown API =====
   getCooldowns(): Promise<Cooldown[]>;

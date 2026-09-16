@@ -2191,7 +2191,12 @@
     },
     "grok": {
       "name": "Grok",
-      "description": "导入 CPA xAI OAuth JSON，并通过 OpenAI 兼容客户端代理 Grok。",
+      "description": "导入 CPA xAI OAuth JSON，或直接登录 Grok OAuth，并通过 OpenAI 兼容客户端代理 Grok。",
+      "oauthLogin": "登录 Grok",
+      "oauthLoginDesc": "打开 xAI 设备登录，授权当前 Maxx 实例，无需部署 CPA 就能导入 OAuth 凭据。",
+      "oauthPendingTitle": "在打开的浏览器中完成授权，然后检查结果。",
+      "oauthCheck": "检查授权",
+      "oauthReady": "Grok OAuth 凭据已就绪，保存后创建提供商。",
       "jsonFiles": "JSON 文件",
       "selectedCount": "已选择 {{count}} 个凭据",
       "selectedCount_plural": "已选择 {{count}} 个凭据",
