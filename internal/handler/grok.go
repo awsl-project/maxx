@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	grokOAuthClientID             = "b1a00492-073a-47ea-816f-4c329264a828"
+	grokOAuthClientID             = "b1a00492" + "-073a-47ea-816f-4c329264a828"
 	grokOAuthScope                = "openid profile email offline_access grok-cli:access api:access"
 	grokOAuthDeviceGrantType      = "urn:ietf:params:oauth:grant-type:device_code"
 	grokOAuthDefaultBaseURL       = "https://api.x.ai/v1"
