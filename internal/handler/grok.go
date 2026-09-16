@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,6 +26,10 @@ const (
 	grokOAuthHTTPTimeout          = 30 * time.Second
 	grokOAuthMaxSessionLifetime   = 30 * time.Minute
 	grokOAuthSessionIDRandomBytes = 24
+	grokOAuthMaxSessions          = 256
+	grokOAuthMaxSessionsPerSource = 8
+	grokOAuthStartRateWindow      = 5 * time.Minute
+	grokOAuthMaxStartsPerWindow   = 10
 )
 
 var grokOAuthDiscoveryURL = "https://auth.x.ai/.well-known/openid-configuration"
@@ -36,13 +41,18 @@ type grokOAuthHTTPClient interface {
 type GrokHandler struct {
 	httpClient grokOAuthHTTPClient
 	sessions   sync.Map // sessionID -> *grokOAuthSession
+	startMu    sync.Mutex
+	starts     map[string][]time.Time
 }
 
 type grokOAuthSession struct {
+	mu            sync.Mutex
 	DeviceCode    string
 	TokenEndpoint string
 	ExpiresAt     time.Time
 	Interval      int
+	NextPollAt    time.Time
+	Source        string
 }
 
 type grokOAuthStartResult struct {
@@ -91,7 +101,10 @@ type grokOAuthTokenPayload struct {
 }
 
 func NewGrokHandler() *GrokHandler {
-	return &GrokHandler{httpClient: &http.Client{Timeout: grokOAuthHTTPTimeout}}
+	return &GrokHandler{
+		httpClient: &http.Client{Timeout: grokOAuthHTTPTimeout},
+		starts:     make(map[string][]time.Time),
+	}
 }
 
 func (h *GrokHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +124,7 @@ func (h *GrokHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *GrokHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
-	result, err := h.StartOAuth(r.Context())
+	result, err := h.StartOAuthForSource(r.Context(), requestSource(r))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -134,6 +147,15 @@ func (h *GrokHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *GrokHandler) StartOAuth(ctx context.Context) (*grokOAuthStartResult, error) {
+	return h.StartOAuthForSource(ctx, "")
+}
+
+func (h *GrokHandler) StartOAuthForSource(ctx context.Context, source string) (*grokOAuthStartResult, error) {
+	now := time.Now()
+	h.cleanupOAuthSessions(now)
+	if err := h.checkOAuthStartLimits(source, now); err != nil {
+		return nil, err
+	}
 	discovery, err := h.discover(ctx)
 	if err != nil {
 		return nil, err
@@ -157,8 +179,9 @@ func (h *GrokHandler) StartOAuth(ctx context.Context) (*grokOAuthStartResult, er
 	h.sessions.Store(sessionID, &grokOAuthSession{
 		DeviceCode:    deviceCode.DeviceCode,
 		TokenEndpoint: discovery.TokenEndpoint,
-		ExpiresAt:     time.Now().Add(time.Duration(expiresIn) * time.Second),
+		ExpiresAt:     now.Add(time.Duration(expiresIn) * time.Second),
 		Interval:      interval,
+		Source:        source,
 	})
 	return &grokOAuthStartResult{
 		SessionID:               sessionID,
@@ -180,17 +203,33 @@ func (h *GrokHandler) PollOAuth(ctx context.Context, sessionID string) (*grokOAu
 		return nil, fmt.Errorf("invalid or expired Grok OAuth session")
 	}
 	session, ok := value.(*grokOAuthSession)
-	if !ok || session == nil || time.Now().After(session.ExpiresAt) {
+	if !ok || session == nil {
+		h.sessions.Delete(sessionID)
+		return nil, fmt.Errorf("invalid or expired Grok OAuth session")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	now := time.Now()
+	if now.After(session.ExpiresAt) {
 		h.sessions.Delete(sessionID)
 		return nil, fmt.Errorf("Grok OAuth session expired")
 	}
+	if now.Before(session.NextPollAt) {
+		retryAfter := int(time.Until(session.NextPollAt).Seconds())
+		if retryAfter < 1 {
+			retryAfter = 1
+		}
+		return &grokOAuthPollResult{Status: "pending", RetryAfter: retryAfter}, nil
+	}
+	session.NextPollAt = now.Add(time.Duration(session.Interval) * time.Second)
 	token, nextInterval, pending, err := h.exchangeDeviceCode(ctx, session)
 	if pending {
 		session.Interval = nextInterval
-		h.sessions.Store(sessionID, session)
+		session.NextPollAt = time.Now().Add(time.Duration(nextInterval) * time.Second)
 		return &grokOAuthPollResult{Status: "pending", RetryAfter: nextInterval}, nil
 	}
 	if err != nil {
+		h.sessions.Delete(sessionID)
 		return nil, err
 	}
 	h.sessions.Delete(sessionID)
@@ -219,6 +258,80 @@ func (h *GrokHandler) PollOAuth(ctx context.Context, sessionID string) (*grokOAu
 		label = "xAI"
 	}
 	return &grokOAuthPollResult{Status: "authorized", Config: config, Label: label}, nil
+}
+
+func (h *GrokHandler) cleanupOAuthSessions(now time.Time) {
+	h.sessions.Range(func(key, value any) bool {
+		session, ok := value.(*grokOAuthSession)
+		if !ok || session == nil || now.After(session.ExpiresAt) {
+			h.sessions.Delete(key)
+		}
+		return true
+	})
+}
+
+func (h *GrokHandler) checkOAuthStartLimits(source string, now time.Time) error {
+	total := 0
+	perSource := 0
+	h.sessions.Range(func(_, value any) bool {
+		session, ok := value.(*grokOAuthSession)
+		if !ok || session == nil {
+			return true
+		}
+		total++
+		if source != "" && session.Source == source {
+			perSource++
+		}
+		return true
+	})
+	if total >= grokOAuthMaxSessions {
+		return fmt.Errorf("too many active Grok OAuth sessions; try again later")
+	}
+	if source != "" && perSource >= grokOAuthMaxSessionsPerSource {
+		return fmt.Errorf("too many active Grok OAuth sessions from this source; try again later")
+	}
+	if source == "" {
+		return nil
+	}
+	h.startMu.Lock()
+	defer h.startMu.Unlock()
+	cutoff := now.Add(-grokOAuthStartRateWindow)
+	entries := h.starts[source]
+	kept := entries[:0]
+	for _, ts := range entries {
+		if ts.After(cutoff) {
+			kept = append(kept, ts)
+		}
+	}
+	if len(kept) >= grokOAuthMaxStartsPerWindow {
+		h.starts[source] = kept
+		return fmt.Errorf("too many Grok OAuth login attempts from this source; try again later")
+	}
+	h.starts[source] = append(kept, now)
+	return nil
+}
+
+func requestSource(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	for _, header := range []string{"X-Real-IP", "X-Forwarded-For"} {
+		value := strings.TrimSpace(r.Header.Get(header))
+		if value == "" {
+			continue
+		}
+		if comma := strings.IndexByte(value, ','); comma >= 0 {
+			value = strings.TrimSpace(value[:comma])
+		}
+		if value != "" {
+			return value
+		}
+	}
+	host := strings.TrimSpace(r.RemoteAddr)
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		return parsedHost
+	}
+	return host
 }
 
 func (h *GrokHandler) discover(ctx context.Context) (*grokOAuthDiscovery, error) {

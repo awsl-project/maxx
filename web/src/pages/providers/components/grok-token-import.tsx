@@ -327,6 +327,8 @@ export function GrokTokenImport() {
       setFileItems([]);
       return;
     }
+    setOauthConfig(null);
+    setOauthStart(null);
     try {
       setFileItems(await parseImportItemsFromFiles(files));
     } catch (err) {
