@@ -123,6 +123,39 @@ func TestCreateRouteDerivesNativeFromProvider(t *testing.T) {
 	}
 }
 
+func TestCreateRouteAllowsClaudeRouteThroughOpenAIProvider(t *testing.T) {
+	svc, providerRepo, routeRepo, _ := setupRouteNativeTestEnv(t)
+
+	openaiProvider := mustCreateProvider(t, providerRepo, newTestOpenAIOnlyCustomProvider("openai-format-for-claude"))
+	route := &domain.Route{
+		ProviderID: openaiProvider.ID,
+		ClientType: domain.ClientTypeClaude,
+		ProjectID:  0,
+		Position:   1,
+		Weight:     1,
+		IsEnabled:  true,
+		IsNative:   true, // client-submitted value must be ignored; this is a conversion route.
+	}
+
+	if err := svc.CreateRoute(domain.DefaultTenantID, route); err != nil {
+		t.Fatalf("CreateRoute(claude→openai) error = %v", err)
+	}
+	if route.IsNative {
+		t.Fatalf("CreateRoute(claude→openai) IsNative = true, want false")
+	}
+
+	stored, err := routeRepo.GetByID(domain.DefaultTenantID, route.ID)
+	if err != nil {
+		t.Fatalf("GetByID(claude→openai route) error = %v", err)
+	}
+	if stored.ClientType != domain.ClientTypeClaude || stored.ProviderID != openaiProvider.ID {
+		t.Fatalf("stored route = %+v, want Claude route to OpenAI provider", stored)
+	}
+	if stored.IsNative {
+		t.Fatalf("stored claude→openai IsNative = true, want false")
+	}
+}
+
 func TestCreateRouteOverridesClientFalseForCodex(t *testing.T) {
 	svc, providerRepo, routeRepo, _ := setupRouteNativeTestEnv(t)
 
