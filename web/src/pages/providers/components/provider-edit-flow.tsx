@@ -500,7 +500,6 @@ interface ProviderEditFlowProps {
   onClose: () => void;
 }
 
-
 function parseAPIKeyLines(value: string): string[] {
   const seen = new Set<string>();
   const keys: string[] = [];
@@ -605,7 +604,9 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       name: provider.name,
       baseURL: provider.excludeFromExport ? '' : provider.config?.custom?.baseURL || '',
       backend: provider.config?.custom?.backend === 'ollama' ? 'ollama' : 'http',
-      apiKey: provider.excludeFromExport ? '' : (provider.config?.custom?.apiKeys?.join('\n') || provider.config?.custom?.apiKey || ''),
+      apiKey: provider.excludeFromExport
+        ? ''
+        : provider.config?.custom?.apiKeys?.join('\n') || provider.config?.custom?.apiKey || '',
       clients: initClients(),
       supportModels,
       exposedModelsEnabled,
@@ -1325,7 +1326,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                               ? t('provider.keyPlaceholderOptional')
                               : t('provider.openAIKeyPoolPlaceholder')
                         }
-                        className="min-h-24 w-full pr-10 font-mono text-xs"
+                        className="w-full resize-none overflow-y-auto pr-10 font-mono text-xs"
+                        style={{ minHeight: '2.25rem', maxHeight: '4.125rem' }}
                       />
                       {!providerConfigIsWriteOnly && (
                         <button
