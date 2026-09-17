@@ -435,6 +435,19 @@ func (e *Executor) rateLimitDefaultCooldownUntil() *time.Time {
 	return &until
 }
 
+func (e *Executor) openAIAPIKeyCooldownSeconds() int {
+	seconds := 3600
+	if e != nil && e.settingsRepo != nil {
+		value, err := e.settingsRepo.Get(domain.SettingKeyOpenAIAPIKeyCooldownSeconds)
+		if err == nil && strings.TrimSpace(value) != "" {
+			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed >= 1 && parsed <= 604800 {
+				seconds = parsed
+			}
+		}
+	}
+	return seconds
+}
+
 func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown
 }

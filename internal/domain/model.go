@@ -36,6 +36,12 @@ type ProviderConfigCustom struct {
 	// API Key
 	APIKey string `json:"apiKey"`
 
+	// APIKeys is an optional OpenAI-compatible credential pool. When present,
+	// OpenAI client requests rotate across these keys; other client protocols keep
+	// using APIKey. APIKey is retained for backward compatibility and write-only
+	// secret preservation.
+	APIKeys []string `json:"apiKeys,omitempty"`
+
 	// 伪装配置（可选）。控制对外发包时把请求装成什么客户端。
 	// 替代旧的 Cloak 字段，互斥地选择一种伪装类型。
 	Disguise *ProviderConfigCustomDisguise `json:"disguise,omitempty"`
@@ -1042,6 +1048,7 @@ const (
 	SettingKeyTimezone                             = "timezone"                                  // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                    // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"       // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
+	SettingKeyOpenAIAPIKeyCooldownSeconds          = "openai_api_key_cooldown_seconds"           // OpenAI 多 API Key 轮询中单个 key 触发限流/额度/鉴权错误后的冻结秒数，默认 3600 秒
 	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                     // 是否自动排序 Antigravity 路由，"true" 或 "false"
 	SettingKeyAutoSortCodex                        = "auto_sort_codex"                           // 是否自动排序 Codex 路由，"true" 或 "false"
 	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"                // 是否启用 Codex 官方 instructions，"true" 或 "false"

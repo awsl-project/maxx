@@ -21,6 +21,7 @@ import { useSettings, useUpdateSetting } from '@/hooks/queries';
 type AutoCooldownUnit = 'seconds' | 'minutes' | 'hours' | 'days';
 
 const AUTO_COOLDOWN_MAX_SECONDS = 7 * 24 * 60 * 60;
+const OPENAI_KEY_COOLDOWN_DEFAULT_SECONDS = '3600';
 const AUTO_COOLDOWN_UNITS: Array<{ value: AutoCooldownUnit; multiplier: number }> = [
   { value: 'seconds', multiplier: 1 },
   { value: 'minutes', multiplier: 60 },
@@ -51,8 +52,11 @@ export function APITokenLimitsPage() {
 
   const currentLimit = settings?.api_token_concurrent_limit || '5';
   const currentAutoCooldown = settings?.cooldown_rate_limit_default_seconds || '5';
+  const currentOpenAIKeyCooldown =
+    settings?.openai_api_key_cooldown_seconds || OPENAI_KEY_COOLDOWN_DEFAULT_SECONDS;
   const [limitDraft, setLimitDraft] = useState('');
   const [autoCooldownDraft, setAutoCooldownDraft] = useState('');
+  const [openAIKeyCooldownDraft, setOpenAIKeyCooldownDraft] = useState('');
   const [autoCooldownUnit, setAutoCooldownUnit] = useState<AutoCooldownUnit>('seconds');
   const [initialized, setInitialized] = useState(false);
 
@@ -60,10 +64,11 @@ export function APITokenLimitsPage() {
     if (!isLoading && !initialized) {
       setLimitDraft(currentLimit);
       setAutoCooldownDraft(currentAutoCooldown);
+      setOpenAIKeyCooldownDraft(currentOpenAIKeyCooldown);
       setAutoCooldownUnit('seconds');
       setInitialized(true);
     }
-  }, [isLoading, initialized, currentLimit, currentAutoCooldown]);
+  }, [isLoading, initialized, currentLimit, currentAutoCooldown, currentOpenAIKeyCooldown]);
 
   const hasLimitChanges = initialized && limitDraft !== currentLimit;
   const parsedAutoCooldown = useMemo(
@@ -72,15 +77,21 @@ export function APITokenLimitsPage() {
   );
   const autoCooldownPreview = Number.isFinite(parsedAutoCooldown) ? parsedAutoCooldown : 0;
   const hasAutoCooldownChanges = initialized && String(parsedAutoCooldown) !== currentAutoCooldown;
-  const hasChanges = hasLimitChanges || hasAutoCooldownChanges;
+  const parsedOpenAIKeyCooldown = /^\d+$/.test(openAIKeyCooldownDraft.trim())
+    ? Number(openAIKeyCooldownDraft.trim())
+    : NaN;
+  const hasOpenAIKeyCooldownChanges =
+    initialized && String(parsedOpenAIKeyCooldown) !== currentOpenAIKeyCooldown;
+  const hasChanges = hasLimitChanges || hasAutoCooldownChanges || hasOpenAIKeyCooldownChanges;
 
   useEffect(() => {
     if (initialized && !hasChanges) {
       setLimitDraft(currentLimit);
       setAutoCooldownDraft(currentAutoCooldown);
+      setOpenAIKeyCooldownDraft(currentOpenAIKeyCooldown);
       setAutoCooldownUnit('seconds');
     }
-  }, [currentLimit, currentAutoCooldown, initialized, hasChanges]);
+  }, [currentLimit, currentAutoCooldown, currentOpenAIKeyCooldown, initialized, hasChanges]);
 
   const parsedLimit = /^\d+$/.test(limitDraft.trim()) ? Number(limitDraft.trim()) : NaN;
   const isLimitValid = Number.isInteger(parsedLimit) && parsedLimit >= 1;
@@ -88,7 +99,11 @@ export function APITokenLimitsPage() {
     Number.isInteger(parsedAutoCooldown) &&
     parsedAutoCooldown >= 1 &&
     parsedAutoCooldown <= AUTO_COOLDOWN_MAX_SECONDS;
-  const isValid = isLimitValid && isAutoCooldownValid;
+  const isOpenAIKeyCooldownValid =
+    Number.isInteger(parsedOpenAIKeyCooldown) &&
+    parsedOpenAIKeyCooldown >= 1 &&
+    parsedOpenAIKeyCooldown <= AUTO_COOLDOWN_MAX_SECONDS;
+  const isValid = isLimitValid && isAutoCooldownValid && isOpenAIKeyCooldownValid;
 
   const handleSave = async () => {
     if (!isValid || !hasChanges) return;
@@ -102,6 +117,12 @@ export function APITokenLimitsPage() {
       await updateSetting.mutateAsync({
         key: 'cooldown_rate_limit_default_seconds',
         value: String(parsedAutoCooldown),
+      });
+    }
+    if (hasOpenAIKeyCooldownChanges) {
+      await updateSetting.mutateAsync({
+        key: 'openai_api_key_cooldown_seconds',
+        value: String(parsedOpenAIKeyCooldown),
       });
     }
   };
@@ -275,6 +296,65 @@ export function APITokenLimitsPage() {
               )}
             </CardContent>
           </Card>
+
+          <Card className="overflow-hidden rounded-2xl border-border bg-card shadow-sm">
+            <CardHeader className="border-b border-border py-4">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <Activity className="h-4 w-4 text-muted-foreground" />
+                {t('apiTokenLimits.openAIKeyPoolCooldownTitle')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-4">
+              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                {t('apiTokenLimits.openAIKeyPoolCooldownDesc')}
+              </p>
+              <div className="max-w-2xl rounded-xl border border-border bg-muted/20 p-4">
+                <Label
+                  htmlFor="openai-key-cooldown-duration"
+                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                >
+                  {t('apiTokenLimits.openAIKeyPoolCooldownInputLabel')}
+                </Label>
+                <div className="mt-3 flex items-center gap-3">
+                  <Input
+                    id="openai-key-cooldown-duration"
+                    type="number"
+                    value={openAIKeyCooldownDraft}
+                    onChange={(e) => setOpenAIKeyCooldownDraft(e.target.value)}
+                    className="h-10 w-32 bg-background"
+                    min={1}
+                    max={AUTO_COOLDOWN_MAX_SECONDS}
+                    step={1}
+                    disabled={updateSetting.isPending || isLoading || !initialized}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {t('apiTokenLimits.secondsUnit')}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({t('settings.defaultValue', { value: 3600 })})
+                  </span>
+                </div>
+              </div>
+              <div className="max-w-2xl rounded-xl border border-dashed border-border px-4 py-3">
+                <p className="text-sm font-medium text-foreground">
+                  {isOpenAIKeyCooldownValid
+                    ? t('apiTokenLimits.openAIKeyPoolCooldownPreview', {
+                        seconds: parsedOpenAIKeyCooldown,
+                      })
+                    : t('apiTokenLimits.autoCooldownPreviewPending')}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t('apiTokenLimits.openAIKeyPoolCooldownHint')}
+                </p>
+              </div>
+              {!isOpenAIKeyCooldownValid && initialized && (
+                <p className="text-xs text-destructive">
+                  {t('apiTokenLimits.autoCooldownInvalid')}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
         </div>
       </div>
     </div>

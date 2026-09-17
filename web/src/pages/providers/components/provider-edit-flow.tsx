@@ -62,6 +62,7 @@ import {
 import { ProviderOutboundProxyField } from './provider-outbound-proxy-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui';
 import {
   Select,
@@ -499,6 +500,23 @@ interface ProviderEditFlowProps {
   onClose: () => void;
 }
 
+
+function parseAPIKeyLines(value: string): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((key) => {
+      if (!seen.has(key)) {
+        seen.add(key);
+        keys.push(key);
+      }
+    });
+  return keys;
+}
+
 type EditFormData = {
   name: string;
   baseURL: string;
@@ -587,7 +605,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       name: provider.name,
       baseURL: provider.excludeFromExport ? '' : provider.config?.custom?.baseURL || '',
       backend: provider.config?.custom?.backend === 'ollama' ? 'ollama' : 'http',
-      apiKey: provider.excludeFromExport ? '' : provider.config?.custom?.apiKey || '',
+      apiKey: provider.excludeFromExport ? '' : (provider.config?.custom?.apiKeys?.join('\n') || provider.config?.custom?.apiKey || ''),
       clients: initClients(),
       supportModels,
       exposedModelsEnabled,
@@ -712,6 +730,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         }
       });
 
+      const apiKeys = parseAPIKeyLines(formData.apiKey);
+
       const data: Partial<CreateProviderData> = {
         name: formData.name,
         type: provider.type || 'custom', // Preserve the provider type
@@ -726,7 +746,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
-            apiKey: formData.apiKey.trim() || '',
+            apiKey: apiKeys[0] || formData.apiKey.trim() || '',
+            apiKeys: apiKeys.length > 0 ? apiKeys : undefined,
             responsesPassthrough: formData.responsesPassthrough,
             responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
@@ -790,6 +811,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         localizedSuffix: t('provider.cloneSuffix'),
       });
 
+      const apiKeys = parseAPIKeyLines(formData.apiKey);
+
       const data: CreateProviderData = {
         type: provider.type || 'custom',
         name: cloneName,
@@ -806,9 +829,16 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey:
+              apiKeys[0] ||
               formData.apiKey.trim() ||
               (providerConfigIsWriteOnly ? '' : provider.config?.custom?.apiKey) ||
               '',
+            apiKeys:
+              apiKeys.length > 0
+                ? apiKeys
+                : providerConfigIsWriteOnly
+                  ? undefined
+                  : provider.config?.custom?.apiKeys,
             responsesPassthrough: formData.responsesPassthrough,
             responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
@@ -1282,8 +1312,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       </div>
                     </label>
                     <div className="relative">
-                      <Input
-                        type={showApiKey && !providerConfigIsWriteOnly ? 'text' : 'password'}
+                      <Textarea
                         value={formData.apiKey}
                         onChange={(e) => {
                           setCloneError(null);
@@ -1291,18 +1320,18 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                         }}
                         placeholder={
                           providerConfigIsWriteOnly
-                            ? t('provider.keyPlaceholderWriteOnly')
+                            ? t('provider.keyPoolPlaceholderWriteOnly')
                             : formData.backend === 'ollama'
                               ? t('provider.keyPlaceholderOptional')
-                              : t('provider.keyPlaceholder')
+                              : t('provider.openAIKeyPoolPlaceholder')
                         }
-                        className="w-full pr-10"
+                        className="min-h-24 w-full pr-10 font-mono text-xs"
                       />
                       {!providerConfigIsWriteOnly && (
                         <button
                           type="button"
                           onClick={() => setShowApiKey(!showApiKey)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                          className="absolute right-2 top-2 text-muted-foreground transition-colors hover:text-foreground"
                           aria-label={showApiKey ? t('common.hide') : t('common.show')}
                         >
                           {showApiKey ? (
@@ -1313,10 +1342,14 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                         </button>
                       )}
                     </div>
-                    {providerConfigIsWriteOnly && (
+                    {providerConfigIsWriteOnly ? (
                       <div className="mt-2 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
                         {t('provider.apiKeyExcludedHint')}
                       </div>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t('provider.openAIKeyPoolHint')}
+                      </p>
                     )}
                     {cloneError && (
                       <div className="mt-2 rounded-lg border border-error/30 bg-error/10 p-3 text-xs text-error">

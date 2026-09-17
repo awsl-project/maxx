@@ -15,7 +15,7 @@ func validateSystemSettingValue(key, value string) error {
 		return reqpolicy.ValidatePolicyJSON(value)
 	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyOpenAIChatStreamTimeoutsEnabled, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyStrictSupportModelsRoutingEnabled, domain.SettingKeyProxyRequestsDisabled, domain.SettingKeyUserPanelDailyCheckInEnabled, domain.SettingKeyExternalModelListEnabled, domain.SettingKeyInviteRegistrationAutoApproveEnabled, domain.SettingKeyProxyManagementEnabled:
 		return validateBooleanSystemSetting(key, value)
-	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
+	case domain.SettingKeyRateLimitCooldownDefaultSeconds, domain.SettingKeyOpenAIAPIKeyCooldownSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)
 	case domain.SettingKeyUserPanelDailyCheckInAmount:
 		return validateUserPanelDailyCheckInAmount(value)
@@ -50,11 +50,11 @@ func validateBooleanSystemSetting(key, value string) error {
 func validateRateLimitCooldownDefaultSeconds(value string) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return fmt.Errorf("%w: %s cannot be empty", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
+		return fmt.Errorf("%w: cooldown seconds cannot be empty", domain.ErrInvalidInput)
 	}
 	seconds, err := strconv.Atoi(trimmed)
 	if err != nil || seconds < 1 || seconds > 604800 {
-		return fmt.Errorf("%w: %s must be an integer between 1 and 604800", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
+		return fmt.Errorf("%w: cooldown seconds must be an integer between 1 and 604800", domain.ErrInvalidInput)
 	}
 	return nil
 }

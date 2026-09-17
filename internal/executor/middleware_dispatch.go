@@ -302,6 +302,7 @@ routeLoop:
 			c.Set(flow.KeyUpstreamAttempt, attemptRecord)
 			c.Set(flow.KeyEventChan, eventChan)
 			c.Set(flow.KeyBroadcaster, e.broadcaster)
+			c.Set("openai_api_key_cooldown_seconds", e.openAIAPIKeyCooldownSeconds())
 			eventDone := make(chan struct{})
 			go e.processAdapterEventsRealtime(eventChan, attemptRecord, eventDone, clearDetail)
 

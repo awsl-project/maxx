@@ -271,88 +271,122 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, upstreamProvider *domain.Provider) 
 		}
 	}
 
-	// Send request info via EventChannel
-	if eventChan := flow.GetEventChan(c); eventChan != nil {
-		contentType := ""
-		if request != nil {
-			contentType = request.Header.Get("Content-Type")
-		}
-		devMode := false
-		if proxyRequest := flow.GetProxyRequest(c); proxyRequest != nil {
-			devMode = proxyRequest.DevMode
-		}
-		eventChan.SendRequestInfo(&domain.RequestInfo{
-			Method:  upstreamReq.Method,
-			URL:     upstreamURL,
-			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
-			Body:    domain.RequestBodySnapshot(requestBody, contentType, devMode),
-		})
-	}
-
 	// Execute request with reasonable timeout
 	client, err := provider.NewHTTPClient(a.provider, 10*time.Minute, false)
 	if err != nil {
 		return domain.NewUpstreamConnectionError("invalid provider proxy configuration")
 	}
-	resp, err := client.Do(upstreamReq)
-	if err != nil {
-		return domain.NewUpstreamConnectionError("failed to connect to upstream")
+
+	openAIKeys := []string(nil)
+	openAIKeyPoolEnabled := clientType == domain.ClientTypeOpenAI && a.provider != nil && a.provider.Config != nil && len(customOpenAIAPIKeys(a.provider.Config.Custom)) > 1
+	if openAIKeyPoolEnabled {
+		openAIKeys = customOpenAIAPIKeys(a.provider.Config.Custom)
 	}
-	defer resp.Body.Close()
+	triedKeyHashes := map[string]bool{}
 
-	// Check for error response
-	if resp.StatusCode >= 400 {
-		// Decompress error response if needed (Claude requests use Accept-Encoding)
-		reader, decompErr := decompressResponse(resp)
-		if decompErr != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
-			proxyErr.Scope = domain.ScopeRequest
-			return proxyErr
-		}
-		defer reader.Close()
-
-		body, _ := io.ReadAll(reader)
-
-		// Try error fixers: if a fixer matches, fix the request and retry once
-		if retryErr := a.retryWithFixer(c, ctx, resp, body, clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
-			return nil
+	for {
+		attemptReq := upstreamReq.Clone(ctx)
+		attemptReq.Body = io.NopCloser(bytes.NewReader(requestBody))
+		attemptReq.ContentLength = int64(len(requestBody))
+		selectedKeyHash := ""
+		if openAIKeyPoolEnabled {
+			selectedKey, keyHash, ok := defaultOpenAIKeyPool.next(a.provider.ID, clientType, openAIKeys, triedKeyHashes)
+			if !ok {
+				return newOpenAIKeyPoolExhaustedError()
+			}
+			selectedKeyHash = keyHash
+			triedKeyHashes[keyHash] = true
+			applyOpenAIKeyToRequest(attemptReq, selectedKey)
 		}
 
-		// Send error response info via EventChannel
+		// Send request info via EventChannel
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
-			eventChan.SendResponseInfo(&domain.ResponseInfo{
-				Status:  resp.StatusCode,
-				Headers: flattenHeaders(resp.Header),
-				Body:    string(body),
+			contentType := ""
+			if request != nil {
+				contentType = request.Header.Get("Content-Type")
+			}
+			devMode := false
+			if proxyRequest := flow.GetProxyRequest(c); proxyRequest != nil {
+				devMode = proxyRequest.DevMode
+			}
+			eventChan.SendRequestInfo(&domain.RequestInfo{
+				Method:  attemptReq.Method,
+				URL:     attemptReq.URL.String(),
+				Headers: sanitizeHeadersForEvent(attemptReq.Header),
+				Body:    domain.RequestBodySnapshot(requestBody, contentType, devMode),
 			})
 		}
 
-		proxyErr := classifyHTTPError(resp.StatusCode, body, resp.Header, clientType, flow.GetMappedModel(c))
-		return proxyErr
-	}
+		resp, err := client.Do(attemptReq)
+		if err != nil {
+			return domain.NewUpstreamConnectionError("failed to connect to upstream")
+		}
 
-	// Handle response
-	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
-	// Adapters simply pass through the upstream response
-	var handleErr error
-	if stream {
-		handleErr = a.handleStreamResponse(c, resp, clientType, isOAuthToken)
-	} else {
-		handleErr = a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
-	}
-	if handleErr == nil {
-		return nil
-	}
+		// Check for error response
+		if resp.StatusCode >= 400 {
+			// Decompress error response if needed (Claude requests use Accept-Encoding)
+			reader, decompErr := decompressResponse(resp)
+			if decompErr != nil {
+				resp.Body.Close()
+				proxyErr := domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
 
-	// For SSE errors detected before any data was sent to client,
-	// try error fixers (e.g. upstream rejects cache_control via SSE error event)
-	if proxyErr, ok := handleErr.(*domain.ProxyError); ok && proxyErr.Message != "" {
-		if retryErr := a.retryWithFixer(c, ctx, nil, []byte(proxyErr.Message), clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
+			body, _ := io.ReadAll(reader)
+			reader.Close()
+
+			// Try error fixers: if a fixer matches, fix the request and retry once
+			if retryErr := a.retryWithFixer(c, ctx, resp, body, clientType, attemptReq, requestBody, isOAuthToken, client); retryErr == nil {
+				resp.Body.Close()
+				return nil
+			}
+
+			// Send error response info via EventChannel
+			if eventChan := flow.GetEventChan(c); eventChan != nil {
+				eventChan.SendResponseInfo(&domain.ResponseInfo{
+					Status:  resp.StatusCode,
+					Headers: flattenHeaders(resp.Header),
+					Body:    string(body),
+				})
+			}
+
+			proxyErr := classifyHTTPError(resp.StatusCode, body, resp.Header, clientType, flow.GetMappedModel(c))
+			resp.Body.Close()
+			if openAIKeyPoolEnabled && selectedKeyHash != "" && shouldCooldownOpenAIKey(proxyErr) {
+				defaultOpenAIKeyPool.cooldownKey(a.provider.ID, clientType, selectedKeyHash, openAIKeyCooldownUntil(c, proxyErr))
+				if len(triedKeyHashes) < len(openAIKeys) {
+					continue
+				}
+				return newOpenAIKeyPoolExhaustedError()
+			}
+			return proxyErr
+		}
+
+		// Handle response
+		// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+		// Adapters simply pass through the upstream response
+		var handleErr error
+		if stream {
+			handleErr = a.handleStreamResponse(c, resp, clientType, isOAuthToken)
+		} else {
+			handleErr = a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
+		}
+		resp.Body.Close()
+		if handleErr == nil {
 			return nil
 		}
-	}
 
-	return handleErr
+		// For SSE errors detected before any data was sent to client,
+		// try error fixers (e.g. upstream rejects cache_control via SSE error event)
+		if proxyErr, ok := handleErr.(*domain.ProxyError); ok && proxyErr.Message != "" {
+			if retryErr := a.retryWithFixer(c, ctx, nil, []byte(proxyErr.Message), clientType, attemptReq, requestBody, isOAuthToken, client); retryErr == nil {
+				return nil
+			}
+		}
+
+		return handleErr
+	}
 }
 
 func applyCustomProtocolIdentity(c *flow.Ctx, clientType domain.ClientType, targetUserAgent string, headers http.Header) {
