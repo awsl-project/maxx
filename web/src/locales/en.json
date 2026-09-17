@@ -1975,7 +1975,10 @@
     "outboundProxy": "Outbound proxy",
     "outboundProxyLabel": "Provider outbound proxy",
     "outboundProxyDirect": "Direct / adapter default",
-    "outboundProxyDesc": "Select a proxy from the proxy tab. Explicit proxy config fails closed instead of silently going direct."
+    "outboundProxyDesc": "Select a proxy from the proxy tab. Explicit proxy config fails closed instead of silently going direct.",
+    "openAIKeyPoolPlaceholder": "sk-key-1\\nsk-key-2\\nsk-key-3",
+    "openAIKeyPoolHint": "OpenAI-compatible requests can use one key per line. Maxx rotates through the keys and temporarily skips limited keys.",
+    "keyPoolPlaceholderWriteOnly": "Existing keys are hidden. Paste new keys, one per line, to replace them."
   },
   "cooldown": {
     "title": "Cooldown Protection",
@@ -2263,7 +2266,13 @@
       "minutes": "Minutes",
       "hours": "Hours",
       "days": "Days"
-    }
+    },
+    "openAIKeyPoolCooldownTitle": "OpenAI API key pool cooldown",
+    "openAIKeyPoolCooldownDesc": "When an OpenAI provider key hits rate limit, quota exhaustion, or authentication failure, Maxx temporarily skips only that key and keeps using the rest of the key pool.",
+    "openAIKeyPoolCooldownInputLabel": "Key cooldown duration",
+    "openAIKeyPoolCooldownPreview": "Limited OpenAI keys will be skipped for {{seconds}} seconds.",
+    "openAIKeyPoolCooldownHint": "This setting only affects OpenAI-compatible multi-key pools. Provider-level cooldown behavior remains unchanged.",
+    "secondsUnit": "seconds"
   },
   "dataManagement": {
     "title": "Data Management",

@@ -1972,7 +1972,10 @@
     "outboundProxy": "出站代理",
     "outboundProxyLabel": "Provider 出站代理",
     "outboundProxyDirect": "直连 / 适配器默认",
-    "outboundProxyDesc": "从代理 tab 选择代理。显式代理配置错误时会失败关闭，不会偷偷直连。"
+    "outboundProxyDesc": "从代理 tab 选择代理。显式代理配置错误时会失败关闭，不会偷偷直连。",
+    "openAIKeyPoolPlaceholder": "sk-key-1\\nsk-key-2\\nsk-key-3",
+    "openAIKeyPoolHint": "OpenAI 兼容请求可一行填一个 key。maxx 会轮询使用，并临时跳过被限流的 key。",
+    "keyPoolPlaceholderWriteOnly": "已有 key 已隐藏。粘贴新的 key（一行一个）即可替换。"
   },
   "cooldown": {
     "title": "冷却保护中",
@@ -2259,7 +2262,13 @@
       "minutes": "分钟",
       "hours": "小时",
       "days": "天"
-    }
+    },
+    "openAIKeyPoolCooldownTitle": "OpenAI API key 池冻结",
+    "openAIKeyPoolCooldownDesc": "OpenAI provider 的某个 key 触发限流、额度耗尽或鉴权失败时，maxx 只临时跳过这个 key，并继续使用 key 池里的其它 key。",
+    "openAIKeyPoolCooldownInputLabel": "单 key 冻结时长",
+    "openAIKeyPoolCooldownPreview": "受限的 OpenAI key 会被跳过 {{seconds}} 秒。",
+    "openAIKeyPoolCooldownHint": "该设置仅影响 OpenAI 兼容多 key 池；provider 级冻结逻辑保持不变。",
+    "secondsUnit": "秒"
   },
   "dataManagement": {
     "title": "数据管理",

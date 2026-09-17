@@ -559,8 +559,13 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 			if incoming.Config.Custom == nil {
 				custom := *existing.Config.Custom
 				incoming.Config.Custom = &custom
-			} else if incoming.Config.Custom.APIKey == "" {
-				incoming.Config.Custom.APIKey = existing.Config.Custom.APIKey
+			} else {
+				if incoming.Config.Custom.APIKey == "" {
+					incoming.Config.Custom.APIKey = existing.Config.Custom.APIKey
+				}
+				if len(incoming.Config.Custom.APIKeys) == 0 {
+					incoming.Config.Custom.APIKeys = existing.Config.Custom.APIKeys
+				}
 			}
 		}
 	case "antigravity":

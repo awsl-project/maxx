@@ -6,6 +6,7 @@ import type { ClientType, CreateProviderData } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
+import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { OpenRouterModelMappings } from './openrouter-model-mappings';
@@ -17,6 +18,23 @@ import {
 // new-api / one-api style relays serve multiple client protocols under a single
 // base URL. Default to OpenAI (the image-generation path this type is built for);
 // claude/gemini are opt-in.
+
+function parseAPIKeyLines(value: string): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((key) => {
+      if (!seen.has(key)) {
+        seen.add(key);
+        keys.push(key);
+      }
+    });
+  return keys;
+}
+
 const NEWAPI_CLIENT_TYPES = ['openai', 'claude', 'gemini'] as const;
 
 export function NewApiConfigStep() {
@@ -55,6 +73,8 @@ export function NewApiConfigStep() {
     setSaveStatus('idle');
 
     try {
+      const apiKeys = parseAPIKeyLines(apiKey);
+
       const data: CreateProviderData = {
         type: 'newapi',
         name: name.trim(),
@@ -63,7 +83,8 @@ export function NewApiConfigStep() {
           disableErrorCooldown,
           custom: {
             baseURL: baseURL.trim(),
-            apiKey: apiKey.trim(),
+            apiKey: apiKeys[0] || apiKey.trim(),
+            apiKeys: apiKeys.length > 0 ? apiKeys : undefined,
           },
         },
         supportedClientTypes: enabledClients,
@@ -170,23 +191,25 @@ export function NewApiConfigStep() {
                   </div>
                 </label>
                 <div className="relative">
-                  <Input
-                    type={showApiKey ? 'text' : 'password'}
+                  <Textarea
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-..."
-                    className="w-full pr-10 font-mono"
+                    placeholder={t('provider.openAIKeyPoolPlaceholder')}
+                    className="min-h-24 w-full pr-10 font-mono text-xs"
                   />
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    className="absolute right-2 top-2 text-muted-foreground hover:text-foreground transition-colors"
                     tabIndex={-1}
                     aria-label={showApiKey ? t('common.hide') : t('common.show')}
                   >
                     {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('provider.openAIKeyPoolHint')}
+                </p>
               </div>
             </div>
           </div>

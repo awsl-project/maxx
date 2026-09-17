@@ -5,6 +5,7 @@ import { useUpdateProvider } from '@/hooks/queries';
 import type { ClientType, CreateProviderData, Provider } from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
@@ -26,6 +27,23 @@ interface NewApiProviderViewProps {
   onClose: () => void;
 }
 
+
+function parseAPIKeyLines(value: string): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((key) => {
+      if (!seen.has(key)) {
+        seen.add(key);
+        keys.push(key);
+      }
+    });
+  return keys;
+}
+
 export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProviderViewProps) {
   const { t } = useTranslation();
   const updateProvider = useUpdateProvider();
@@ -38,7 +56,11 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
   const [baseURL, setBaseURL] = useState(
     secretsAreWriteOnly ? '' : provider.config?.custom?.baseURL || '',
   );
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(
+    secretsAreWriteOnly
+      ? ''
+      : provider.config?.custom?.apiKeys?.join('\n') || provider.config?.custom?.apiKey || '',
+  );
   const [showApiKey, setShowApiKey] = useState(false);
   const [clients, setClients] = useState<Record<ClientType, boolean>>(() => {
     const supported = provider.supportedClientTypes || [];
@@ -77,6 +99,8 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
     setSaveStatus('idle');
 
     try {
+      const apiKeys = parseAPIKeyLines(apiKey);
+
       const data: Partial<CreateProviderData> = {
         name: name.trim(),
         type: 'newapi',
@@ -88,7 +112,8 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
           custom: {
             // Blank preserves the stored values for export-excluded providers.
             baseURL: baseURL.trim(),
-            apiKey: apiKey.trim(),
+            apiKey: apiKeys[0] || apiKey.trim(),
+            apiKeys: apiKeys.length > 0 ? apiKeys : undefined,
           },
         },
         supportedClientTypes: enabledClients,
@@ -183,32 +208,35 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                   </div>
                 </label>
                 <div className="relative">
-                  <Input
-                    type={showApiKey && !secretsAreWriteOnly ? 'text' : 'password'}
+                  <Textarea
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={
                       secretsAreWriteOnly
-                        ? t('provider.keyPlaceholderWriteOnly')
-                        : t('provider.keyPlaceholder')
+                        ? t('provider.keyPoolPlaceholderWriteOnly')
+                        : t('provider.openAIKeyPoolPlaceholder')
                     }
-                    className="w-full pr-10 font-mono"
+                    className="min-h-24 w-full pr-10 font-mono text-xs"
                   />
                   {!secretsAreWriteOnly && (
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-2 top-2 text-muted-foreground hover:text-foreground transition-colors"
                       aria-label={showApiKey ? t('common.hide') : t('common.show')}
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   )}
                 </div>
-                {secretsAreWriteOnly && (
+                {secretsAreWriteOnly ? (
                   <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
                     {t('provider.apiKeyExcludedHint')}
                   </div>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('provider.openAIKeyPoolHint')}
+                  </p>
                 )}
               </div>
             </div>

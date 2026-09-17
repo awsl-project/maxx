@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderForm } from '../context/provider-form-context';
@@ -45,6 +46,23 @@ import {
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
 import { ProviderOutboundProxyField } from './provider-outbound-proxy-field';
+
+
+function parseAPIKeyLines(value: string): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((key) => {
+      if (!seen.has(key)) {
+        seen.add(key);
+        keys.push(key);
+      }
+    });
+  return keys;
+}
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -80,7 +98,7 @@ export function CustomConfigStep() {
         custom: {
           baseURL,
           backend: formData.backend === 'ollama' ? 'ollama' : undefined,
-          apiKey: formData.apiKey.trim(),
+          apiKey: parseAPIKeyLines(formData.apiKey)[0] || formData.apiKey.trim(),
           clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
         },
       },
@@ -138,6 +156,8 @@ export function CustomConfigStep() {
         formData.cloakSensitiveWords || '',
       );
 
+      const apiKeys = parseAPIKeyLines(formData.apiKey);
+
       const data: CreateProviderData = {
         type: 'custom',
         name: formData.name,
@@ -152,7 +172,8 @@ export function CustomConfigStep() {
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
-            apiKey: formData.apiKey,
+            apiKey: apiKeys[0] || formData.apiKey.trim(),
+            apiKeys: apiKeys.length > 0 ? apiKeys : undefined,
             responsesPassthrough: formData.responsesPassthrough,
             responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
@@ -300,26 +321,28 @@ export function CustomConfigStep() {
                     </div>
                   </label>
                   <div className="relative">
-                    <Input
-                      type={showApiKey ? 'text' : 'password'}
+                    <Textarea
                       value={formData.apiKey}
                       onChange={(e) => updateFormData({ apiKey: e.target.value })}
                       placeholder={
                         formData.backend === 'ollama'
                           ? t('provider.keyPlaceholderOptional')
-                          : t('provider.keyPlaceholder')
+                          : t('provider.openAIKeyPoolPlaceholder')
                       }
-                      className="w-full pr-10"
+                      className="min-h-24 w-full pr-10 font-mono text-xs"
                     />
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-2 top-2 text-muted-foreground hover:text-foreground transition-colors"
                       tabIndex={-1}
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('provider.openAIKeyPoolHint')}
+                  </p>
                 </div>
               </div>
             </div>
