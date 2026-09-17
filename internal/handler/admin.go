@@ -2529,6 +2529,14 @@ func (h *AdminHandler) handleModelPrices(w http.ResponseWriter, r *http.Request,
 		h.handleModelPricesReset(w, r)
 		return
 	}
+	if len(tail) == 1 && tail[0] == "export" && r.Method == http.MethodGet {
+		h.handleModelPricesExport(w, r)
+		return
+	}
+	if len(tail) == 1 && tail[0] == "import" && r.Method == http.MethodPost {
+		h.handleModelPricesImport(w, r)
+		return
+	}
 	if len(tail) > 1 || (len(tail) == 1 && id == 0) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
@@ -2612,6 +2620,52 @@ func (h *AdminHandler) handleModelPricesReset(w http.ResponseWriter, r *http.Req
 	// Refresh calculator cache
 	pricing.GlobalCalculator().LoadFromDatabase(prices)
 	writeJSON(w, http.StatusOK, prices)
+}
+
+// handleModelPricesExport handles GET /admin/model-prices/export
+func (h *AdminHandler) handleModelPricesExport(w http.ResponseWriter, r *http.Request) {
+	file, err := h.svc.ExportModelPrices()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=model-prices.json")
+	json.NewEncoder(w).Encode(file)
+}
+
+// handleModelPricesImport handles POST /admin/model-prices/import
+func (h *AdminHandler) handleModelPricesImport(w http.ResponseWriter, r *http.Request) {
+	var file service.ModelPriceImportFile
+	if err := json.NewDecoder(r.Body).Decode(&file); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	dryRun := false
+	if raw := strings.TrimSpace(r.URL.Query().Get("dryRun")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid dryRun"})
+			return
+		}
+		dryRun = parsed
+	}
+
+	result, err := h.svc.ImportModelPrices(file, service.ModelPriceImportOptions{
+		ConflictStrategy: r.URL.Query().Get("conflictStrategy"),
+		DryRun:           dryRun,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if !dryRun && (result.Summary.Imported > 0 || result.Summary.Updated > 0) {
+		pricing.GlobalCalculator().LoadFromDatabase(mustGetPrices(h.svc))
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // mustGetPrices is a helper to get prices for refreshing calculator

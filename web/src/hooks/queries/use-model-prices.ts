@@ -3,7 +3,12 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTransport, type ModelPriceInput } from '@/lib/transport';
+import {
+  getTransport,
+  type ModelPriceExportFile,
+  type ModelPriceImportOptions,
+  type ModelPriceInput,
+} from '@/lib/transport';
 import { pricingKeys } from './use-pricing';
 
 // Query Keys
@@ -29,6 +34,30 @@ export function useModelPrice(id: number) {
     queryKey: modelPriceKeys.detail(id),
     queryFn: () => getTransport().getModelPrice(id),
     enabled: id > 0,
+  });
+}
+
+export function useExportModelPrices() {
+  return useMutation({
+    mutationFn: () => getTransport().exportModelPrices(),
+  });
+}
+
+export function useImportModelPrices() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      file,
+      options,
+    }: {
+      file: ModelPriceExportFile;
+      options?: ModelPriceImportOptions;
+    }) => getTransport().importModelPrices(file, options),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: modelPriceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: pricingKeys.all });
+    },
   });
 }
 

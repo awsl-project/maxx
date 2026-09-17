@@ -2319,11 +2319,7 @@ func (s *AdminService) CreateModelPrice(price *domain.ModelPrice) error {
 // UpdateModelPrice updates an existing model price (creates a new version)
 // In practice, this creates a new price record for the same model
 func (s *AdminService) UpdateModelPrice(price *domain.ModelPrice) error {
-	// For versioned pricing, we create a new record instead of updating
-	// Clear the ID so GORM generates a new one
-	price.ID = 0
-	price.CreatedAt = time.Time{}
-	return s.modelPriceRepo.Create(price)
+	return s.modelPriceRepo.Update(price)
 }
 
 // DeleteModelPrice deletes a model price record
