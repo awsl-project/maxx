@@ -221,7 +221,9 @@
     "amount": "金额",
     "consumptionLeaderboardLoadFailed": "消耗榜加载失败",
     "dailyCheckInAutoPending": "等待自动签到",
-    "dailyCheckInAutoRunning": "自动签到中…"
+    "dailyCheckInAutoRunning": "自动签到中…",
+    "announcementOpen": "打开公告",
+    "announcementTitle": "公告"
   },
   "testField": {
     "title": "测试场",
@@ -1607,7 +1609,17 @@
     "providerCloneNameSaveError": "保存提供商克隆命名设置失败。",
     "proxyManagement": "代理管理",
     "proxyManagementLabel": "显示代理 tab",
-    "proxyManagementDesc": "默认关闭。开启后管理员可以维护出站代理，并把 provider 绑定到指定代理。"
+    "proxyManagementDesc": "默认关闭。开启后管理员可以维护出站代理，并把 provider 绑定到指定代理。",
+    "userPanelOptions": "用户控制台选项",
+    "userPanelOptionsDesc": "配置仅在成员使用用户控制台布局时出现的功能。",
+    "userPanelDailyCheckInTab": "签到",
+    "userPanelAnnouncementTab": "公告",
+    "userPanelAnnouncement": "用户控制台公告",
+    "userPanelAnnouncementDesc": "用户控制台里只显示通用公告图标，用户点击图标时才打开这段 Markdown 公告。",
+    "userPanelAnnouncementContent": "公告内容",
+    "userPanelAnnouncementPlaceholder": "填写 Markdown 公告内容，例如：\n# 服务公告\n- 维护时间：23:00-23:30\n- 请提前保存长任务",
+    "userPanelAnnouncementPreview": "预览",
+    "userPanelAnnouncementEmptyPreview": "公告内容为空时，用户控制台不会显示公告图标。"
   },
   "modelMappings": {
     "title": "模型映射",

@@ -79,8 +79,13 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
 
   // Mutation for clearing cooldown
   const clearCooldownMutation = useMutation({
-    mutationFn: ({ providerId, options }: { providerId: number; options?: { clientType?: string; model?: string } }) =>
-      getTransport().clearCooldown(providerId, options),
+    mutationFn: ({
+      providerId,
+      options,
+    }: {
+      providerId: number;
+      options?: { clientType?: string; model?: string };
+    }) => getTransport().clearCooldown(providerId, options),
     onMutate: async ({ providerId, options }) => {
       await queryClient.cancelQueries({ queryKey: ['cooldowns'] });
       const previousCooldowns = queryClient.getQueryData<Cooldown[]>(['cooldowns']);
@@ -129,7 +134,7 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
       return;
     }
 
-    const timeouts: number[] = [];
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
 
     cooldowns.forEach((cooldown) => {
       const until = new Date(cooldown.until).getTime();
@@ -251,10 +256,7 @@ export function useCooldownsContext() {
 }
 
 // Optional hook that doesn't throw when used outside provider
-export function useCooldownFromContext(
-  providerId: number,
-  clientType?: string,
-): Cooldown[] {
+export function useCooldownFromContext(providerId: number, clientType?: string): Cooldown[] {
   const context = useContext(CooldownsContext);
   return context?.getCooldownsForProvider(providerId, clientType) ?? [];
 }

@@ -1386,6 +1386,11 @@ export interface UserPanelDailyCheckInResult {
   rewardAmount: number;
 }
 
+export interface UserPanelAnnouncement {
+  enabled: boolean;
+  markdown: string;
+}
+
 export interface UserPanelAvailableModelRouteGroup {
   routeID: number;
   providerID: number;

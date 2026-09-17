@@ -84,6 +84,7 @@ import type {
   APITokenQuotaRechargeResult,
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
+  UserPanelAnnouncement,
   UserPanelDailyCheckInResult,
   UserPanelAvailableModelRouteGroup,
   UserPanelConsumptionLeaderboardResult,
@@ -1026,9 +1027,8 @@ export class HttpTransport implements Transport {
   // ===== Grok API =====
 
   async startGrokOAuth(): Promise<import('./types').GrokOAuthStartResult> {
-    const { data } = await this.client.post<import('./types').GrokOAuthStartResult>(
-      '/grok/oauth/start',
-    );
+    const { data } =
+      await this.client.post<import('./types').GrokOAuthStartResult>('/grok/oauth/start');
     return data;
   }
 
@@ -1263,6 +1263,11 @@ export class HttpTransport implements Transport {
   async checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult> {
     const { data } = await this.client.post<UserPanelDailyCheckInResult>('/user-panel/check-in');
     return data;
+  }
+
+  async getUserPanelAnnouncement(): Promise<UserPanelAnnouncement> {
+    const { data } = await this.client.get<UserPanelAnnouncement>('/user-panel/announcement');
+    return this.expectObject<UserPanelAnnouncement>(data, '/user-panel/announcement');
   }
 
   async getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult> {

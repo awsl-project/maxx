@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  Bell,
   Copy,
   Eye,
   EyeOff,
@@ -20,6 +21,10 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   Input,
   Table,
   TableBody,
@@ -39,6 +44,7 @@ import {
   useRegenerateUserPanelAPIToken,
   useRevealUserPanelAPIToken,
   useUserPanelAvailableModels,
+  useUserPanelAnnouncement,
   useUserPanelAvailableModelRoutes,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
@@ -58,6 +64,7 @@ import type {
 import { cn } from '@/lib/utils';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import { visibleUserPanelModelRouteGroups } from '@/lib/user-panel-model-routes';
+import { MarkdownContent } from '@/lib/markdown';
 import {
   getUserPanelTabStorageKey,
   resolveUserPanelTab,
@@ -335,6 +342,7 @@ export function UserPanelPage() {
     isLoading: modelStatusLoading,
     isError: modelStatusError,
   } = useUserPanelModelStatus(Boolean(user), 24);
+  const { data: userPanelAnnouncement } = useUserPanelAnnouncement(Boolean(user));
   const localUserPanelDayKey = useMemo(() => todayBounds.start.slice(0, 10), [todayBounds.start]);
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
   const { data: dailyCheckInStatus } = useUserPanelDailyCheckInStatus(
@@ -353,6 +361,7 @@ export function UserPanelPage() {
   const [revealKeyError, setRevealKeyError] = useState('');
   const [dailyCheckInMessage, setDailyCheckInMessage] = useState('');
   const [dailyCheckInDone, setDailyCheckInDone] = useState(false);
+  const [announcementOpen, setAnnouncementOpen] = useState(false);
   const autoDailyCheckInStartedRef = useRef(false);
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
@@ -395,6 +404,9 @@ export function UserPanelPage() {
     ? visibleUserPanelModelRouteGroups(availableModelRoutes ?? [])
     : [];
   const availableModelCount = availableModels?.length ?? 0;
+  const announcementMarkdown = userPanelAnnouncement?.enabled
+    ? userPanelAnnouncement.markdown.trim()
+    : '';
 
   useEffect(() => {
     setRevealedUserPanelToken('');
@@ -530,6 +542,19 @@ export function UserPanelPage() {
             <h1 className="text-xl font-semibold tracking-tight">{t('userPanel.title')}</h1>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-center">
+            {announcementMarkdown ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-9 text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setAnnouncementOpen(true)}
+                aria-label={t('userPanel.announcementOpen')}
+                title={t('userPanel.announcementOpen')}
+              >
+                <Bell className="size-4" />
+              </Button>
+            ) : null}
             <LanguageToggle />
             <Button
               variant="outline"
@@ -869,6 +894,19 @@ export function UserPanelPage() {
           </TabsContent>
         </Tabs>
       </div>
+      <Dialog open={announcementOpen} onOpenChange={setAnnouncementOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="size-4 text-primary" />
+              {t('userPanel.announcementTitle')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <MarkdownContent markdown={announcementMarkdown} />
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

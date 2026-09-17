@@ -134,6 +134,7 @@ export {
   useUserPanelModelStatus,
   useUserPanelAvailableModels,
   useUserPanelAvailableModelRoutes,
+  useUserPanelAnnouncement,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
 } from './use-user-panel-token';

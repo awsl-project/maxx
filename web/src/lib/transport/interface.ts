@@ -85,6 +85,7 @@ import type {
   APITokenQuotaRechargeResult,
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
+  UserPanelAnnouncement,
   UserPanelDailyCheckInResult,
   UserPanelAvailableModelRouteGroup,
   UserPanelConsumptionLeaderboardResult,
@@ -347,6 +348,7 @@ export interface Transport {
   getUserPanelAvailableModelRoutes(): Promise<UserPanelAvailableModelRouteGroup[]>;
   getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult>;
   checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult>;
+  getUserPanelAnnouncement(): Promise<UserPanelAnnouncement>;
   getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult>;
   getUserPanelModelStatus(hours?: number): Promise<UserPanelModelStatusRow[]>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;

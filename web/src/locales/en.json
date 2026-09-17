@@ -221,7 +221,9 @@
     "amount": "Amount",
     "consumptionLeaderboardLoadFailed": "Failed to load consumption leaderboard",
     "dailyCheckInAutoPending": "Waiting for auto check-in",
-    "dailyCheckInAutoRunning": "Auto check-in…"
+    "dailyCheckInAutoRunning": "Auto check-in…",
+    "announcementOpen": "Open notice",
+    "announcementTitle": "Notice"
   },
   "testField": {
     "title": "Test Field",
@@ -1610,7 +1612,17 @@
     "providerCloneNameSaveError": "Failed to save provider clone naming settings.",
     "proxyManagement": "Proxy management",
     "proxyManagementLabel": "Show proxy tab",
-    "proxyManagementDesc": "Default off. When enabled, admins can manage outbound proxies and bind providers to one proxy."
+    "proxyManagementDesc": "Default off. When enabled, admins can manage outbound proxies and bind providers to one proxy.",
+    "userPanelOptions": "User console options",
+    "userPanelOptionsDesc": "Configure features that are only shown when members use the user console layout.",
+    "userPanelDailyCheckInTab": "Check-in",
+    "userPanelAnnouncementTab": "Notice",
+    "userPanelAnnouncement": "User console notice",
+    "userPanelAnnouncementDesc": "Users see a generic notice icon in the user console and open this Markdown notice only when they click it.",
+    "userPanelAnnouncementContent": "Notice content",
+    "userPanelAnnouncementPlaceholder": "Write Markdown notice content, for example:\n# Service notice\n- Maintenance window: 23:00-23:30\n- Please save long-running work in advance",
+    "userPanelAnnouncementPreview": "Preview",
+    "userPanelAnnouncementEmptyPreview": "The notice icon is hidden when this content is empty."
   },
   "modelMappings": {
     "title": "Model Mappings",
