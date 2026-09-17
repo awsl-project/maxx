@@ -10,6 +10,7 @@ export const userPanelTokenKeys = {
   availableModelRoutes: () => [...userPanelTokenKeys.all, 'available-model-routes'] as const,
   dailyCheckInStatus: (dayKey?: string) =>
     [...userPanelTokenKeys.all, 'daily-check-in-status', dayKey] as const,
+  announcement: () => [...userPanelTokenKeys.all, 'announcement'] as const,
   consumptionLeaderboard: () => [...userPanelTokenKeys.all, 'consumption-leaderboard'] as const,
   modelStatus: (hours: number) => [...userPanelTokenKeys.all, 'model-status', hours] as const,
 };
@@ -85,6 +86,14 @@ export function useUserPanelAvailableModelRoutes(enabled = true) {
   return useQuery({
     queryKey: userPanelTokenKeys.availableModelRoutes(),
     queryFn: () => getTransport().getUserPanelAvailableModelRoutes(),
+    enabled,
+  });
+}
+
+export function useUserPanelAnnouncement(enabled = true) {
+  return useQuery({
+    queryKey: userPanelTokenKeys.announcement(),
+    queryFn: () => getTransport().getUserPanelAnnouncement(),
     enabled,
   });
 }

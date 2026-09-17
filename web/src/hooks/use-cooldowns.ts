@@ -59,8 +59,13 @@ export function useCooldowns() {
 
   // Mutation for clearing cooldown
   const clearCooldownMutation = useMutation({
-    mutationFn: ({ providerId, options }: { providerId: number; options?: { clientType?: string; model?: string } }) =>
-      getTransport().clearCooldown(providerId, options),
+    mutationFn: ({
+      providerId,
+      options,
+    }: {
+      providerId: number;
+      options?: { clientType?: string; model?: string };
+    }) => getTransport().clearCooldown(providerId, options),
     onMutate: async ({ providerId, options }) => {
       await queryClient.cancelQueries({ queryKey: ['cooldowns'] });
       const previousCooldowns = queryClient.getQueryData<Cooldown[]>(['cooldowns']);
@@ -83,7 +88,7 @@ export function useCooldowns() {
   // Setup timeouts for each cooldown to force re-render when they expire
   useEffect(() => {
     if (cooldowns.length === 0) return;
-    const timeouts: number[] = [];
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
     cooldowns.forEach((cooldown) => {
       const until = new Date(cooldown.until).getTime();
       const delay = until - Date.now();

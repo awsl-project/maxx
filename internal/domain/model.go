@@ -1067,6 +1067,7 @@ const (
 	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                   // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
 	SettingKeyUserPanelDailyCheckInEnabled         = "user_panel_daily_checkin_enabled"          // 用户控制台每日签到，"true" 或 "false"，默认 "false"
 	SettingKeyUserPanelDailyCheckInAmount          = "user_panel_daily_checkin_amount"           // 用户控制台每日签到额度（美元），默认 "10"
+	SettingKeyUserPanelAnnouncementMarkdown        = "user_panel_announcement_markdown"          // 用户控制台公告 Markdown 内容，默认空
 	SettingKeyExternalModelListEnabled             = "external_model_list_enabled"               // 是否使用自定义外部模型列表，"true" 或 "false"，默认 "false"
 	SettingKeyExternalModelList                    = "external_model_list"                       // 自定义外部模型列表，JSON 数组或换行/逗号分隔
 	SettingKeyInviteRegistrationAutoApproveEnabled = "invite_registration_auto_approve_enabled"  // 邀请码注册自动通过审批，"true" 或 "false"，默认 "false"

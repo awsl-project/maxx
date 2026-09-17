@@ -270,6 +270,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleUserPanelModelStatus(w, r)
 		case len(parts) == 3 && parts[2] == "check-in":
 			h.handleUserPanelDailyCheckIn(w, r)
+		case len(parts) == 3 && parts[2] == "announcement":
+			h.handleUserPanelAnnouncement(w, r)
 		case len(parts) == 3 && parts[2] == "consumption-leaderboard":
 			h.handleUserPanelConsumptionLeaderboard(w, r)
 		default:
@@ -391,6 +393,33 @@ var userPanelModelStatusIgnoredErrors = []string{
 	"Internal server error: SSE error (code=500): Internal server error",
 	"failed to connect to upstream: upstream error",
 	"client disconnected: context canceled",
+}
+
+func (h *SelfServiceHandler) handleUserPanelAnnouncement(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel announcement is not enabled"})
+		return
+	}
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+	markdown, err := h.svc.GetSetting(domain.SettingKeyUserPanelAnnouncementMarkdown)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAnnouncement failed", err)
+		return
+	}
+	markdown = strings.TrimSpace(markdown)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled":  markdown != "",
+		"markdown": markdown,
+	})
 }
 
 func (h *SelfServiceHandler) handleUserPanelModelStatus(w http.ResponseWriter, r *http.Request) {

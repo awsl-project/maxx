@@ -17,6 +17,7 @@ import {
   EyeOff,
   Copy,
   Network,
+  Bell,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
@@ -40,6 +41,8 @@ import {
   TabsContent,
 } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
+import { Textarea } from '@/components/ui/textarea';
+import { MarkdownContent } from '@/lib/markdown';
 import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { BackendAddressControl } from '@/components/backend-address-control';
 import { settingsKeys, useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
@@ -87,6 +90,7 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
 const USER_PANEL_DAILY_CHECKIN_SETTING_KEY = 'user_panel_daily_checkin_enabled';
 const USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY = 'user_panel_daily_checkin_amount';
+const USER_PANEL_ANNOUNCEMENT_MARKDOWN_SETTING_KEY = 'user_panel_announcement_markdown';
 const INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY = 'invite_registration_auto_approve_enabled';
 const DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE = '{{name}}{{suffix}}';
 const DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT = '10';
@@ -2101,6 +2105,8 @@ function MultiTenantUISection() {
     DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT;
   const settingsInviteRegistrationAutoApproveEnabled =
     settings?.[INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY] === 'true';
+  const settingsAnnouncementMarkdown =
+    settings?.[USER_PANEL_ANNOUNCEMENT_MARKDOWN_SETTING_KEY] || '';
   const [localEnabled, setLocalEnabled] = useState(settingsEnabled);
   const [localLayout, setLocalLayout] = useState<MultiTenantUILayout>(settingsLayout);
   const [localDailyCheckInEnabled, setLocalDailyCheckInEnabled] = useState(
@@ -2111,6 +2117,9 @@ function MultiTenantUISection() {
   );
   const [localInviteRegistrationAutoApproveEnabled, setLocalInviteRegistrationAutoApproveEnabled] =
     useState(settingsInviteRegistrationAutoApproveEnabled);
+  const [localAnnouncementMarkdown, setLocalAnnouncementMarkdown] = useState(
+    settingsAnnouncementMarkdown,
+  );
 
   useEffect(() => {
     setLocalEnabled(settingsEnabled);
@@ -2118,12 +2127,14 @@ function MultiTenantUISection() {
     setLocalDailyCheckInEnabled(settingsDailyCheckInEnabled);
     setLocalDailyCheckInAmount(settingsDailyCheckInAmount);
     setLocalInviteRegistrationAutoApproveEnabled(settingsInviteRegistrationAutoApproveEnabled);
+    setLocalAnnouncementMarkdown(settingsAnnouncementMarkdown);
   }, [
     settingsEnabled,
     settingsLayout,
     settingsDailyCheckInEnabled,
     settingsDailyCheckInAmount,
     settingsInviteRegistrationAutoApproveEnabled,
+    settingsAnnouncementMarkdown,
   ]);
 
   const handleToggle = async (checked: boolean) => {
@@ -2193,6 +2204,14 @@ function MultiTenantUISection() {
     await updateSetting.mutateAsync({
       key: USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY,
       value: trimmed,
+    });
+  };
+
+  const handleAnnouncementMarkdownSave = async () => {
+    if (localAnnouncementMarkdown === settingsAnnouncementMarkdown) return;
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_ANNOUNCEMENT_MARKDOWN_SETTING_KEY,
+      value: localAnnouncementMarkdown.trim(),
     });
   };
 
@@ -2276,53 +2295,133 @@ function MultiTenantUISection() {
         )}
 
         {localEnabled && localLayout === 'user_panel' && (
-          <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-medium text-foreground">
-                  {t('settings.userPanelDailyCheckIn')}
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <Tabs defaultValue="check-in" className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <Label className="text-sm font-medium text-foreground">
+                    {t('settings.userPanelOptions')}
+                  </Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('settings.userPanelOptionsDesc')}
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('settings.userPanelDailyCheckInDesc')}
-                </p>
+                <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                  <TabsTrigger value="check-in">
+                    {t('settings.userPanelDailyCheckInTab')}
+                  </TabsTrigger>
+                  <TabsTrigger value="announcement">
+                    {t('settings.userPanelAnnouncementTab')}
+                  </TabsTrigger>
+                </TabsList>
               </div>
-              <Switch
-                aria-label={t('settings.userPanelDailyCheckIn')}
-                checked={localDailyCheckInEnabled}
-                onCheckedChange={handleDailyCheckInToggle}
-                disabled={updateSetting.isPending}
-              />
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Label className="text-sm font-medium text-foreground sm:min-w-40">
-                  {t('settings.userPanelDailyCheckInAmount')}
-                </Label>
-                <Input
-                  className="sm:w-48"
-                  type="number"
-                  min="0.000001"
-                  step="0.01"
-                  value={localDailyCheckInAmount}
-                  onChange={(event) => setLocalDailyCheckInAmount(event.target.value)}
-                  onBlur={handleDailyCheckInAmountSave}
-                  disabled={updateSetting.isPending || !localDailyCheckInEnabled}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleDailyCheckInAmountSave}
-                disabled={
-                  updateSetting.isPending ||
-                  !localDailyCheckInEnabled ||
-                  localDailyCheckInAmount === settingsDailyCheckInAmount
-                }
-              >
-                {t('common.save')}
-              </Button>
-            </div>
+
+              <TabsContent value="check-in" className="mt-0 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t('settings.userPanelDailyCheckIn')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('settings.userPanelDailyCheckInDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    aria-label={t('settings.userPanelDailyCheckIn')}
+                    checked={localDailyCheckInEnabled}
+                    onCheckedChange={handleDailyCheckInToggle}
+                    disabled={updateSetting.isPending}
+                  />
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Label className="text-sm font-medium text-foreground sm:min-w-40">
+                      {t('settings.userPanelDailyCheckInAmount')}
+                    </Label>
+                    <Input
+                      className="sm:w-48"
+                      type="number"
+                      min="0.000001"
+                      step="0.01"
+                      value={localDailyCheckInAmount}
+                      onChange={(event) => setLocalDailyCheckInAmount(event.target.value)}
+                      onBlur={handleDailyCheckInAmountSave}
+                      disabled={updateSetting.isPending || !localDailyCheckInEnabled}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDailyCheckInAmountSave}
+                    disabled={
+                      updateSetting.isPending ||
+                      !localDailyCheckInEnabled ||
+                      localDailyCheckInAmount === settingsDailyCheckInAmount
+                    }
+                  >
+                    {t('common.save')}
+                  </Button>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="announcement" className="mt-0 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Bell className="size-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t('settings.userPanelAnnouncement')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('settings.userPanelAnnouncementDesc')}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="user-panel-announcement-markdown">
+                      {t('settings.userPanelAnnouncementContent')}
+                    </Label>
+                    <Textarea
+                      id="user-panel-announcement-markdown"
+                      className="min-h-48 font-mono text-sm"
+                      value={localAnnouncementMarkdown}
+                      placeholder={t('settings.userPanelAnnouncementPlaceholder')}
+                      onChange={(event) => setLocalAnnouncementMarkdown(event.target.value)}
+                      disabled={updateSetting.isPending}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('settings.userPanelAnnouncementPreview')}</Label>
+                    <div className="min-h-48 rounded-md border border-border bg-background p-4">
+                      {localAnnouncementMarkdown.trim() ? (
+                        <MarkdownContent markdown={localAnnouncementMarkdown} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          {t('settings.userPanelAnnouncementEmptyPreview')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAnnouncementMarkdownSave}
+                    disabled={
+                      updateSetting.isPending ||
+                      localAnnouncementMarkdown === settingsAnnouncementMarkdown
+                    }
+                  >
+                    {t('common.save')}
+                  </Button>
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
         )}
       </CardContent>
