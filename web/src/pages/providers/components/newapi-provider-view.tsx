@@ -27,7 +27,6 @@ interface NewApiProviderViewProps {
   onClose: () => void;
 }
 
-
 function parseAPIKeyLines(value: string): string[] {
   const seen = new Set<string>();
   const keys: string[] = [];
@@ -216,7 +215,8 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                         ? t('provider.keyPoolPlaceholderWriteOnly')
                         : t('provider.openAIKeyPoolPlaceholder')
                     }
-                    className="min-h-24 w-full pr-10 font-mono text-xs"
+                    className="w-full resize-none overflow-y-auto pr-10 font-mono text-xs"
+                    style={{ minHeight: '2.25rem', maxHeight: '4.125rem' }}
                   />
                   {!secretsAreWriteOnly && (
                     <button

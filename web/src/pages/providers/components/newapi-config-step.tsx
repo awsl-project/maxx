@@ -159,10 +159,7 @@ export function NewApiConfigStep() {
                 />
               </div>
 
-              <ProviderMaxConcurrencyField
-                value={maxConcurrency}
-                onChange={setMaxConcurrency}
-              />
+              <ProviderMaxConcurrencyField value={maxConcurrency} onChange={setMaxConcurrency} />
 
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">
@@ -195,7 +192,8 @@ export function NewApiConfigStep() {
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={t('provider.openAIKeyPoolPlaceholder')}
-                    className="min-h-24 w-full pr-10 font-mono text-xs"
+                    className="w-full resize-none overflow-y-auto pr-10 font-mono text-xs"
+                    style={{ minHeight: '2.25rem', maxHeight: '4.125rem' }}
                   />
                   <button
                     type="button"
