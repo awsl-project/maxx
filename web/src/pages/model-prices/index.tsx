@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ChangeEvent, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Button,
@@ -25,13 +25,29 @@ import { PageHeader } from '@/components/layout/page-header';
 import { useAuth } from '@/lib/auth-context';
 import {
   useModelPrices,
+  useExportModelPrices,
+  useImportModelPrices,
   useCreateModelPrice,
   useUpdateModelPrice,
   useDeleteModelPrice,
   useResetModelPricesToDefaults,
 } from '@/hooks/queries';
-import type { ModelPrice, ModelPriceInput } from '@/lib/transport/types';
-import { DollarSign, Plus, Trash2, Pencil, RotateCcw } from 'lucide-react';
+import type {
+  ModelPrice,
+  ModelPriceExportFile,
+  ModelPriceImportResult,
+  ModelPriceInput,
+} from '@/lib/transport/types';
+import {
+  AlertTriangle,
+  Download,
+  DollarSign,
+  Plus,
+  Trash2,
+  Pencil,
+  RotateCcw,
+  Upload,
+} from 'lucide-react';
 
 // Helper to format micro USD price to display format (e.g., $3.00 / M tokens)
 function formatMicroPrice(microUsd: number): string {
@@ -121,6 +137,8 @@ export function ModelPricesPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { data: prices, isLoading } = useModelPrices();
+  const exportPrices = useExportModelPrices();
+  const importPrices = useImportModelPrices();
   const createPrice = useCreateModelPrice();
   const updatePrice = useUpdateModelPrice();
   const deletePrice = useDeleteModelPrice();
@@ -132,6 +150,10 @@ export function ModelPricesPage() {
   const [formData, setFormData] = useState<PriceFormData>(defaultFormData);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingImportFile, setPendingImportFile] = useState<ModelPriceExportFile | null>(null);
+  const [importPreview, setImportPreview] = useState<ModelPriceImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const handleOpenCreate = () => {
     if (!canManagePrices) return;
@@ -175,11 +197,66 @@ export function ModelPricesPage() {
     setResetConfirmOpen(false);
   };
 
+  const handleExport = async () => {
+    if (!canManagePrices) return;
+    const file = await exportPrices.mutateAsync();
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `model-prices-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!canManagePrices) return;
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setImportError(null);
+    setImportPreview(null);
+    try {
+      const parsed = JSON.parse(await file.text()) as ModelPriceExportFile;
+      setPendingImportFile(parsed);
+      const preview = await importPrices.mutateAsync({
+        file: parsed,
+        options: { conflictStrategy: 'skip', dryRun: true },
+      });
+      setImportPreview(preview);
+    } catch (error) {
+      setPendingImportFile(null);
+      setImportError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleImportConfirm = async (conflictStrategy: 'skip' | 'overwrite' | 'error') => {
+    if (!canManagePrices || !pendingImportFile) return;
+    setImportError(null);
+    try {
+      const result = await importPrices.mutateAsync({
+        file: pendingImportFile,
+        options: { conflictStrategy, dryRun: false },
+      });
+      setImportPreview(result);
+      if (result.success) {
+        setPendingImportFile(null);
+      }
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const isPending =
     createPrice.isPending ||
     updatePrice.isPending ||
     deletePrice.isPending ||
-    resetPrices.isPending;
+    resetPrices.isPending ||
+    exportPrices.isPending ||
+    importPrices.isPending;
 
   if (isLoading) return null;
 
@@ -195,6 +272,26 @@ export function ModelPricesPage() {
         actions={
           canManagePrices ? (
             <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={isPending}>
+                <Download className="h-4 w-4 mr-1" />
+                {t('common.export')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isPending}
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                {t('common.import')}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -217,6 +314,74 @@ export function ModelPricesPage() {
         <Card className="border-border bg-card">
           <CardContent className="p-6">
             <p className="text-xs text-muted-foreground mb-4">{t('modelPrices.pageDesc')}</p>
+
+            {(importPreview || importError) && (
+              <div className="mb-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 text-yellow-500" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="font-medium">{t('modelPrices.importStatus')}</div>
+                    {importError && <div className="text-destructive">{importError}</div>}
+                    {importPreview && (
+                      <>
+                        <div className="text-muted-foreground">
+                          {t('modelPrices.importSummary', {
+                            imported: importPreview.summary.imported,
+                            updated: importPreview.summary.updated,
+                            skipped: importPreview.summary.skipped,
+                          })}
+                        </div>
+                        {importPreview.errors.length > 0 && (
+                          <ul className="list-disc pl-5 text-destructive">
+                            {importPreview.errors.slice(0, 5).map((error) => (
+                              <li key={error}>{error}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {importPreview.warnings.length > 0 && (
+                          <ul className="list-disc pl-5 text-muted-foreground">
+                            {importPreview.warnings.slice(0, 5).map((warning) => (
+                              <li key={warning}>{warning}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {pendingImportFile && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={isPending || !importPreview.success}
+                              onClick={() => handleImportConfirm('skip')}
+                            >
+                              {t('modelPrices.importSkipExisting')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={isPending || !importPreview.success}
+                              onClick={() => handleImportConfirm('error')}
+                            >
+                              {t('modelPrices.importErrorOnConflict')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={isPending || !importPreview.success}
+                              onClick={() => handleImportConfirm('overwrite')}
+                            >
+                              {t('modelPrices.importOverwrite')}
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                              {t('modelPrices.importOverwriteWarning')}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Header row */}
             <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium border-b pb-2 mb-2">

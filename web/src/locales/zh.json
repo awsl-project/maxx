@@ -1688,7 +1688,13 @@
     "confirmDelete": "删除此价格后可能影响成本计算。",
     "upstreamImportResult": "上游价格导入完成：新增 {{created}}，更新 {{updated}}，失败 {{failed}}，跳过 {{skipped}}。",
     "resetToDefaults": "重置为默认",
-    "confirmReset": "将用内置默认价格替换当前价格。"
+    "confirmReset": "将用内置默认价格替换当前价格。",
+    "importStatus": "导入状态",
+    "importSummary": "预检查/结果：新增 {{imported}}，覆盖 {{updated}}，跳过 {{skipped}}。",
+    "importSkipExisting": "导入并跳过已有",
+    "importOverwrite": "导入并覆盖已有",
+    "importOverwriteWarning": "覆盖会创建新的价格版本；历史请求仍保留原 modelPriceId 审计链。",
+    "importErrorOnConflict": "导入并在冲突时报错"
   },
   "clientRoutes": {
     "claude": "Claude",

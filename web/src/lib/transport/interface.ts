@@ -113,6 +113,9 @@ import type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
+  ModelPriceExportFile,
+  ModelPriceImportOptions,
+  ModelPriceImportResult,
 } from './types';
 
 /**
@@ -388,6 +391,11 @@ export interface Transport {
   // ===== Model Price API =====
   getModelPrices(): Promise<ModelPrice[]>;
   getModelPrice(id: number): Promise<ModelPrice>;
+  exportModelPrices(): Promise<ModelPriceExportFile>;
+  importModelPrices(
+    file: ModelPriceExportFile,
+    options?: ModelPriceImportOptions,
+  ): Promise<ModelPriceImportResult>;
   createModelPrice(data: ModelPriceInput): Promise<ModelPrice>;
   updateModelPrice(id: number, data: ModelPriceInput): Promise<ModelPrice>;
   deleteModelPrice(id: number): Promise<void>;

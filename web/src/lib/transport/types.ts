@@ -1795,3 +1795,30 @@ export interface ModelPriceInput {
   outputPremiumNum?: number;
   outputPremiumDenom?: number;
 }
+
+export type ModelPriceExportEntry = Required<ModelPriceInput>;
+
+export interface ModelPriceExportFile {
+  type: 'maxx.model-prices';
+  version: number;
+  exportedAt: string;
+  prices: ModelPriceExportEntry[];
+}
+
+export interface ModelPriceImportOptions {
+  conflictStrategy?: 'skip' | 'overwrite' | 'error';
+  dryRun?: boolean;
+}
+
+export interface ModelPriceImportSummary {
+  imported: number;
+  skipped: number;
+  updated: number;
+}
+
+export interface ModelPriceImportResult {
+  success: boolean;
+  summary: ModelPriceImportSummary;
+  errors: string[];
+  warnings: string[];
+}

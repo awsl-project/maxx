@@ -1691,7 +1691,13 @@
     "confirmDelete": "Deleting this price may affect cost calculations.",
     "upstreamImportResult": "Upstream price import complete: {{created}} created, {{updated}} updated, {{failed}} failed, {{skipped}} skipped.",
     "resetToDefaults": "Reset to Defaults",
-    "confirmReset": "Replace current prices with built-in defaults."
+    "confirmReset": "Replace current prices with built-in defaults.",
+    "importStatus": "Import status",
+    "importSummary": "Preview/result: {{imported}} new, {{updated}} overwritten, {{skipped}} skipped.",
+    "importSkipExisting": "Import and skip existing",
+    "importOverwrite": "Import and overwrite",
+    "importOverwriteWarning": "Overwrite creates new price versions; historical requests keep their original audited modelPriceId.",
+    "importErrorOnConflict": "Import and error on conflicts"
   },
   "clientRoutes": {
     "claude": "Claude",

@@ -170,6 +170,9 @@ export type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
+  ModelPriceExportFile,
+  ModelPriceImportOptions,
+  ModelPriceImportResult,
 } from './types';
 
 export type { Transport, TransportType, TransportConfig } from './interface';

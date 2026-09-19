@@ -112,6 +112,9 @@ import type {
   PriceTable,
   ModelPrice,
   ModelPriceInput,
+  ModelPriceExportFile,
+  ModelPriceImportOptions,
+  ModelPriceImportResult,
 } from './types';
 
 export function serializeQueryParams(params: Record<string, unknown>): string {
@@ -1448,6 +1451,24 @@ export class HttpTransport implements Transport {
 
   async getModelPrice(id: number): Promise<ModelPrice> {
     const { data } = await this.client.get<ModelPrice>(`/model-prices/${id}`);
+    return data;
+  }
+
+  async exportModelPrices(): Promise<ModelPriceExportFile> {
+    const { data } = await this.adminClient.get<ModelPriceExportFile>('/model-prices/export');
+    return data;
+  }
+
+  async importModelPrices(
+    file: ModelPriceExportFile,
+    options: ModelPriceImportOptions = {},
+  ): Promise<ModelPriceImportResult> {
+    const params: Record<string, string> = {};
+    if (options.conflictStrategy) params.conflictStrategy = options.conflictStrategy;
+    if (options.dryRun !== undefined) params.dryRun = String(options.dryRun);
+    const query = serializeQueryParams(params);
+    const url = query ? `/model-prices/import?${query}` : '/model-prices/import';
+    const { data } = await this.adminClient.post<ModelPriceImportResult>(url, file);
     return data;
   }
 
