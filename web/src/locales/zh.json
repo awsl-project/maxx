@@ -1948,6 +1948,8 @@
     "smartMappingRetryUnavailable": "至少需要 2 个可命中的映射目标，才能启用智能映射轮询重试。",
     "smartMappingRetryLimit": "每模型重试次数",
     "smartMappingRetryLimitDesc": "当前映射模型连续失败达到该次数后，切换到下一个映射模型。",
+    "retryOpenAIPolicyFlaggedPrompt": "OpenAI 策略拦截时重试一次",
+    "retryOpenAIPolicyFlaggedPromptDesc": "开启后，OpenAI 兼容请求遇到明确的 prompt policy flagged 错误时仅重试一次；若重试仍失败则正常失败。不会改写 prompt，也不会因为该错误切换到其他提供商。",
     "responsesPassthrough": "透传 Responses 路径",
     "responsesPassthroughDesc": "Codex Responses 请求按客户端原始路径转发（如 /v1/responses），而不是硬编码 /responses。仅当上游只认 /responses、或 Base URL 已自带 /v1 时才需要关闭。",
     "responsesWebSocket": "支持 Responses WebSocket",

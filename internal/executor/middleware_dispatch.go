@@ -112,9 +112,11 @@ routeLoop:
 		// Unlike attempt it is never reset by smart-mapping model switches, so
 		// it bounds the whole provider visit rather than one candidate model.
 		providerAttempts := 0
+		policyFlaggedPromptRetryPending := false
+		policyFlaggedPromptRetried := false
 
 		for attempt := 0; ; {
-			if attempt > retryConfig.MaxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) {
+			if attempt > retryConfig.MaxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) && !policyFlaggedPromptRetryPending {
 				break
 			}
 			if !shouldSkipErrorCooldown(matchedRoute.Provider) {
@@ -149,6 +151,7 @@ routeLoop:
 				break
 			}
 
+			policyFlaggedPromptRetryPending = false
 			mappedModel := modelCandidates[modelCandidateIndex]
 			proxyReq.RouteID = matchedRoute.Route.ID
 			proxyReq.ProviderID = matchedRoute.Provider.ID
@@ -522,6 +525,37 @@ routeLoop:
 				return
 			}
 
+			if ok && shouldRetryOpenAIPolicyFlaggedPromptError(proxyErr, matchedRoute.Provider, currentClientType, policyFlaggedPromptRetried, responseCapture.WroteToClient()) {
+				policyFlaggedPromptRetried = true
+				policyFlaggedPromptRetryPending = true
+				attempt++
+				log.Printf("[Executor] policy_flagged_prompt_retry_once provider=%d model=%q", matchedRoute.Provider.ID, mappedModel)
+				continue
+			}
+
+			if ok && shouldStopOpenAIPolicyFlaggedPromptError(proxyErr, currentClientType) {
+				if policyFlaggedPromptRetried {
+					log.Printf("[Executor] OpenAI policy-flagged prompt retry already used; failing request after provider %d: %v", matchedRoute.Provider.ID, err)
+				} else {
+					log.Printf("[Executor] OpenAI policy-flagged prompt retry disabled; failing request after provider %d: %v", matchedRoute.Provider.ID, err)
+				}
+				proxyReq.Status = "FAILED"
+				proxyReq.EndTime = time.Now()
+				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
+				proxyReq.Error = err.Error()
+				if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+					proxyReq.StatusCode = proxyErr.HTTPStatusCode
+				}
+				clearProxyRequestDetail(proxyReq, clearDetail)
+				_ = e.proxyRequestRepo.Update(proxyReq)
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastProxyRequest(proxyReq)
+				}
+				state.lastErr = err
+				c.Err = err
+				return
+			}
+
 			if ok && forceRetryUpstreamErrorIfSafe(proxyErr, ctx, responseCapture.WroteToClient(), e.forceRetryUpstreamErrorsEnabled(retryConfig)) {
 				log.Printf("[Executor] Force retry upstream errors enabled; retrying provider-side error after provider %d: %v", matchedRoute.Provider.ID, err)
 			}
@@ -682,6 +716,29 @@ routeLoop:
 func executeWithProviderSlot(release func(), execute func() error) error {
 	defer release()
 	return execute()
+}
+
+func shouldRetryOpenAIPolicyFlaggedPromptError(proxyErr *domain.ProxyError, provider *domain.Provider, clientType domain.ClientType, alreadyRetried bool, responseCommitted bool) bool {
+	if alreadyRetried || responseCommitted || !providerRetryOpenAIPolicyFlaggedPrompt(provider) || clientType != domain.ClientTypeOpenAI {
+		return false
+	}
+	return isOpenAIPolicyFlaggedPromptError(proxyErr)
+}
+
+func shouldStopOpenAIPolicyFlaggedPromptError(proxyErr *domain.ProxyError, clientType domain.ClientType) bool {
+	return clientType == domain.ClientTypeOpenAI && isOpenAIPolicyFlaggedPromptError(proxyErr)
+}
+
+func providerRetryOpenAIPolicyFlaggedPrompt(provider *domain.Provider) bool {
+	return provider != nil && provider.Config != nil && provider.Config.RetryOpenAIPolicyFlaggedPrompt
+}
+
+func isOpenAIPolicyFlaggedPromptError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil {
+		return false
+	}
+	msg := strings.ToLower(proxyErr.Error())
+	return strings.Contains(msg, "invalid prompt: your prompt was flagged as potentially violating our usage policy")
 }
 
 func shouldDeferNetworkErrorCooldown(proxyErr *domain.ProxyError, attempt int, retryConfig *domain.RetryConfig) bool {

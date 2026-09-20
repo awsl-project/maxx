@@ -59,6 +59,9 @@ export function OpenRouterProviderView({
   const [consecutiveErrorFreezeThreshold, setConsecutiveErrorFreezeThreshold] = useState(
     normalizeConsecutiveErrorFreezeThreshold(provider.config?.consecutiveErrorFreezeThreshold),
   );
+  const [retryOpenAIPolicyFlaggedPrompt, setRetryOpenAIPolicyFlaggedPrompt] = useState(
+    !!provider.config?.retryOpenAIPolicyFlaggedPrompt,
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -86,6 +89,7 @@ export function OpenRouterProviderView({
           disableErrorCooldown,
           consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
           consecutiveErrorFreezeThreshold,
+          retryOpenAIPolicyFlaggedPrompt,
           openrouter: {
             // Blank preserves the stored key (backend keeps existing secret).
             apiKey: apiKey.trim(),
@@ -247,6 +251,20 @@ export function OpenRouterProviderView({
               onEnabledChange={setConsecutiveErrorFreezeEnabled}
               onThresholdChange={setConsecutiveErrorFreezeThreshold}
             />
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.retryOpenAIPolicyFlaggedPrompt')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.retryOpenAIPolicyFlaggedPromptDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={retryOpenAIPolicyFlaggedPrompt}
+                onCheckedChange={setRetryOpenAIPolicyFlaggedPrompt}
+              />
+            </div>
           </div>
 
           {saveStatus === 'error' && (

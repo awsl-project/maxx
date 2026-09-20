@@ -49,6 +49,9 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     !!provider.config?.disableErrorCooldown,
   );
+  const [retryOpenAIPolicyFlaggedPrompt, setRetryOpenAIPolicyFlaggedPrompt] = useState(
+    !!provider.config?.retryOpenAIPolicyFlaggedPrompt,
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -76,6 +79,7 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
         maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
+          retryOpenAIPolicyFlaggedPrompt,
           zai: {
             // Blank preserves the stored key (backend keeps existing secret).
             apiKey: apiKey.trim(),
@@ -279,6 +283,20 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
                 </p>
               </div>
               <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.retryOpenAIPolicyFlaggedPrompt')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.retryOpenAIPolicyFlaggedPromptDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={retryOpenAIPolicyFlaggedPrompt}
+                onCheckedChange={setRetryOpenAIPolicyFlaggedPrompt}
+              />
             </div>
           </div>
 

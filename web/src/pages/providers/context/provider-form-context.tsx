@@ -45,6 +45,7 @@ const initialFormData: ProviderFormData = {
   disableErrorCooldown: false,
   smartMappingRetryEnabled: false,
   smartMappingRetryLimit: 1,
+  retryOpenAIPolicyFlaggedPrompt: false,
   reasoning: undefined,
   maxConcurrency: 0,
   proxyURL: '',

@@ -440,6 +440,10 @@ type ProviderConfig struct {
 	SmartMappingRetryEnabled bool `json:"smartMappingRetryEnabled,omitempty"`
 	// 每个映射模型失败多少次后切换到下一个候选模型。
 	SmartMappingRetryLimit int `json:"smartMappingRetryLimit,omitempty"`
+	// RetryOpenAIPolicyFlaggedPrompt retries one OpenAI-compatible upstream attempt
+	// when the upstream returns the explicit OpenAI policy-flagged prompt error.
+	// It is opt-in and intentionally limited to one same-provider retry.
+	RetryOpenAIPolicyFlaggedPrompt bool `json:"retryOpenAIPolicyFlaggedPrompt,omitempty"`
 	// ProxyURL is an optional explicit outbound proxy for this provider.
 	// Empty preserves the adapter default. Supported schemes: http, https, socks5, socks5h.
 	ProxyURL string `json:"proxyURL,omitempty"`
