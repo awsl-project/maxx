@@ -281,6 +281,7 @@ export interface ProviderConfig {
   consecutiveErrorFreezeThreshold?: number;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  retryOpenAIPolicyFlaggedPrompt?: boolean;
   reasoning?: ReasoningPolicy;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;

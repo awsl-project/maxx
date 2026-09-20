@@ -88,6 +88,119 @@ func TestDispatchForceRetryUpstreamErrorsRetryConfigRetriesProviderError(t *test
 	}
 }
 
+func TestDispatchRetryOpenAIPolicyFlaggedPromptRetriesOnceWhenEnabled(t *testing.T) {
+	policyErr := domain.NewProxyErrorWithMessage(errors.New("SSE error (code=0): Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt: https://platform.openai.com/docs/guides/reasoning#advice-on-prompting"), false, "Invalid prompt: your prompt was flagged as potentially violating our usage policy")
+	policyErr.Scope = domain.ScopeProvider
+	policyErr.Reason = domain.CooldownReasonServerError
+
+	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		&forceRetrySequenceAdapter{errs: []error{policyErr}},
+		&domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	)
+	storedState, ok := c.Get(flow.KeyExecutorState)
+	if !ok {
+		t.Fatal("executor state missing")
+	}
+	state := storedState.(*execState)
+	state.routes[0].Provider.Config = &domain.ProviderConfig{RetryOpenAIPolicyFlaggedPrompt: true}
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want one retry", adapter.calls)
+	}
+	if proxyReq.Status != "COMPLETED" {
+		t.Fatalf("proxy request status = %q, want COMPLETED", proxyReq.Status)
+	}
+}
+
+func TestDispatchRetryOpenAIPolicyFlaggedPromptStopsAfterOneRetry(t *testing.T) {
+	policyErr := domain.NewProxyErrorWithMessage(errors.New("SSE error (code=0): Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt"), false, "Invalid prompt: your prompt was flagged as potentially violating our usage policy")
+	policyErr.Scope = domain.ScopeProvider
+	policyErr.Reason = domain.CooldownReasonServerError
+
+	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		&forceRetrySequenceAdapter{errs: []error{policyErr, policyErr, nil}},
+		&domain.RetryConfig{MaxRetries: 3, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	)
+	storedState, ok := c.Get(flow.KeyExecutorState)
+	if !ok {
+		t.Fatal("executor state missing")
+	}
+	state := storedState.(*execState)
+	state.routes[0].Provider.Config = &domain.ProviderConfig{RetryOpenAIPolicyFlaggedPrompt: true}
+	second := &forceRetrySequenceAdapter{}
+	state.routes = append(state.routes, &router.MatchedRoute{
+		Route:           &domain.Route{ID: 11, TenantID: domain.DefaultTenantID, ProviderID: 21, ClientType: domain.ClientTypeOpenAI},
+		Provider:        &domain.Provider{ID: 21, TenantID: domain.DefaultTenantID, Type: "custom", Name: "custom-success"},
+		ProviderAdapter: second,
+		RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	})
+
+	e.dispatch(c)
+
+	if c.Err == nil {
+		t.Fatal("expected policy flagged prompt error after one retry")
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want exactly 2", adapter.calls)
+	}
+	if second.calls != 0 {
+		t.Fatalf("second route calls = %d, want 0", second.calls)
+	}
+	if proxyReq.Status != "FAILED" {
+		t.Fatalf("proxy request status = %q, want FAILED", proxyReq.Status)
+	}
+}
+
+func TestDispatchRetryOpenAIPolicyFlaggedPromptDisabledDoesNotRetry(t *testing.T) {
+	policyErr := domain.NewProxyErrorWithMessage(errors.New("SSE error (code=0): Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt"), false, "Invalid prompt: your prompt was flagged as potentially violating our usage policy")
+	policyErr.Scope = domain.ScopeProvider
+	policyErr.Reason = domain.CooldownReasonServerError
+
+	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		&forceRetrySequenceAdapter{errs: []error{policyErr, nil}},
+		&domain.RetryConfig{MaxRetries: 1, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	)
+	storedState, ok := c.Get(flow.KeyExecutorState)
+	if !ok {
+		t.Fatal("executor state missing")
+	}
+	state := storedState.(*execState)
+	state.routes[0].Provider.Config = &domain.ProviderConfig{RetryOpenAIPolicyFlaggedPrompt: false}
+	second := &forceRetrySequenceAdapter{}
+	state.routes = append(state.routes, &router.MatchedRoute{
+		Route:           &domain.Route{ID: 11, TenantID: domain.DefaultTenantID, ProviderID: 21, ClientType: domain.ClientTypeOpenAI},
+		Provider:        &domain.Provider{ID: 21, TenantID: domain.DefaultTenantID, Type: "custom", Name: "custom-success"},
+		ProviderAdapter: second,
+		RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	})
+
+	e.dispatch(c)
+
+	if c.Err == nil {
+		t.Fatal("expected non-retryable policy flagged prompt error")
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	}
+	if second.calls != 0 {
+		t.Fatalf("second route calls = %d, want 0", second.calls)
+	}
+	if proxyReq.Status != "FAILED" {
+		t.Fatalf("proxy request status = %q, want FAILED", proxyReq.Status)
+	}
+}
+
 func TestDispatchForceRetryUpstreamErrorsSettingOffPreservesNonRetryableProviderError(t *testing.T) {
 	retryErr := domain.NewProxyErrorWithMessage(errors.New("upstream error"), false, "failed to connect to upstream")
 	retryErr.Scope = domain.ScopeProvider

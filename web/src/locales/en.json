@@ -1951,6 +1951,8 @@
     "smartMappingRetryUnavailable": "At least 2 matching mapped targets are required to enable smart mapping retry rotation.",
     "smartMappingRetryLimit": "Retries per mapped model",
     "smartMappingRetryLimitDesc": "Switch to the next mapped model after this many consecutive failures for the current mapped model.",
+    "retryOpenAIPolicyFlaggedPrompt": "Retry OpenAI policy-flagged prompt once",
+    "retryOpenAIPolicyFlaggedPromptDesc": "When enabled, OpenAI-compatible requests retry once on the explicit policy-flagged prompt error, then fail normally if the retry also fails. The prompt is not rewritten and no other provider is tried for this error.",
     "responsesPassthrough": "Passthrough Responses Path",
     "responsesPassthroughDesc": "For Codex Responses requests, forward the client's original path (e.g. /v1/responses) instead of a hardcoded /responses. Turn off only for upstreams that expect /responses, or when the Base URL already ends with /v1.",
     "responsesWebSocket": "Support Responses WebSocket",

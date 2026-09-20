@@ -166,6 +166,7 @@ export function CustomConfigStep() {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
+          retryOpenAIPolicyFlaggedPrompt: !!formData.retryOpenAIPolicyFlaggedPrompt,
           reasoning: formData.reasoning,
           proxyURL: formData.proxyURL?.trim() || undefined,
           custom: {
@@ -412,6 +413,22 @@ export function CustomConfigStep() {
               value={formData.reasoning}
               onChange={(reasoning) => updateFormData({ reasoning })}
             />
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.retryOpenAIPolicyFlaggedPrompt')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.retryOpenAIPolicyFlaggedPromptDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={!!formData.retryOpenAIPolicyFlaggedPrompt}
+                onCheckedChange={(checked) =>
+                  updateFormData({ retryOpenAIPolicyFlaggedPrompt: checked })
+                }
+              />
+            </div>
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">
                 <div className="text-sm font-medium text-foreground">

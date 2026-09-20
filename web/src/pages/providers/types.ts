@@ -387,6 +387,7 @@ export type ProviderFormData = {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  retryOpenAIPolicyFlaggedPrompt?: boolean;
   reasoning?: ReasoningPolicy;
   maxConcurrency?: number;
   proxyURL?: string;
