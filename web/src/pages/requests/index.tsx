@@ -174,6 +174,19 @@ function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'
   return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
 }
 
+function getRequestUserAgent(request: Pick<ProxyRequest, 'requestInfo'>): string {
+  const headers = request.requestInfo?.headers;
+  if (!headers) {
+    return '';
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() === 'user-agent') {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
 /** Reads a positive numeric value from localStorage, returning undefined if absent or invalid. */
 function readStoredNumber(key: string): number | undefined {
   if (typeof window === 'undefined') {
@@ -336,7 +349,8 @@ export function RequestsPage() {
     [user?.id, user?.tenantID],
   );
   const autoNoisyErrorCleanupStorageKey = useMemo(
-    () => buildScopedStorageKey(REQUEST_AUTO_NOISY_ERROR_CLEANUP_STORAGE_KEY, user?.tenantID, user?.id),
+    () =>
+      buildScopedStorageKey(REQUEST_AUTO_NOISY_ERROR_CLEANUP_STORAGE_KEY, user?.tenantID, user?.id),
     [user?.id, user?.tenantID],
   );
   const columnPrefsSettingKey = useMemo(
@@ -1559,6 +1573,19 @@ function LogRow({
             <ProtocolBadge request={request} />
           </TableCell>
         );
+      case 'userAgent': {
+        const userAgent = getRequestUserAgent(request);
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <span
+              className="block truncate text-xs font-mono text-muted-foreground"
+              title={userAgent || undefined}
+            >
+              {userAgent || '-'}
+            </span>
+          </TableCell>
+        );
+      }
       case 'reasoningEffort':
         return (
           <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
@@ -1789,6 +1816,7 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
       ? formatTime(request.endTime)
       : formatTime(request.startTime || request.createdAt);
   const modelChain = getRequestModelChain(request);
+  const userAgent = getRequestUserAgent(request);
 
   return (
     <div
@@ -1830,9 +1858,11 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
         <span>{formatDurationMs(request.duration)}</span>
         <span className="ml-auto">{formatCostShort(request.cost)}</span>
       </div>
-      {/* Row 3: Provider */}
-      {providerName && (
-        <div className="text-xs text-muted-foreground mt-1 truncate">{providerName}</div>
+      {/* Row 3: Provider + User-Agent */}
+      {(providerName || userAgent) && (
+        <div className="text-xs text-muted-foreground mt-1 truncate">
+          {[providerName, userAgent && `UA: ${userAgent}`].filter(Boolean).join(' · ')}
+        </div>
       )}
     </div>
   );

@@ -34,6 +34,7 @@ describe('column-prefs', () => {
     expect(prefs.order[0]).toBe('model');
     expect(prefs.order[1]).toBe('time');
     expect(prefs.order).toContain('protocol');
+    expect(prefs.order).toContain('userAgent');
     expect(prefs.order).not.toContain('unknown');
     expect(prefs.widths.model).toBe(160);
     expect(prefs.visibility.model).toBe(false);
@@ -49,9 +50,10 @@ describe('column-prefs', () => {
   });
 
   it('forces at least one visible column', () => {
-    const visibility = Object.fromEntries(
-      DEFAULT_COLUMN_ORDER.map((id) => [id, false]),
-    ) as Record<string, boolean>;
+    const visibility = Object.fromEntries(DEFAULT_COLUMN_ORDER.map((id) => [id, false])) as Record<
+      string,
+      boolean
+    >;
     const prefs = normalizeColumnPrefs({ visibility });
     expect(prefs.visibility.time).toBe(true);
   });
@@ -64,6 +66,7 @@ describe('column-prefs', () => {
       apiTokenAuthEnabled: true,
     });
     expect(visible).toContain('protocol');
+    expect(visible).toContain('userAgent');
     expect(visible).not.toContain('project');
     expect(visible).not.toContain('token');
   });
