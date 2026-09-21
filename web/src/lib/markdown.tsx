@@ -1,16 +1,194 @@
 import { Fragment, type ReactNode } from 'react';
 
+const htmlTagNamePattern = '[A-Za-z][A-Za-z0-9:-]*';
+const allowedHtmlTags = new Set([
+  'a',
+  'b',
+  'blockquote',
+  'br',
+  'code',
+  'del',
+  'div',
+  'em',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hr',
+  'i',
+  'img',
+  'li',
+  'mark',
+  'ol',
+  'p',
+  'pre',
+  's',
+  'small',
+  'span',
+  'strong',
+  'sub',
+  'sup',
+  'table',
+  'tbody',
+  'td',
+  'th',
+  'thead',
+  'tr',
+  'u',
+  'ul',
+]);
+const uriAttributes = new Set(['href', 'src']);
+const allowedStyleProperties = new Set([
+  'background-color',
+  'color',
+  'font-size',
+  'font-style',
+  'font-weight',
+  'text-align',
+  'text-decoration',
+]);
+
+function sanitizeHtml(markup: string): string {
+  return markup
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<\s*(script|style|iframe|object|embed|svg|math)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*\/?\s*([A-Za-z][A-Za-z0-9:-]*)([^>]*)>/g, (tag, rawName, rawAttrs) => {
+      const tagName = String(rawName).toLowerCase();
+      if (!allowedHtmlTags.has(tagName)) return '';
+      const isClosing = /^<\s*\//.test(tag);
+      if (isClosing) return `</${tagName}>`;
+      const isSelfClosing =
+        /\/\s*>$/.test(tag) || tagName === 'br' || tagName === 'hr' || tagName === 'img';
+      const attrs = sanitizeHtmlAttributes(tagName, String(rawAttrs || ''));
+      return `<${tagName}${attrs}${isSelfClosing ? ' /' : ''}>`;
+    });
+}
+
+function sanitizeHtmlAttributes(tagName: string, attrs: string): string {
+  const sanitized: string[] = [];
+  attrs.replace(
+    /([A-Za-z_:][A-Za-z0-9_:.-]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g,
+    (_match, rawName: string, rawValue: string | undefined) => {
+      const name = rawName.toLowerCase();
+      if (name.startsWith('on') || name === 'srcdoc' || name === 'formaction') return '';
+      if (name === 'target' || name === 'rel') return '';
+      if (tagName !== 'a' && tagName !== 'img' && uriAttributes.has(name)) return '';
+      if (
+        !['alt', 'colspan', 'height', 'href', 'rowspan', 'src', 'style', 'title', 'width'].includes(
+          name,
+        )
+      ) {
+        return '';
+      }
+      const value = unquoteHtmlAttr(rawValue || '');
+      if (uriAttributes.has(name) && !isSafeHtmlUri(value, tagName === 'img')) return '';
+      if (name === 'style') {
+        const style = sanitizeInlineStyle(value);
+        if (!style) return '';
+        sanitized.push(` ${name}="${escapeHtmlAttr(style)}"`);
+        return '';
+      }
+      sanitized.push(` ${name}="${escapeHtmlAttr(value)}"`);
+      if (tagName === 'a' && name === 'href') sanitized.push(' target="_blank" rel="noreferrer"');
+      return '';
+    },
+  );
+  return sanitized.join('');
+}
+
+function unquoteHtmlAttr(value: string): string {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function isSafeHtmlUri(value: string, allowDataImage: boolean): boolean {
+  const trimmed = [...value.trim()].filter((char) => char > ' ' && char !== '\u007f').join('');
+  if (!trimmed) return false;
+  if (
+    trimmed.startsWith('#') ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../')
+  ) {
+    return true;
+  }
+  if (/^(https?:|mailto:|tel:)/i.test(trimmed)) return true;
+  return (
+    allowDataImage && /^data:image\/(png|gif|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)
+  );
+}
+
+function sanitizeInlineStyle(value: string): string {
+  const declarations: string[] = [];
+  value.split(';').forEach((part) => {
+    const [rawProperty, ...rawValueParts] = part.split(':');
+    if (!rawProperty || rawValueParts.length === 0) return;
+    const property = rawProperty.trim().toLowerCase();
+    const styleValue = rawValueParts.join(':').trim();
+    if (!allowedStyleProperties.has(property)) return;
+    if (!styleValue || /url\s*\(|expression\s*\(|javascript:/i.test(styleValue)) return;
+    declarations.push(`${property}: ${styleValue}`);
+  });
+  return declarations.join('; ');
+}
+
+function renderHtml(markup: string, key: string, block = false): ReactNode {
+  const sanitized = sanitizeHtml(markup);
+  if (!sanitized) return null;
+  const className = block
+    ? 'prose prose-sm max-w-none text-foreground [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1'
+    : undefined;
+  if (block) {
+    return <div key={key} className={className} dangerouslySetInnerHTML={{ __html: sanitized }} />;
+  }
+  return <span key={key} dangerouslySetInnerHTML={{ __html: sanitized }} />;
+}
+
+function looksLikeHtmlLine(line: string): boolean {
+  return new RegExp(`^<\\/?${htmlTagNamePattern}(?:\\s[^>]*)?>`).test(line);
+}
+
+function getOpenHtmlBlockTag(line: string): string | null {
+  const match = new RegExp(`^<(${htmlTagNamePattern})(?:\\s[^>]*)?>`, 'i').exec(line);
+  if (!match) return null;
+  const tagName = match[1].toLowerCase();
+  if (['br', 'hr', 'img'].includes(tagName) || /\/\s*>$/.test(line)) return null;
+  if (new RegExp(`</\\s*${tagName}\\s*>`, 'i').test(line)) return null;
+  return tagName;
+}
+
+function closesHtmlBlock(line: string, tagName: string): boolean {
+  return new RegExp(`</\\s*${tagName}\\s*>`, 'i').test(line);
+}
+
 function splitInline(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   const pattern =
-    /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g;
+    /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|<([A-Za-z][A-Za-z0-9:-]*)(?:\s[^>]*)?>[\s\S]*?<\/\2>|<[A-Za-z][A-Za-z0-9:-]*(?:\s[^>]*)?\/?>)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
     const token = match[0];
     const key = `${match.index}-${token}`;
-    if (token.startsWith('[')) {
+    if (token.startsWith('<')) {
+      nodes.push(renderHtml(token, key));
+    } else if (token.startsWith('[')) {
       const link = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/.exec(token);
       if (link) {
         nodes.push(
@@ -59,6 +237,8 @@ export function renderMarkdownBlocks(markdown: string): ReactNode[] {
   let list: string[] = [];
   let quote: string[] = [];
   let code: string[] | null = null;
+  let htmlBlock: string[] | null = null;
+  let htmlBlockTag: string | null = null;
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
@@ -109,8 +289,25 @@ export function renderMarkdownBlocks(markdown: string): ReactNode[] {
     flushQuote();
   };
 
+  const flushHtmlBlock = () => {
+    if (!htmlBlock) return;
+    blocks.push(renderHtml(htmlBlock.join('\n'), `html-${blocks.length}`, true));
+    htmlBlock = null;
+    htmlBlockTag = null;
+  };
+
   lines.forEach((rawLine) => {
     const line = rawLine.trimEnd();
+    const trimmedLine = line.trim();
+
+    if (htmlBlock) {
+      htmlBlock.push(line);
+      if (htmlBlockTag && closesHtmlBlock(trimmedLine, htmlBlockTag)) {
+        flushHtmlBlock();
+      }
+      return;
+    }
+
     if (code) {
       if (line.trim().startsWith('```')) {
         blocks.push(
@@ -134,6 +331,17 @@ export function renderMarkdownBlocks(markdown: string): ReactNode[] {
     }
     if (!line.trim()) {
       flushFlow();
+      return;
+    }
+    if (looksLikeHtmlLine(trimmedLine)) {
+      flushFlow();
+      const openHtmlBlockTag = getOpenHtmlBlockTag(trimmedLine);
+      if (openHtmlBlockTag) {
+        htmlBlock = [trimmedLine];
+        htmlBlockTag = openHtmlBlockTag;
+      } else {
+        blocks.push(renderHtml(trimmedLine, `html-${blocks.length}`, true));
+      }
       return;
     }
     const heading = /^(#{1,3})\s+(.+)$/.exec(line.trim());
@@ -179,6 +387,8 @@ export function renderMarkdownBlocks(markdown: string): ReactNode[] {
     flushQuote();
     paragraph.push(line.trim());
   });
+
+  flushHtmlBlock();
 
   if (code !== null) {
     const unclosedCode = code as string[];
