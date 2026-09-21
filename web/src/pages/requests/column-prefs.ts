@@ -3,6 +3,7 @@ export type RequestColumnId =
   | 'client'
   | 'model'
   | 'protocol'
+  | 'userAgent'
   | 'reasoningEffort'
   | 'project'
   | 'token'
@@ -23,6 +24,7 @@ export const REQUEST_COLUMN_IDS: readonly RequestColumnId[] = [
   'client',
   'model',
   'protocol',
+  'userAgent',
   'reasoningEffort',
   'project',
   'token',
@@ -48,6 +50,7 @@ export const DEFAULT_COLUMN_WIDTHS: Readonly<Record<RequestColumnId, number>> = 
   client: 120,
   model: 140,
   protocol: 88,
+  userAgent: 180,
   reasoningEffort: 90,
   project: 100,
   token: 100,
@@ -69,6 +72,7 @@ export const MIN_COLUMN_WIDTHS: Readonly<Record<RequestColumnId, number>> = {
   client: 80,
   model: 90,
   protocol: 64,
+  userAgent: 100,
   reasoningEffort: 60,
   project: 70,
   token: 70,
@@ -93,6 +97,7 @@ export const DEFAULT_COLUMN_VISIBILITY: Readonly<Record<RequestColumnId, boolean
   client: true,
   model: true,
   protocol: true,
+  userAgent: true,
   reasoningEffort: true,
   project: true,
   token: true,
@@ -292,6 +297,8 @@ export function columnLabelKey(id: RequestColumnId): string {
       return 'requests.model';
     case 'protocol':
       return 'requests.protocol';
+    case 'userAgent':
+      return 'requests.userAgent';
     case 'reasoningEffort':
       return 'requests.reasoningEffort';
     case 'project':

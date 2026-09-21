@@ -339,6 +339,7 @@
     "client": "Client",
     "model": "Model",
     "protocol": "Protocol",
+    "userAgent": "User-Agent",
     "protocolHTTP": "HTTP",
     "protocolSSE": "SSE",
     "protocolWebSocket": "WebSocket",

@@ -338,6 +338,7 @@
     "client": "客户端",
     "model": "模型",
     "protocol": "协议",
+    "userAgent": "User-Agent",
     "protocolHTTP": "HTTP",
     "protocolSSE": "SSE",
     "protocolWebSocket": "WebSocket",
