@@ -88,6 +88,58 @@ func TestDispatchForceRetryUpstreamErrorsRetryConfigRetriesProviderError(t *test
 	}
 }
 
+func TestDispatchForceRetryUpstreamErrorsAddsOneRetryBudgetForConnectionError(t *testing.T) {
+	retryErr := domain.NewUpstreamConnectionError("failed to connect to upstream")
+
+	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		&forceRetrySequenceAdapter{errs: []error{retryErr}},
+		&domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0, ForceRetryUpstreamErrors: true},
+	)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	if proxyReq.Status != "COMPLETED" {
+		t.Fatalf("proxy request status = %q, want COMPLETED", proxyReq.Status)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 2 {
+		t.Fatalf("attempt count = %d, want 2", proxyReq.ProxyUpstreamAttemptCount)
+	}
+}
+
+func TestDispatchForceRetryUpstreamErrorsOffKeepsZeroRetryBudgetForConnectionError(t *testing.T) {
+	retryErr := domain.NewUpstreamConnectionError("failed to connect to upstream")
+
+	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		&forceRetrySequenceAdapter{errs: []error{retryErr, nil}},
+		&domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0, ForceRetryUpstreamErrors: false},
+	)
+
+	e.dispatch(c)
+
+	if c.Err == nil {
+		t.Fatal("expected connection error without retry budget")
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	}
+	if proxyReq.Status != "FAILED" {
+		t.Fatalf("proxy request status = %q, want FAILED", proxyReq.Status)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 1 {
+		t.Fatalf("attempt count = %d, want 1", proxyReq.ProxyUpstreamAttemptCount)
+	}
+}
+
 func TestDispatchRetryOpenAIPolicyFlaggedPromptRetriesOnceWhenEnabled(t *testing.T) {
 	policyErr := domain.NewProxyErrorWithMessage(errors.New("SSE error (code=0): Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt: https://platform.openai.com/docs/guides/reasoning#advice-on-prompting"), false, "Invalid prompt: your prompt was flagged as potentially violating our usage policy")
 	policyErr.Scope = domain.ScopeProvider

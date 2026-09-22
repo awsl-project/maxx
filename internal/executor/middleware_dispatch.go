@@ -107,6 +107,7 @@ routeLoop:
 			modelCandidateIndex = e.smartMappingStartIndex(smartMappingKey, modelCandidates)
 		}
 		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
+		maxRetries := effectiveMaxRetries(retryConfig)
 
 		// providerAttempts counts every upstream call made against this route.
 		// Unlike attempt it is never reset by smart-mapping model switches, so
@@ -116,7 +117,7 @@ routeLoop:
 		policyFlaggedPromptRetried := false
 
 		for attempt := 0; ; {
-			if attempt > retryConfig.MaxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) && !policyFlaggedPromptRetryPending {
+			if attempt > maxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) && !policyFlaggedPromptRetryPending {
 				break
 			}
 			if !shouldSkipErrorCooldown(matchedRoute.Provider) {
@@ -606,7 +607,7 @@ routeLoop:
 							"providerID": matchedRoute.Provider.ID,
 						})
 					}
-				} else if !shouldSkipErrorCooldownUpdate(matchedRoute.Provider, proxyErr) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, retryConfig) {
+				} else if !shouldSkipErrorCooldownUpdate(matchedRoute.Provider, proxyErr) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, maxRetries) {
 					e.handleCooldown(proxyErr, matchedRoute.Provider, currentClientType, mappedModel)
 					if e.broadcaster != nil {
 						e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
@@ -633,7 +634,7 @@ routeLoop:
 					proxyErrorScopeForLog(proxyErr),
 					proxyErrorReasonForLog(proxyErr),
 					attempt,
-					retryConfig.MaxRetries,
+					maxRetries,
 					ctx.Err(),
 					responseCapture.WroteToClient(),
 					err,
@@ -659,7 +660,7 @@ routeLoop:
 				break
 			}
 
-			if attempt < retryConfig.MaxRetries || shouldSkipErrorCooldown(matchedRoute.Provider) {
+			if attempt < maxRetries || shouldSkipErrorCooldown(matchedRoute.Provider) {
 				waitTime := e.calculateBackoff(retryConfig, attempt)
 				if proxyErr.RetryAfter > 0 {
 					waitTime = proxyErr.RetryAfter
@@ -741,16 +742,12 @@ func isOpenAIPolicyFlaggedPromptError(proxyErr *domain.ProxyError) bool {
 	return strings.Contains(msg, "invalid prompt: your prompt was flagged as potentially violating our usage policy")
 }
 
-func shouldDeferNetworkErrorCooldown(proxyErr *domain.ProxyError, attempt int, retryConfig *domain.RetryConfig) bool {
+func shouldDeferNetworkErrorCooldown(proxyErr *domain.ProxyError, attempt int, maxRetries int) bool {
 	if proxyErr == nil || !proxyErr.Retryable || proxyErr.Reason != domain.CooldownReasonNetworkError {
 		return false
 	}
 	if proxyErr.CooldownUntil != nil || proxyErr.RetryAfter > 0 {
 		return false
-	}
-	maxRetries := 0
-	if retryConfig != nil {
-		maxRetries = retryConfig.MaxRetries
 	}
 	return attempt < maxRetries
 }

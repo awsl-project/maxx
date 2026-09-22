@@ -16,6 +16,21 @@ func (e *Executor) forceRetryUpstreamErrorsEnabled(config *domain.RetryConfig) b
 	return config != nil && config.ForceRetryUpstreamErrors
 }
 
+// effectiveMaxRetries preserves the configured retry budget by default. When a
+// retry policy explicitly opts into ForceRetryUpstreamErrors, make that opt-in
+// meaningful even for configs with MaxRetries=0 by allowing one safe upstream
+// retry; request/key/client guards still decide whether a specific error can use
+// that budget.
+func effectiveMaxRetries(config *domain.RetryConfig) int {
+	if config == nil {
+		return 0
+	}
+	if config.ForceRetryUpstreamErrors && config.MaxRetries < 1 {
+		return 1
+	}
+	return config.MaxRetries
+}
+
 // forceRetryUpstreamErrorIfSafe upgrades only upstream/provider-side failures
 // to retryable when the matched retry policy enables it. Hard safety boundaries stay
 // intact: request/client errors, auth/key errors, canceled request contexts,
