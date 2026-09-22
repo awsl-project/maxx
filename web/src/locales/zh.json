@@ -1620,7 +1620,17 @@
     "userPanelAnnouncementContent": "公告内容",
     "userPanelAnnouncementPlaceholder": "填写 Markdown 公告内容，例如：\n# 服务公告\n- 维护时间：23:00-23:30\n- 请提前保存长任务",
     "userPanelAnnouncementPreview": "预览",
-    "userPanelAnnouncementEmptyPreview": "公告内容为空时，用户控制台不会显示公告图标。"
+    "userPanelAnnouncementEmptyPreview": "公告内容为空时，用户控制台不会显示公告图标。",
+    "globalUserAgent": "全局 User-Agent",
+    "globalUserAgentDesc": "可选地覆写代理请求发给上游提供商时使用的 User-Agent。",
+    "enableGlobalUserAgentOverride": "覆写请求 User-Agent",
+    "enableGlobalUserAgentOverrideDesc": "默认关闭。开启后，Maxx 会在转发上游前把客户端请求的 User-Agent 替换成这里配置的值。",
+    "globalUserAgentValue": "User-Agent 值",
+    "globalUserAgentPlaceholder": "Mozilla/5.0 ... Chrome/...",
+    "globalUserAgentHint": "Requests tab 会展示最终生效的 User-Agent，因此被覆写的请求会显示这里配置的值。",
+    "globalUserAgentRequired": "开启覆写前需要填写 User-Agent 值。",
+    "globalUserAgentTooLong": "User-Agent 不能超过 512 个字符。",
+    "globalUserAgentInvalid": "User-Agent 不能包含换行符。"
   },
   "modelMappings": {
     "title": "模型映射",

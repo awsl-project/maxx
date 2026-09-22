@@ -40,6 +40,9 @@ func ResolveUpstreamUserAgent(c *Ctx, targetDefault string) string {
 	if c == nil {
 		return ""
 	}
+	if override := GetGlobalUserAgentOverride(c); override != "" {
+		return override
+	}
 	if IsProtocolConversion(c) {
 		return targetDefault
 	}
@@ -47,6 +50,18 @@ func ResolveUpstreamUserAgent(c *Ctx, targetDefault string) string {
 		return ""
 	}
 	return c.Request.Header.Get("User-Agent")
+}
+
+func GetGlobalUserAgentOverride(c *Ctx) string {
+	if c == nil {
+		return ""
+	}
+	if v, ok := c.Get(KeyGlobalUserAgentOverride); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 func GetSessionID(c *Ctx) string {

@@ -346,6 +346,10 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	// 体可达数十 MB,这份拷贝纯属浪费)。真正需要独立副本的下游(converting_writer)
 	// 已自行 Clone。
 	originalBody := body
+	if ua := h.globalUserAgentOverride(); ua != "" {
+		r.Header.Set("User-Agent", ua)
+		c.Set(flow.KeyGlobalUserAgentOverride, ua)
+	}
 
 	c.Set(flow.KeyClientType, clientType)
 	c.Set(flow.KeySessionID, sessionID)
@@ -481,6 +485,20 @@ func normalizeOpenAIChatCompletionsPayload(body []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return converted, true
+}
+
+func (h *ProxyHandler) globalUserAgentOverride() string {
+	if h == nil || h.settingRepo == nil {
+		return ""
+	}
+	if !systemsettingcache.GetBoolean(h.settingRepo, domain.SettingKeyGlobalUserAgentOverrideEnabled) {
+		return ""
+	}
+	value, err := h.settingRepo.Get(domain.SettingKeyGlobalUserAgent)
+	if err != nil {
+		return ""
+	}
+	return domain.NormalizeGlobalUserAgent(value)
 }
 
 func (h *ProxyHandler) isProxyRequestsDisabled() bool {

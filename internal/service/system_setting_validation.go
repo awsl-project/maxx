@@ -13,8 +13,10 @@ func validateSystemSettingValue(key, value string) error {
 	switch key {
 	case domain.SettingKeyReasoningPolicy:
 		return reqpolicy.ValidatePolicyJSON(value)
-	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyOpenAIChatStreamTimeoutsEnabled, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyStrictSupportModelsRoutingEnabled, domain.SettingKeyProxyRequestsDisabled, domain.SettingKeyUserPanelDailyCheckInEnabled, domain.SettingKeyExternalModelListEnabled, domain.SettingKeyInviteRegistrationAutoApproveEnabled, domain.SettingKeyProxyManagementEnabled:
+	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyOpenAIChatStreamTimeoutsEnabled, domain.SettingKeyGlobalUserAgentOverrideEnabled, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyStrictSupportModelsRoutingEnabled, domain.SettingKeyProxyRequestsDisabled, domain.SettingKeyUserPanelDailyCheckInEnabled, domain.SettingKeyExternalModelListEnabled, domain.SettingKeyInviteRegistrationAutoApproveEnabled, domain.SettingKeyProxyManagementEnabled:
 		return validateBooleanSystemSetting(key, value)
+	case domain.SettingKeyGlobalUserAgent:
+		return domain.ValidateGlobalUserAgentSetting(value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds, domain.SettingKeyOpenAIAPIKeyCooldownSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)
 	case domain.SettingKeyUserPanelDailyCheckInAmount:

@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,7 @@ func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 	keys := []string{
 		domain.SettingKeyForceRetryUpstreamErrors,
 		domain.SettingKeyOpenAIChatStreamTimeoutsEnabled,
+		domain.SettingKeyGlobalUserAgentOverrideEnabled,
 		domain.SettingKeyRequestFailureDetailsEnabled,
 		domain.SettingKeyProxyRequestsDisabled,
 		domain.SettingKeyProxyManagementEnabled,
@@ -73,6 +75,23 @@ func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestValidateGlobalUserAgentSetting(t *testing.T) {
+	for _, value := range []string{"", " Mozilla/5.0 MaxxOverride ", strings.Repeat("x", domain.MaxGlobalUserAgentLength)} {
+		t.Run("valid", func(t *testing.T) {
+			if err := validateSystemSettingValue(domain.SettingKeyGlobalUserAgent, value); err != nil {
+				t.Fatalf("validateSystemSettingValue() error = %v", err)
+			}
+		})
+	}
+	for _, value := range []string{"bad\nua", "bad\rua", strings.Repeat("x", domain.MaxGlobalUserAgentLength+1)} {
+		t.Run("invalid", func(t *testing.T) {
+			if err := validateSystemSettingValue(domain.SettingKeyGlobalUserAgent, value); !errors.Is(err, domain.ErrInvalidInput) {
+				t.Fatalf("validateSystemSettingValue() error = %v, want invalid input", err)
+			}
+		})
 	}
 }
 

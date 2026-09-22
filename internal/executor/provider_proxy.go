@@ -133,6 +133,7 @@ func (e *Executor) ExecuteProviderProxyMatched(c *flow.Ctx, proxyReq *domain.Pro
 	if state.requestHeaders == nil {
 		state.requestHeaders = http.Header{}
 	}
+	e.applyGlobalUserAgentOverride(c, state)
 
 	c.Set(flow.KeyExecutorState, state)
 	e.dispatch(c)

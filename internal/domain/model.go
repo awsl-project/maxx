@@ -1061,6 +1061,8 @@ const (
 	SettingKeyOpenAIChatStreamTimeoutsEnabled      = "openai_chat_stream_timeouts_enabled"       // 是否启用 OpenAI Chat 路由 provider HTTP/SSE 流式超时，"true" 或 "false"，默认 "false"
 	SettingKeyOpenAIChatStreamFirstEventTimeoutMS  = "openai_chat_stream_first_event_timeout_ms" // OpenAI Chat 路由 provider 首事件超时毫秒数，默认 20000，仅启用 openai_chat_stream_timeouts_enabled 时生效
 	SettingKeyOpenAIChatStreamIdleTimeoutMS        = "openai_chat_stream_idle_timeout_ms"        // OpenAI Chat 路由 provider 事件间 idle 超时毫秒数，默认 45000，仅启用 openai_chat_stream_timeouts_enabled 时生效
+	SettingKeyGlobalUserAgentOverrideEnabled       = "global_user_agent_override_enabled"        // 是否用全局 User-Agent 覆写用户请求的 User-Agent，"true" 或 "false"，默认 "false"
+	SettingKeyGlobalUserAgent                      = "global_user_agent"                         // 全局覆写 User-Agent 的目标值，仅在 global_user_agent_override_enabled=true 时生效
 	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"           // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
 	SettingKeyTestFieldTabEnabled                  = "ui_test_field_tab_enabled"                 // 是否显示测试场 tab，"true" 或 "false"，默认 "false"
 	SettingKeyProxyManagementEnabled               = "ui_proxy_management_enabled"               // 是否显示代理管理 tab，"true" 或 "false"，默认 "false"

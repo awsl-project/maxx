@@ -79,6 +79,8 @@ function parseRetentionInteger(value: string): number | null {
 const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
 const STRICT_SUPPORT_MODELS_ROUTING_SETTING_KEY = 'strict_support_models_routing_enabled';
 const OPENAI_CHAT_STREAM_TIMEOUTS_ENABLED_SETTING_KEY = 'openai_chat_stream_timeouts_enabled';
+const GLOBAL_USER_AGENT_OVERRIDE_ENABLED_SETTING_KEY = 'global_user_agent_override_enabled';
+const GLOBAL_USER_AGENT_SETTING_KEY = 'global_user_agent';
 const TEST_FIELD_TAB_SETTING_KEY = 'ui_test_field_tab_enabled';
 const MODEL_MAPPING_DEBUGGER_SETTING_KEY = 'ui_model_mapping_debugger_enabled';
 const EXTERNAL_MODEL_LIST_ENABLED_SETTING_KEY = 'external_model_list_enabled';
@@ -157,6 +159,7 @@ export function SettingsPage() {
             <>
               <SupportModelRoutingSection />
               <OpenAIChatStreamTimeoutSection />
+              <GlobalUserAgentSection />
               <ProxyManagementTabSection />
               <TestFieldTabSection />
               <ModelMappingDebuggerSection />
@@ -1017,6 +1020,137 @@ export function OpenAIChatStreamTimeoutSection() {
             {t('settings.openAIChatStreamTimeoutsHint')}
           </p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function GlobalUserAgentSection() {
+  const { data: settings, isLoading } = useSettings();
+  const { transport } = useTransport();
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const inputId = useId();
+
+  const enabled = settings?.[GLOBAL_USER_AGENT_OVERRIDE_ENABLED_SETTING_KEY] === 'true';
+  const configuredUserAgent = settings?.[GLOBAL_USER_AGENT_SETTING_KEY] || '';
+  const [enabledDraft, setEnabledDraft] = useState(false);
+  const [userAgentDraft, setUserAgentDraft] = useState('');
+  const [initialized, setInitialized] = useState(false);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setEnabledDraft(enabled);
+      setUserAgentDraft(configuredUserAgent);
+      setInitialized(true);
+    }
+  }, [configuredUserAgent, enabled, initialized, isLoading]);
+
+  useEffect(() => {
+    if (initialized) {
+      setEnabledDraft(enabled);
+      setUserAgentDraft(configuredUserAgent);
+    }
+  }, [configuredUserAgent, enabled, initialized]);
+
+  const normalizedUserAgent = userAgentDraft.trim();
+  const hasChanges =
+    initialized && (enabledDraft !== enabled || userAgentDraft !== configuredUserAgent);
+  const canSave = !isSaving && hasChanges && (!enabledDraft || normalizedUserAgent.length > 0);
+
+  const handleSave = async () => {
+    if (enabledDraft && normalizedUserAgent.length === 0) {
+      setError(t('settings.globalUserAgentRequired'));
+      return;
+    }
+    if (normalizedUserAgent.length > 512) {
+      setError(t('settings.globalUserAgentTooLong'));
+      return;
+    }
+    if (/[\r\n]/.test(normalizedUserAgent)) {
+      setError(t('settings.globalUserAgentInvalid'));
+      return;
+    }
+
+    setError('');
+    setIsSaving(true);
+    try {
+      await transport.updateSetting(GLOBAL_USER_AGENT_SETTING_KEY, normalizedUserAgent);
+      await transport.updateSetting(
+        GLOBAL_USER_AGENT_OVERRIDE_ENABLED_SETTING_KEY,
+        enabledDraft ? 'true' : 'false',
+      );
+      queryClient.setQueryData<Record<string, string>>(settingsKeys.all, {
+        ...(settings || {}),
+        [GLOBAL_USER_AGENT_SETTING_KEY]: normalizedUserAgent,
+        [GLOBAL_USER_AGENT_OVERRIDE_ENABLED_SETTING_KEY]: enabledDraft ? 'true' : 'false',
+      });
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.public });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Globe className="h-4 w-4 text-muted-foreground" />
+              {t('settings.globalUserAgent')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.globalUserAgentDesc')}
+            </p>
+          </div>
+          <Button onClick={handleSave} disabled={!canSave} size="sm">
+            {isSaving ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
+          <div>
+            <Label className="text-sm font-medium text-foreground">
+              {t('settings.enableGlobalUserAgentOverride')}
+            </Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.enableGlobalUserAgentOverrideDesc')}
+            </p>
+          </div>
+          <Switch
+            aria-label={t('settings.enableGlobalUserAgentOverride')}
+            checked={enabledDraft}
+            onCheckedChange={setEnabledDraft}
+            disabled={isSaving}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor={inputId} className="text-sm font-medium text-foreground">
+            {t('settings.globalUserAgentValue')}
+          </Label>
+          <Input
+            id={inputId}
+            value={userAgentDraft}
+            onChange={(event) => setUserAgentDraft(event.target.value)}
+            placeholder={t('settings.globalUserAgentPlaceholder')}
+            maxLength={512}
+            disabled={isSaving}
+          />
+          <p className="text-xs text-muted-foreground">{t('settings.globalUserAgentHint')}</p>
+        </div>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
       </CardContent>
     </Card>
   );
