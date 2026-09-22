@@ -60,6 +60,11 @@ import {
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
 import { ProviderOutboundProxyField } from './provider-outbound-proxy-field';
+import {
+  normalizeRuntimeContextLimit,
+  normalizeRuntimeContextLimits,
+  ProviderRuntimeContextLimitField,
+} from './provider-runtime-context-limit-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -536,6 +541,8 @@ type EditFormData = {
   smartMappingRetryLimit?: number;
   reasoning?: NonNullable<Provider['config']>['reasoning'];
   maxConcurrency: number;
+  runtimeContextLimit: number;
+  runtimeContextLimits: Record<string, number>;
   proxyURL?: string;
   excludeFromExport: boolean;
   blackBox: boolean;
@@ -622,6 +629,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
       reasoning: provider.config?.reasoning,
       maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
+      runtimeContextLimit: normalizeRuntimeContextLimit(provider.runtimeContextLimit),
+      runtimeContextLimits: normalizeRuntimeContextLimits(provider.runtimeContextLimits),
       proxyURL: provider.config?.proxyURL || '',
       excludeFromExport: !!provider.excludeFromExport || !!provider.blackBox,
       blackBox: !!provider.blackBox,
@@ -737,6 +746,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         name: formData.name,
         type: provider.type || 'custom', // Preserve the provider type
         maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
+        runtimeContextLimit: normalizeRuntimeContextLimit(formData.runtimeContextLimit),
+        runtimeContextLimits: normalizeRuntimeContextLimits(formData.runtimeContextLimits),
         config: {
           quotaEnabled: !!formData.quotaEnabled,
           disableErrorCooldown: !!formData.disableErrorCooldown,
@@ -819,6 +830,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         name: cloneName,
         logo: provider.logo,
         maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
+        runtimeContextLimit: normalizeRuntimeContextLimit(formData.runtimeContextLimit),
+        runtimeContextLimits: normalizeRuntimeContextLimits(formData.runtimeContextLimits),
         config: {
           quotaEnabled: !!formData.quotaEnabled,
           disableErrorCooldown: !!formData.disableErrorCooldown,
@@ -1429,6 +1442,17 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     setFormData((prev) => ({ ...prev, exposedModelsEnabled: enabled }))
                   }
                   onChange={(models) => setFormData((prev) => ({ ...prev, exposedModels: models }))}
+                />
+
+                <ProviderRuntimeContextLimitField
+                  limit={formData.runtimeContextLimit}
+                  modelLimits={formData.runtimeContextLimits}
+                  onLimitChange={(runtimeContextLimit) =>
+                    setFormData((prev) => ({ ...prev, runtimeContextLimit }))
+                  }
+                  onModelLimitsChange={(runtimeContextLimits) =>
+                    setFormData((prev) => ({ ...prev, runtimeContextLimits }))
+                  }
                 />
 
                 <ProviderModelMappings

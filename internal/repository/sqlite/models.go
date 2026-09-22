@@ -97,7 +97,9 @@ type Provider struct {
 	SupportModels        LongText
 	ExposedModelsEnabled int `gorm:"default:0"`
 	ExposedModels        LongText
-	MaxConcurrency       int `gorm:"default:0"`
+	MaxConcurrency       int    `gorm:"default:0"`
+	RuntimeContextLimit  uint64 `gorm:"default:0"`
+	RuntimeContextLimits LongText
 	ExcludeFromExport    int `gorm:"default:0"`
 	BlackBox             int `gorm:"default:0"`
 }

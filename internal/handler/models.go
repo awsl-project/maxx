@@ -15,12 +15,18 @@ import (
 )
 
 type modelRouteGroup struct {
-	RouteID      uint64            `json:"routeID"`
-	ProviderID   uint64            `json:"providerID"`
-	ProviderName string            `json:"providerName"`
-	ClientType   domain.ClientType `json:"clientType"`
-	ProjectID    uint64            `json:"projectID"`
-	Models       []string          `json:"models"`
+	RouteID              uint64            `json:"routeID"`
+	ProviderID           uint64            `json:"providerID"`
+	ProviderName         string            `json:"providerName"`
+	ClientType           domain.ClientType `json:"clientType"`
+	ProjectID            uint64            `json:"projectID"`
+	Models               []string          `json:"models"`
+	RuntimeContextLimits map[string]uint64 `json:"runtimeContextLimits,omitempty"`
+}
+
+type modelListEntry struct {
+	Name                string
+	RuntimeContextLimit uint64
 }
 
 // ModelsHandler serves model-list endpoints with a lightweight model list.
@@ -83,17 +89,20 @@ func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limits := h.collectAvailableModelRuntimeContextLimits(tenantID, clientType, projectID, providerID, apiTokenID, names)
+	entries := buildModelListEntries(names, limits)
+
 	if isGeminiModels {
-		writeJSON(w, http.StatusOK, buildGeminiModelsResponse(names))
+		writeJSON(w, http.StatusOK, buildGeminiModelsResponse(entries))
 		return
 	}
 
 	if strings.HasPrefix(userAgent, "claude-cli") {
-		writeJSON(w, http.StatusOK, buildClaudeModelsResponse(names))
+		writeJSON(w, http.StatusOK, buildClaudeModelsResponse(entries))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, buildOpenAIModelsResponse(names))
+	writeJSON(w, http.StatusOK, buildOpenAIModelsResponse(entries))
 }
 
 func isModelListAPIPath(path string) bool {
@@ -227,6 +236,25 @@ func (h *ModelsHandler) matchAvailableModelRoutes(tenantID uint64, clientType do
 		}
 	}
 	return matchedRoutes
+}
+
+func (h *ModelsHandler) collectAvailableModelRuntimeContextLimits(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, names []string) map[string]uint64 {
+	limits := make(map[string]uint64)
+	if h == nil || h.router == nil || clientType == "" || len(names) == 0 {
+		return limits
+	}
+	for _, name := range names {
+		for _, matched := range h.matchAvailableModelRoutes(tenantID, clientType, projectID, providerID, apiTokenID, name) {
+			limit := domain.RuntimeContextLimitForModel(matched.Provider, name)
+			if limit == 0 {
+				continue
+			}
+			if current := limits[name]; current == 0 || limit < current {
+				limits[name] = limit
+			}
+		}
+	}
+	return limits
 }
 
 func (h *ModelsHandler) collectAvailableModelRouteGroups(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, userAgent string) ([]modelRouteGroup, error) {
@@ -672,15 +700,28 @@ func addModelName(target map[string]struct{}, name string) {
 	target[trimmed] = struct{}{}
 }
 
-func buildOpenAIModelsResponse(names []string) map[string]interface{} {
-	data := make([]map[string]interface{}, 0, len(names))
+func buildModelListEntries(names []string, limits map[string]uint64) []modelListEntry {
+	entries := make([]modelListEntry, 0, len(names))
 	for _, name := range names {
-		data = append(data, map[string]interface{}{
-			"id":       name,
+		entries = append(entries, modelListEntry{Name: name, RuntimeContextLimit: limits[name]})
+	}
+	return entries
+}
+
+func buildOpenAIModelsResponse(entries []modelListEntry) map[string]interface{} {
+	data := make([]map[string]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		model := map[string]interface{}{
+			"id":       entry.Name,
 			"object":   "model",
 			"created":  0,
 			"owned_by": "maxx",
-		})
+		}
+		if entry.RuntimeContextLimit > 0 {
+			model["context_length"] = entry.RuntimeContextLimit
+			model["max_context_tokens"] = entry.RuntimeContextLimit
+		}
+		data = append(data, model)
 	}
 
 	return map[string]interface{}{
@@ -689,14 +730,19 @@ func buildOpenAIModelsResponse(names []string) map[string]interface{} {
 	}
 }
 
-func buildClaudeModelsResponse(names []string) map[string]interface{} {
-	data := make([]map[string]interface{}, 0, len(names))
-	for _, name := range names {
-		data = append(data, map[string]interface{}{
-			"id":           name,
-			"display_name": name,
+func buildClaudeModelsResponse(entries []modelListEntry) map[string]interface{} {
+	data := make([]map[string]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		model := map[string]interface{}{
+			"id":           entry.Name,
+			"display_name": entry.Name,
 			"type":         "model",
-		})
+		}
+		if entry.RuntimeContextLimit > 0 {
+			model["context_window"] = entry.RuntimeContextLimit
+			model["max_context_tokens"] = entry.RuntimeContextLimit
+		}
+		data = append(data, model)
 	}
 
 	return map[string]interface{}{
@@ -705,10 +751,10 @@ func buildClaudeModelsResponse(names []string) map[string]interface{} {
 	}
 }
 
-func buildGeminiModelsResponse(names []string) map[string]interface{} {
-	models := make([]map[string]interface{}, 0, len(names))
-	for _, name := range names {
-		modelName := name
+func buildGeminiModelsResponse(entries []modelListEntry) map[string]interface{} {
+	models := make([]map[string]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		modelName := entry.Name
 		if !strings.HasPrefix(modelName, "models/") {
 			modelName = "models/" + modelName
 		}
@@ -719,7 +765,7 @@ func buildGeminiModelsResponse(names []string) map[string]interface{} {
 			"version":                    "",
 			"displayName":                baseModelID,
 			"description":                "",
-			"inputTokenLimit":            0,
+			"inputTokenLimit":            entry.RuntimeContextLimit,
 			"outputTokenLimit":           0,
 			"supportedGenerationMethods": []string{"generateContent", "streamGenerateContent"},
 		})

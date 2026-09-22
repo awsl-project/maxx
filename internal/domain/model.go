@@ -529,6 +529,14 @@ type Provider struct {
 	// Maximum number of upstream sessions allowed at once. Zero means unlimited.
 	MaxConcurrency int `json:"maxConcurrency,omitempty"`
 
+	// RuntimeContextLimit is the provider-level runtime context window exposed to callers.
+	// Zero means unset and preserves legacy model-list responses.
+	RuntimeContextLimit uint64 `json:"runtimeContextLimit,omitempty"`
+
+	// RuntimeContextLimits optionally overrides RuntimeContextLimit per model name or wildcard pattern.
+	// Missing/zero values mean unset.
+	RuntimeContextLimits map[string]uint64 `json:"runtimeContextLimits,omitempty"`
+
 	// 为 true 时，该 provider 不参与导出/备份
 	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
 
