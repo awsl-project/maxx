@@ -1623,7 +1623,17 @@
     "userPanelAnnouncementContent": "Notice content",
     "userPanelAnnouncementPlaceholder": "Write Markdown notice content, for example:\n# Service notice\n- Maintenance window: 23:00-23:30\n- Please save long-running work in advance",
     "userPanelAnnouncementPreview": "Preview",
-    "userPanelAnnouncementEmptyPreview": "The notice icon is hidden when this content is empty."
+    "userPanelAnnouncementEmptyPreview": "The notice icon is hidden when this content is empty.",
+    "globalUserAgent": "Global User-Agent",
+    "globalUserAgentDesc": "Optionally overwrite the User-Agent sent to upstream providers for proxy requests.",
+    "enableGlobalUserAgentOverride": "Overwrite request User-Agent",
+    "enableGlobalUserAgentOverrideDesc": "Default off. When enabled, Maxx replaces the client request User-Agent with the configured value before forwarding upstream.",
+    "globalUserAgentValue": "User-Agent value",
+    "globalUserAgentPlaceholder": "Mozilla/5.0 ... Chrome/...",
+    "globalUserAgentHint": "Requests will show the effective User-Agent value, so overridden requests display this configured value in the Requests tab.",
+    "globalUserAgentRequired": "Enter a User-Agent value before enabling overwrite.",
+    "globalUserAgentTooLong": "User-Agent must be 512 characters or fewer.",
+    "globalUserAgentInvalid": "User-Agent cannot contain line breaks."
   },
   "modelMappings": {
     "title": "Model Mappings",

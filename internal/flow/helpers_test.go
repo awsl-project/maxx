@@ -38,6 +38,19 @@ func TestResolveUpstreamUserAgent(t *testing.T) {
 	}
 }
 
+func TestResolveUpstreamUserAgentPrefersGlobalOverride(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodPost, "http://localhost", nil)
+	req.Header.Set("User-Agent", "source-client/1.0")
+	ctx := NewCtx(nil, req)
+	ctx.Set(KeyOriginalClientType, domain.ClientTypeClaude)
+	ctx.Set(KeyClientType, domain.ClientTypeGemini)
+	ctx.Set(KeyGlobalUserAgentOverride, "Mozilla/5.0 MaxxOverride")
+
+	if got := ResolveUpstreamUserAgent(ctx, "gemini/default"); got != "Mozilla/5.0 MaxxOverride" {
+		t.Fatalf("ResolveUpstreamUserAgent() = %q, want global override", got)
+	}
+}
+
 func TestIsProtocolConversion(t *testing.T) {
 	ctx := NewCtx(nil, nil)
 	ctx.Set(KeyOriginalClientType, domain.ClientTypeClaude)

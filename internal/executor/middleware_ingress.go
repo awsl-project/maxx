@@ -86,6 +86,7 @@ func (e *Executor) ingress(c *flow.Ctx) {
 			state.requestURI = uri
 		}
 	}
+	e.applyGlobalUserAgentOverride(c, state)
 	state.wsExchange = flow.GetResponsesWebSocketExchange(c)
 	if state.wsExchange != nil {
 		if state.clientType != domain.ClientTypeCodex {
