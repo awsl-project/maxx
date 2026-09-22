@@ -212,6 +212,8 @@ func (r *ProviderRepository) toModel(p *domain.Provider) *Provider {
 		ExposedModelsEnabled: boolToInt(p.ExposedModelsEnabled),
 		ExposedModels:        LongText(toJSON(p.ExposedModels)),
 		MaxConcurrency:       p.MaxConcurrency,
+		RuntimeContextLimit:  p.RuntimeContextLimit,
+		RuntimeContextLimits: LongText(toJSON(p.RuntimeContextLimits)),
 		ExcludeFromExport:    boolToInt(p.ExcludeFromExport),
 		BlackBox:             boolToInt(p.BlackBox),
 	}
@@ -234,6 +236,8 @@ func (r *ProviderRepository) toDomain(m *Provider) *domain.Provider {
 		ExposedModelsEnabled: m.ExposedModelsEnabled != 0,
 		ExposedModels:        fromJSON[[]string](string(m.ExposedModels)),
 		MaxConcurrency:       m.MaxConcurrency,
+		RuntimeContextLimit:  m.RuntimeContextLimit,
+		RuntimeContextLimits: fromJSON[map[string]uint64](string(m.RuntimeContextLimits)),
 		ExcludeFromExport:    m.ExcludeFromExport != 0,
 		BlackBox:             m.BlackBox != 0,
 	}

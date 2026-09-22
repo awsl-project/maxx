@@ -48,6 +48,8 @@ const initialFormData: ProviderFormData = {
   retryOpenAIPolicyFlaggedPrompt: false,
   reasoning: undefined,
   maxConcurrency: 0,
+  runtimeContextLimit: 0,
+  runtimeContextLimits: {},
   proxyURL: '',
   excludeFromExport: false,
   blackBox: false,

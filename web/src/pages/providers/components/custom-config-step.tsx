@@ -46,6 +46,11 @@ import {
   ProviderMaxConcurrencyField,
 } from './provider-max-concurrency-field';
 import { ProviderOutboundProxyField } from './provider-outbound-proxy-field';
+import {
+  normalizeRuntimeContextLimit,
+  normalizeRuntimeContextLimits,
+  ProviderRuntimeContextLimitField,
+} from './provider-runtime-context-limit-field';
 
 function parseAPIKeyLines(value: string): string[] {
   const seen = new Set<string>();
@@ -162,6 +167,8 @@ export function CustomConfigStep() {
         name: formData.name,
         logo: formData.logo,
         maxConcurrency: normalizeMaxConcurrency(formData.maxConcurrency),
+        runtimeContextLimit: normalizeRuntimeContextLimit(formData.runtimeContextLimit),
+        runtimeContextLimits: normalizeRuntimeContextLimits(formData.runtimeContextLimits),
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
@@ -262,6 +269,15 @@ export function CustomConfigStep() {
               <ProviderOutboundProxyField
                 value={formData.proxyURL}
                 onChange={(proxyURL) => updateFormData({ proxyURL })}
+              />
+
+              <ProviderRuntimeContextLimitField
+                limit={formData.runtimeContextLimit ?? 0}
+                modelLimits={formData.runtimeContextLimits ?? {}}
+                onLimitChange={(runtimeContextLimit) => updateFormData({ runtimeContextLimit })}
+                onModelLimitsChange={(runtimeContextLimits) =>
+                  updateFormData({ runtimeContextLimits })
+                }
               />
 
               <div>

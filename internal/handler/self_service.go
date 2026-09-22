@@ -557,6 +557,19 @@ func (h *SelfServiceHandler) collectUserPanelAvailableModelRouteGroups(tenantID,
 					merged[model] = struct{}{}
 				}
 				groups[idx].Models = sortedModelNames(merged)
+				if len(group.RuntimeContextLimits) > 0 {
+					if groups[idx].RuntimeContextLimits == nil {
+						groups[idx].RuntimeContextLimits = make(map[string]uint64)
+					}
+					for model, limit := range group.RuntimeContextLimits {
+						if limit == 0 {
+							continue
+						}
+						if current := groups[idx].RuntimeContextLimits[model]; current == 0 || limit < current {
+							groups[idx].RuntimeContextLimits[model] = limit
+						}
+					}
+				}
 				continue
 			}
 			seen[groupKey] = len(groups)

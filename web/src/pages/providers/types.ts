@@ -390,6 +390,8 @@ export type ProviderFormData = {
   retryOpenAIPolicyFlaggedPrompt?: boolean;
   reasoning?: ReasoningPolicy;
   maxConcurrency?: number;
+  runtimeContextLimit?: number;
+  runtimeContextLimits?: Record<string, number>;
   proxyURL?: string;
   excludeFromExport?: boolean;
   blackBox?: boolean;

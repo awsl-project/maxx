@@ -401,3 +401,54 @@ func TestModelsHandlerConfiguredExternalModelListDisabledKeepsExistingSources(t 
 		t.Fatalf("names = %#v, want existing response model", names)
 	}
 }
+
+func TestRuntimeContextLimitForModel(t *testing.T) {
+	provider := &domain.Provider{
+		RuntimeContextLimit: 64000,
+		RuntimeContextLimits: map[string]uint64{
+			"gpt-5":    128000,
+			"claude-*": 200000,
+		},
+	}
+	if got := domain.RuntimeContextLimitForModel(provider, "gpt-5"); got != 128000 {
+		t.Fatalf("exact limit = %d, want 128000", got)
+	}
+	if got := domain.RuntimeContextLimitForModel(provider, "claude-sonnet-4"); got != 200000 {
+		t.Fatalf("wildcard limit = %d, want 200000", got)
+	}
+	if got := domain.RuntimeContextLimitForModel(provider, "gemini-2.5-pro"); got != 64000 {
+		t.Fatalf("provider limit = %d, want 64000", got)
+	}
+	if got := domain.RuntimeContextLimitForModel(&domain.Provider{}, "gpt-5"); got != 0 {
+		t.Fatalf("unset limit = %d, want 0", got)
+	}
+}
+
+func TestBuildModelResponsesExposeRuntimeContextLimitOnlyWhenSet(t *testing.T) {
+	openAI := buildOpenAIModelsResponse([]modelListEntry{
+		{Name: "gpt-unset"},
+		{Name: "gpt-limited", RuntimeContextLimit: 64000},
+	})
+	data := openAI["data"].([]map[string]interface{})
+	if _, ok := data[0]["context_length"]; ok {
+		t.Fatalf("unset OpenAI model unexpectedly has context_length: %#v", data[0])
+	}
+	if got := data[1]["context_length"]; got != uint64(64000) {
+		t.Fatalf("OpenAI context_length = %#v, want 64000", got)
+	}
+	if got := data[1]["max_context_tokens"]; got != uint64(64000) {
+		t.Fatalf("OpenAI max_context_tokens = %#v, want 64000", got)
+	}
+
+	claude := buildClaudeModelsResponse([]modelListEntry{{Name: "claude-sonnet", RuntimeContextLimit: 200000}})
+	claudeData := claude["data"].([]map[string]interface{})
+	if got := claudeData[0]["context_window"]; got != uint64(200000) {
+		t.Fatalf("Claude context_window = %#v, want 200000", got)
+	}
+
+	gemini := buildGeminiModelsResponse([]modelListEntry{{Name: "gemini-2.5-pro", RuntimeContextLimit: 1000000}})
+	geminiData := gemini["models"].([]map[string]interface{})
+	if got := geminiData[0]["inputTokenLimit"]; got != uint64(1000000) {
+		t.Fatalf("Gemini inputTokenLimit = %#v, want 1000000", got)
+	}
+}
