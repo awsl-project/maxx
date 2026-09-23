@@ -141,6 +141,53 @@ func TestAPITokenRepositoryUpdateLastSeenKeepsLastIPWhenIPIsEmpty(t *testing.T) 
 	}
 }
 
+func TestAPITokenRepositoryRefreshByIDReloadsStaleQuotaBalance(t *testing.T) {
+	baseRepo := &apiTokenTestRepo{}
+	repo := NewAPITokenRepository(baseRepo)
+	token := &domain.APIToken{
+		TenantID:     1,
+		Token:        "maxx_cached_quota_token",
+		TokenPrefix:  "maxx_cac...",
+		Name:         "cached-quota-token",
+		IsEnabled:    true,
+		QuotaBalance: 0,
+	}
+	if err := repo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	cachedToken, err := repo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("GetByID(before refresh) error = %v", err)
+	}
+	if cachedToken.QuotaBalance != 0 {
+		t.Fatalf("cached quota before refresh = %d, want 0", cachedToken.QuotaBalance)
+	}
+
+	baseRepo.token.QuotaBalance = 250
+	cachedToken, err = repo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("GetByID(stale) error = %v", err)
+	}
+	if cachedToken.QuotaBalance != 0 {
+		t.Fatalf("cached quota without refresh = %d, want stale 0", cachedToken.QuotaBalance)
+	}
+
+	refreshed, err := repo.RefreshByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("RefreshByID() error = %v", err)
+	}
+	if refreshed.QuotaBalance != 250 {
+		t.Fatalf("refreshed quota = %d, want 250", refreshed.QuotaBalance)
+	}
+	cachedToken, err = repo.GetByToken(1, token.Token)
+	if err != nil {
+		t.Fatalf("GetByToken(after refresh) error = %v", err)
+	}
+	if cachedToken.QuotaBalance != 250 {
+		t.Fatalf("cached token quota after refresh = %d, want 250", cachedToken.QuotaBalance)
+	}
+}
+
 func TestAPITokenRepositoryDeleteExpiredClearsTokenCache(t *testing.T) {
 	baseRepo := &apiTokenTestRepo{}
 	repo := NewAPITokenRepository(baseRepo)

@@ -121,10 +121,20 @@ func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APITok
 		return nil, err
 	}
 
-	r.mu.Lock()
-	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
-	r.mu.Unlock()
+	r.storeToken(t)
+	return t, nil
+}
+
+// RefreshByID reloads one API token from the backing repository and updates the
+// local cache. Use it after lower-level code mutates api_tokens in a DB
+// transaction that bypasses this cached repository.
+func (r *APITokenRepository) RefreshByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
+	t, err := r.repo.GetByID(tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	r.storeToken(t)
+	r.bc.publish(OpUpdate, id)
 	return t, nil
 }
 
@@ -141,11 +151,28 @@ func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.
 		return nil, err
 	}
 
-	r.mu.Lock()
-	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
-	r.mu.Unlock()
+	r.storeToken(t)
 	return t, nil
+}
+
+func (r *APITokenRepository) storeToken(t *domain.APIToken) {
+	if t == nil {
+		return
+	}
+	r.mu.Lock()
+	if old, ok := r.cache[t.ID]; ok && old != nil && old.Token != "" && old.Token != t.Token {
+		delete(r.tokenCache, old.Token)
+	}
+	for tokenValue, cached := range r.tokenCache {
+		if cached != nil && cached.ID == t.ID && tokenValue != t.Token {
+			delete(r.tokenCache, tokenValue)
+		}
+	}
+	r.cache[t.ID] = t
+	if t.Token != "" {
+		r.tokenCache[t.Token] = t
+	}
+	r.mu.Unlock()
 }
 
 func (r *APITokenRepository) List(tenantID uint64) ([]*domain.APIToken, error) {
