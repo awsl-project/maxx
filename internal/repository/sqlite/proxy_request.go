@@ -174,7 +174,7 @@ func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool)
 	if includeTTFT {
 		columns += ", " + ttftColumn
 	}
-	columns += ", proxy_requests.is_stream, proxy_requests.protocol, proxy_requests.status, proxy_requests.status_code, proxy_requests.error, proxy_requests.proxy_upstream_attempt_count, proxy_requests.final_proxy_upstream_attempt_id, " + routeIDColumn + ", " + providerIDColumn + ", proxy_requests.project_id, " + inputTokenColumn + ", " + outputTokenColumn + ", " + cacheReadColumn + ", " + cacheWriteColumn + ", " + cache5mWriteColumn + ", " + cache1hWriteColumn + ", " + costColumn + ", proxy_requests.api_token_id"
+	columns += ", proxy_requests.is_stream, proxy_requests.protocol, proxy_requests.status, proxy_requests.status_code, proxy_requests.user_agent, proxy_requests.error, proxy_requests.proxy_upstream_attempt_count, proxy_requests.final_proxy_upstream_attempt_id, " + routeIDColumn + ", " + providerIDColumn + ", proxy_requests.project_id, " + inputTokenColumn + ", " + outputTokenColumn + ", " + cacheReadColumn + ", " + cacheWriteColumn + ", " + cache5mWriteColumn + ", " + cache1hWriteColumn + ", " + costColumn + ", proxy_requests.api_token_id"
 	if r.hasReasoningEffortColumn {
 		columns += ", proxy_requests.reasoning_effort"
 	}
@@ -202,6 +202,7 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	now := time.Now()
 	p.CreatedAt = now
 	p.UpdatedAt = now
+	p.UserAgent = proxyRequestUserAgent(p)
 
 	model := r.toModel(p)
 	query := r.db.gorm
@@ -1105,6 +1106,24 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 	return total, nil
 }
 
+func proxyRequestUserAgent(p *domain.ProxyRequest) string {
+	if p == nil {
+		return ""
+	}
+	if p.UserAgent != "" {
+		return p.UserAgent
+	}
+	if p.RequestInfo == nil {
+		return ""
+	}
+	for name, value := range p.RequestInfo.Headers {
+		if strings.EqualFold(name, "User-Agent") {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 	m := r.toModelMeta(p)
 	m.RequestInfo = LongText(requestInfoJSON(p.RequestInfo))
@@ -1139,6 +1158,7 @@ func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyReque
 		Protocol:                    p.Protocol,
 		Status:                      p.Status,
 		StatusCode:                  p.StatusCode,
+		UserAgent:                   proxyRequestUserAgent(p),
 		Error:                       LongText(p.Error),
 		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
@@ -1183,6 +1203,7 @@ func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest 
 		StatusCode:                  m.StatusCode,
 		RequestInfo:                 fromJSON[*domain.RequestInfo](string(m.RequestInfo)),
 		ResponseInfo:                fromJSON[*domain.ResponseInfo](string(m.ResponseInfo)),
+		UserAgent:                   m.UserAgent,
 		Error:                       string(m.Error),
 		ProxyUpstreamAttemptCount:   m.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: m.FinalProxyUpstreamAttemptID,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
@@ -172,6 +173,7 @@ func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string)
 		IsStream:        state.isStream,
 		Protocol:        domain.ResolveProxyRequestProtocol(state.isStream, state.wsExchange != nil),
 		Status:          status,
+		UserAgent:       strings.TrimSpace(state.requestHeaders.Get("User-Agent")),
 		APITokenID:      state.apiTokenID,
 		DevMode:         state.apiTokenDevMode,
 	}

@@ -331,6 +331,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 		Protocol:        domain.ResolveProxyRequestProtocol(isStream, isWebSocket),
 		Status:          "REJECTED",
 		StatusCode:      statusCode,
+		UserAgent:       strings.TrimSpace(flow.GetRequestHeaders(c).Get("User-Agent")),
 		Error:           errMsg,
 		APITokenID:      apiTokenID,
 		DevMode:         devMode,

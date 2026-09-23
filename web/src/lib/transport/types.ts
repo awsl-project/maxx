@@ -736,6 +736,7 @@ export interface ProxyRequest {
   statusCode: number; // HTTP 状态码（冗余存储，用于列表查询优化）
   requestInfo: RequestInfo | null;
   responseInfo: ResponseInfo | null;
+  userAgent: string;
   error: string;
   proxyUpstreamAttemptCount: number;
   finalProxyUpstreamAttemptID: number;

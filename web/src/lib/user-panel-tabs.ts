@@ -1,4 +1,4 @@
-export const USER_PANEL_TABS = ['main', 'redemption', 'consumption', 'model-status'] as const;
+export const USER_PANEL_TABS = ['main', 'consumption', 'redemption', 'model-status'] as const;
 
 export type UserPanelTab = (typeof USER_PANEL_TABS)[number];
 

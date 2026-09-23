@@ -653,6 +653,70 @@ func TestProxyRequestUpdatePreservesRequestInfo(t *testing.T) {
 	}
 }
 
+func TestProxyRequestListCursorIncludesUserAgentWithoutRequestInfo(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+
+	req := buildTestProxyRequest("COMPLETED", 1)
+	req.RequestInfo = &domain.RequestInfo{
+		Method:  "POST",
+		URL:     "u",
+		Headers: map[string]string{"User-Agent": "maxx-test-client/1.0", "Authorization": "secret"},
+		Body:    "body",
+	}
+	if err := repo.Create(req); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	items, err := repo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items len = %d, want 1", len(items))
+	}
+	if got := items[0].UserAgent; got != "maxx-test-client/1.0" {
+		t.Fatalf("UserAgent = %q, want maxx-test-client/1.0", got)
+	}
+	if items[0].RequestInfo != nil {
+		t.Fatalf("ListCursor should not load request_info, got %+v", items[0].RequestInfo)
+	}
+}
+
+func TestProxyRequestUserAgentPrefersExplicitField(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+
+	req := buildTestProxyRequest("COMPLETED", 1)
+	req.UserAgent = "explicit-client/2.0"
+	req.RequestInfo = &domain.RequestInfo{
+		Method:  "POST",
+		URL:     "u",
+		Headers: map[string]string{"User-Agent": "header-client/1.0"},
+	}
+	if err := repo.Create(req); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	items, err := repo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor: %v", err)
+	}
+	if got := items[0].UserAgent; got != "explicit-client/2.0" {
+		t.Fatalf("UserAgent = %q, want explicit-client/2.0", got)
+	}
+}
+
 // seedRequestWithDetail 创建一条带有 request/response 详情的记录，并把 created_at 强制回拨到指定时间
 // 直接绕过 Create 的 now-stamping 是为了在 ClearDetailOlderThan 测试中构造"老到该清理"的样本
 func seedRequestWithDetail(t *testing.T, repo *ProxyRequestRepository, status string, devMode bool, createdAt time.Time, index int) *domain.ProxyRequest {

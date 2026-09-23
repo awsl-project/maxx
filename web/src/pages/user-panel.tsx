@@ -63,6 +63,11 @@ import type {
   UserPanelModelStatusRow,
 } from '@/lib/transport';
 import { cn } from '@/lib/utils';
+import {
+  getUserPanelAnnouncementFingerprint,
+  getUserPanelAnnouncementSeenStorageKey,
+  isUserPanelAnnouncementUnread,
+} from '@/lib/user-panel-announcement';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
 import { visibleUserPanelModelRouteGroups } from '@/lib/user-panel-model-routes';
 import { MarkdownContent } from '@/lib/markdown';
@@ -366,6 +371,7 @@ export function UserPanelPage() {
   const [redemptionCode, setRedemptionCode] = useState('');
   const [redemptionMessage, setRedemptionMessage] = useState('');
   const [announcementOpen, setAnnouncementOpen] = useState(false);
+  const [announcementSeenFingerprint, setAnnouncementSeenFingerprint] = useState('');
   const autoDailyCheckInStartedRef = useRef(false);
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
@@ -411,6 +417,22 @@ export function UserPanelPage() {
   const announcementMarkdown = userPanelAnnouncement?.enabled
     ? userPanelAnnouncement.markdown.trim()
     : '';
+  const announcementFingerprint = getUserPanelAnnouncementFingerprint(announcementMarkdown);
+  const announcementSeenStorageKey = getUserPanelAnnouncementSeenStorageKey(user?.id);
+  const announcementUnread = isUserPanelAnnouncementUnread(
+    announcementMarkdown,
+    announcementSeenFingerprint,
+  );
+  const dailyCheckInVisible =
+    dailyCheckInEnabled && Boolean(dailyCheckInStatus) && !dailyCheckInStatus?.blacklisted;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setAnnouncementSeenFingerprint('');
+      return;
+    }
+    setAnnouncementSeenFingerprint(window.localStorage.getItem(announcementSeenStorageKey) ?? '');
+  }, [announcementSeenStorageKey]);
 
   useEffect(() => {
     setRevealedUserPanelToken('');
@@ -433,7 +455,7 @@ export function UserPanelPage() {
 
     if (dailyCheckInStatus?.blacklisted) {
       setDailyCheckInDone(false);
-      setDailyCheckInMessage(t('userPanel.dailyCheckInBlacklisted'));
+      setDailyCheckInMessage('');
       return;
     }
 
@@ -553,6 +575,13 @@ export function UserPanelPage() {
     }
   };
 
+  const handleAnnouncementOpen = () => {
+    setAnnouncementOpen(true);
+    if (!announcementFingerprint || typeof window === 'undefined') return;
+    window.localStorage.setItem(announcementSeenStorageKey, announcementFingerprint);
+    setAnnouncementSeenFingerprint(announcementFingerprint);
+  };
+
   const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
   const revealActionPending = revealUserPanelToken.isPending;
 
@@ -572,12 +601,15 @@ export function UserPanelPage() {
                 type="button"
                 variant="outline"
                 size="icon"
-                className="size-9 text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => setAnnouncementOpen(true)}
+                className="relative size-9 text-muted-foreground transition-colors hover:text-foreground"
+                onClick={handleAnnouncementOpen}
                 aria-label={t('userPanel.announcementOpen')}
                 title={t('userPanel.announcementOpen')}
               >
                 <Bell className="size-4" />
+                {announcementUnread ? (
+                  <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-red-500 ring-2 ring-card" />
+                ) : null}
               </Button>
             ) : null}
             <LanguageToggle />
@@ -595,13 +627,13 @@ export function UserPanelPage() {
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
           <TabsList className="grid w-full grid-cols-4 rounded-xl p-1">
             <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
-            <TabsTrigger value="redemption">{t('userPanel.redemptionTab')}</TabsTrigger>
             <TabsTrigger value="consumption">{t('userPanel.consumptionTab')}</TabsTrigger>
+            <TabsTrigger value="redemption">{t('userPanel.redemptionTab')}</TabsTrigger>
             <TabsTrigger value="model-status">{t('userPanel.modelStatusTab')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="main" className="space-y-5">
-            {dailyCheckInEnabled && (
+            {dailyCheckInVisible && (
               <Card className="border-border bg-card shadow-sm">
                 <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3">

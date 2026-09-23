@@ -808,6 +808,10 @@ type ProxyRequest struct {
 	RequestInfo  *RequestInfo  `json:"requestInfo"`
 	ResponseInfo *ResponseInfo `json:"responseInfo"`
 
+	// UserAgent stores a lightweight copy of the client User-Agent for request lists
+	// without selecting the large request_info JSON blob.
+	UserAgent string `json:"userAgent"`
+
 	// 错误信息
 	Error                       string `json:"error"`
 	ProxyUpstreamAttemptCount   uint64 `json:"proxyUpstreamAttemptCount"`
