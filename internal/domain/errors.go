@@ -61,6 +61,15 @@ const (
 	ScopeProvider ErrorScope = "provider"
 )
 
+// UpstreamFailurePhase identifies where an upstream failure happened.
+type UpstreamFailurePhase string
+
+const (
+	UpstreamFailurePhaseUnknown      UpstreamFailurePhase = ""
+	UpstreamFailurePhaseConnect      UpstreamFailurePhase = "connect"
+	UpstreamFailurePhaseResponseRead UpstreamFailurePhase = "response_read"
+)
+
 // ProxyError represents a structured error during proxy execution
 type ProxyError struct {
 	Err     error
@@ -79,6 +88,10 @@ type ProxyError struct {
 
 	// Retry
 	Retryable bool
+
+	// UpstreamFailurePhase preserves whether an upstream transport error happened
+	// while opening the upstream request or later while reading a response.
+	UpstreamFailurePhase UpstreamFailurePhase
 
 	// Context (for cooldown key construction)
 	Model      string // The model that triggered the error (for ScopeModel)
@@ -115,5 +128,6 @@ func NewUpstreamConnectionError(message string) *ProxyError {
 	}
 	proxyErr := NewScopedProxyError(ErrUpstreamError, ScopeProvider, CooldownReasonNetworkError)
 	proxyErr.Message = message
+	proxyErr.UpstreamFailurePhase = UpstreamFailurePhaseConnect
 	return proxyErr
 }

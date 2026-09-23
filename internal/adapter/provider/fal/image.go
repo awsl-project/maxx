@@ -462,7 +462,11 @@ func (a *Adapter) fetchAsBase64(ctx context.Context, url string) (string, error)
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", domain.NewUpstreamConnectionError("failed to read fal image bytes")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read fal image bytes")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		proxyErr.UpstreamFailurePhase = domain.UpstreamFailurePhaseResponseRead
+		return "", proxyErr
 	}
 	return b64Std(data), nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
@@ -40,6 +41,18 @@ func forceRetryUpstreamErrorIfSafe(proxyErr *domain.ProxyError, ctx context.Cont
 	if !enabled || proxyErr == nil || proxyErr.Retryable {
 		return false
 	}
+	if !safeUpstreamRetryBoundary(proxyErr, ctx, responseCommitted) {
+		return false
+	}
+
+	proxyErr.Retryable = true
+	return true
+}
+
+func safeUpstreamRetryBoundary(proxyErr *domain.ProxyError, ctx context.Context, responseCommitted bool) bool {
+	if proxyErr == nil {
+		return false
+	}
 	if ctx != nil && (errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 		return false
 	}
@@ -55,11 +68,30 @@ func forceRetryUpstreamErrorIfSafe(proxyErr *domain.ProxyError, ctx context.Cont
 
 	switch proxyErr.Scope {
 	case domain.ScopeProvider, domain.ScopeEndpoint, domain.ScopeModel:
-		proxyErr.Retryable = true
 		return true
 	default:
 		return false
 	}
+}
+
+func ensureRetryableUpstreamErrorHasBudget(maxRetries int, attempt int, allowPolicyRetryExtension bool, proxyErr *domain.ProxyError, ctx context.Context, responseCommitted bool) int {
+	if proxyErr == nil || !proxyErr.Retryable || !safeUpstreamRetryBoundary(proxyErr, ctx, responseCommitted) {
+		return maxRetries
+	}
+	if proxyErr.HTTPStatusCode != 0 || proxyErr.Reason != domain.CooldownReasonNetworkError || !errors.Is(proxyErr.Err, domain.ErrUpstreamError) {
+		return maxRetries
+	}
+	if proxyErr.UpstreamFailurePhase != domain.UpstreamFailurePhaseConnect || !strings.HasPrefix(proxyErr.Message, "failed to connect") {
+		return maxRetries
+	}
+	neededBudget := 1
+	if allowPolicyRetryExtension {
+		neededBudget = attempt + 1
+	}
+	if maxRetries >= neededBudget {
+		return maxRetries
+	}
+	return neededBudget
 }
 
 func proxyErrorScopeForLog(proxyErr *domain.ProxyError) domain.ErrorScope {

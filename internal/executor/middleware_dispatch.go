@@ -560,6 +560,13 @@ routeLoop:
 			if ok && forceRetryUpstreamErrorIfSafe(proxyErr, ctx, responseCapture.WroteToClient(), e.forceRetryUpstreamErrorsEnabled(retryConfig)) {
 				log.Printf("[Executor] Force retry upstream errors enabled; retrying provider-side error after provider %d: %v", matchedRoute.Provider.ID, err)
 			}
+			if ok {
+				newMaxRetries := ensureRetryableUpstreamErrorHasBudget(maxRetries, attempt, policyFlaggedPromptRetried, proxyErr, ctx, responseCapture.WroteToClient())
+				if newMaxRetries != maxRetries {
+					log.Printf("[Executor] Safe upstream connection error has no retry budget; allowing one retry for provider %d: %v", matchedRoute.Provider.ID, err)
+					maxRetries = newMaxRetries
+				}
+			}
 
 			if ok && proxyErr.Scope == domain.ScopeRequest && !proxyErr.Retryable {
 				log.Printf("[Executor] Request-scoped non-retryable error; not failing over after provider %d: %v", matchedRoute.Provider.ID, err)
@@ -805,6 +812,9 @@ func normalizeUpstreamConnectionError(proxyErr *domain.ProxyError) {
 	proxyErr.Scope = domain.ScopeProvider
 	proxyErr.Reason = domain.CooldownReasonNetworkError
 	proxyErr.Retryable = true
+	if proxyErr.UpstreamFailurePhase == domain.UpstreamFailurePhaseUnknown {
+		proxyErr.UpstreamFailurePhase = domain.UpstreamFailurePhaseConnect
+	}
 }
 
 func shouldUseSmartMappingRetry(provider *domain.Provider, candidateCount int) bool {

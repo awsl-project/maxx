@@ -664,9 +664,9 @@ func TestExecuteProviderProxyNormalizesLegacyUpstreamConnectionError(t *testing.
 	}
 }
 
-func TestExecuteProviderProxyHonorsZeroMaxRetries(t *testing.T) {
-	retryErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-	retryErr.Message = "failed to connect to upstream"
+func TestExecuteProviderProxyHonorsZeroMaxRetriesForNonConnectionErrors(t *testing.T) {
+	retryErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonServerError)
+	retryErr.Message = "upstream returned status 500"
 	adapter := &sequenceAdapter{errs: []error{retryErr, nil}}
 	e := &Executor{
 		proxyRequestRepo: &recordingProxyRequestRepo{},
@@ -701,7 +701,7 @@ func TestExecuteProviderProxyHonorsZeroMaxRetries(t *testing.T) {
 	provider := &domain.Provider{ID: 7, Type: "custom"}
 
 	if err := e.ExecuteProviderProxy(c, proxyReq, route, provider, adapter); err == nil {
-		t.Fatal("expected first upstream error to be returned without retry")
+		t.Fatal("expected first upstream server error to be returned without retry")
 	}
 	if adapter.calls != 1 {
 		t.Fatalf("adapter calls = %d, want 1 when MaxRetries=0", adapter.calls)
