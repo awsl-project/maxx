@@ -57,6 +57,10 @@ func (s *AdminService) GetProviderAdapter(providerID uint64) (provider.ProviderA
 
 // AdminService provides business logic for admin operations
 // Both HTTP handlers and Wails bindings call this service
+type apiTokenCacheRefresher interface {
+	RefreshByID(tenantID uint64, id uint64) (*domain.APIToken, error)
+}
+
 type AdminService struct {
 	providerRepo              repository.ProviderRepository
 	routeRepo                 repository.RouteRepository
@@ -1950,7 +1954,16 @@ func (s *AdminService) RedeemUserPanelQuota(tenantID uint64, userID uint64, apiT
 		return nil, domain.ErrInvalidInput
 	}
 	hash := domain.HashRedemptionCode(code)
-	return s.redemptionCodeRepo.Redeem(tenantID, hash, userID, apiTokenID, now)
+	redemptionCode, err := s.redemptionCodeRepo.Redeem(tenantID, hash, userID, apiTokenID, now)
+	if err != nil {
+		return nil, err
+	}
+	if refresher, ok := s.apiTokenRepo.(apiTokenCacheRefresher); ok {
+		if _, refreshErr := refresher.RefreshByID(tenantID, apiTokenID); refreshErr != nil {
+			return nil, refreshErr
+		}
+	}
+	return redemptionCode, nil
 }
 
 // ===== Invite Code API =====
