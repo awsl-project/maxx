@@ -205,7 +205,7 @@
     "globalRouteScope": "Global route",
     "projectRouteScope": "Project #{{projectID}} route",
     "routeCodex": "Codex",
-    "consumptionTab": "Consumption",
+    "consumptionTab": "Usage stats",
     "modelStatusTab": "Model status",
     "modelStatusTitle": "Model status",
     "modelStatusHint": "Stats from the last 24 hours.",

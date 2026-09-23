@@ -318,6 +318,7 @@ type ProxyRequest struct {
 	Status                      string `gorm:"size:64;index;index:idx_requests_status_endtime"`
 	RequestInfo                 LongText
 	ResponseInfo                LongText
+	UserAgent                   string `gorm:"size:512"`
 	Error                       LongText
 	ProxyUpstreamAttemptCount   uint64
 	FinalProxyUpstreamAttemptID uint64

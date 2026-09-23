@@ -174,7 +174,10 @@ function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'
   return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
 }
 
-function getRequestUserAgent(request: Pick<ProxyRequest, 'requestInfo'>): string {
+function getRequestUserAgent(request: Pick<ProxyRequest, 'requestInfo' | 'userAgent'>): string {
+  if (request.userAgent?.trim()) {
+    return request.userAgent.trim();
+  }
   const headers = request.requestInfo?.headers;
   if (!headers) {
     return '';

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  USER_PANEL_TABS,
   getUserPanelTabStorageKey,
   isUserPanelTab,
   resolveUserPanelTab,
@@ -7,6 +8,10 @@ import {
 } from './user-panel-tabs';
 
 describe('user-panel-tabs', () => {
+  it('keeps the public tab order stable', () => {
+    expect(USER_PANEL_TABS).toEqual(['main', 'consumption', 'redemption', 'model-status']);
+  });
+
   it('validates only supported user panel tabs', () => {
     expect(isUserPanelTab('main')).toBe(true);
     expect(isUserPanelTab('redemption')).toBe(true);

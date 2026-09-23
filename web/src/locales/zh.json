@@ -205,7 +205,7 @@
     "globalRouteScope": "全局路由",
     "projectRouteScope": "项目 #{{projectID}} 路由",
     "routeCodex": "Codex",
-    "consumptionTab": "消耗榜",
+    "consumptionTab": "用量统计",
     "modelStatusTab": "模型状态",
     "modelStatusTitle": "模型状态",
     "modelStatusHint": "近 24 小时统计。",
