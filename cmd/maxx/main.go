@@ -540,11 +540,7 @@ func main() {
 	})
 
 	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	mux.HandleFunc("/health", handler.HealthHandler(""))
 
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", wsHub.HandleWebSocket)

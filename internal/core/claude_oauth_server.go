@@ -52,11 +52,7 @@ func (s *ClaudeOAuthServer) Start(ctx context.Context) error {
 	})
 
 	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok","service":"claude-oauth"}`))
-	})
+	mux.HandleFunc("/health", handler.HealthHandler("claude-oauth"))
 
 	addr := fmt.Sprintf("localhost:%d", claude.OAuthCallbackPort)
 
