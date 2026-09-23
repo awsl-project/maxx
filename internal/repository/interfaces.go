@@ -47,6 +47,15 @@ type InviteCodeUsageRepository interface {
 	ListByUserID(tenantID uint64, userID uint64) ([]*domain.InviteCodeUsage, error)
 }
 
+type RedemptionCodeRepository interface {
+	Create(code *domain.RedemptionCode) error
+	Update(tenantID uint64, code *domain.RedemptionCode) error
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.RedemptionCode, error)
+	List(tenantID uint64) ([]*domain.RedemptionCode, error)
+	Redeem(tenantID uint64, codeHash string, userID uint64, apiTokenID uint64, now time.Time) (*domain.RedemptionCode, error)
+}
+
 type ProviderRepository interface {
 	Create(provider *domain.Provider) error
 	Update(provider *domain.Provider) error

@@ -112,6 +112,23 @@ func TestValidateUserPanelDailyCheckInAmount(t *testing.T) {
 	}
 }
 
+func TestValidateUserPanelDailyCheckInBlacklistUserIDs(t *testing.T) {
+	for _, value := range []string{"", "[]", "[1,2,3]"} {
+		t.Run("valid "+value, func(t *testing.T) {
+			if err := validateSystemSettingValue(domain.SettingKeyUserPanelDailyCheckInBlacklistUserIDs, value); err != nil {
+				t.Fatalf("validateSystemSettingValue() error = %v", err)
+			}
+		})
+	}
+	for _, value := range []string{"not-json", "{}", "[0]", "[\"7\"]"} {
+		t.Run("invalid "+value, func(t *testing.T) {
+			if err := validateSystemSettingValue(domain.SettingKeyUserPanelDailyCheckInBlacklistUserIDs, value); !errors.Is(err, domain.ErrInvalidInput) {
+				t.Fatalf("validateSystemSettingValue() error = %v, want invalid input", err)
+			}
+		})
+	}
+}
+
 func TestAdminServiceUpdateSettingInvalidatesProxyBooleanCache(t *testing.T) {
 	oldTTL := systemsettingcache.BooleanTTL
 	systemsettingcache.BooleanTTL = time.Hour

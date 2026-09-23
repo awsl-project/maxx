@@ -223,7 +223,15 @@
     "dailyCheckInAutoPending": "Waiting for auto check-in",
     "dailyCheckInAutoRunning": "Auto check-in…",
     "announcementOpen": "Open notice",
-    "announcementTitle": "Notice"
+    "announcementTitle": "Notice",
+    "redemptionTab": "Redeem",
+    "redemptionTitle": "Redeem balance",
+    "redemptionDesc": "Enter a one-time redemption code from an admin. Your balance increases immediately after success.",
+    "redemptionPlaceholder": "Enter redemption code",
+    "redemptionSubmit": "Redeem",
+    "redemptionSuccess": "Redeemed successfully. Added {{amount}} balance.",
+    "redemptionError": "Redemption failed: the code is invalid, used, or disabled.",
+    "dailyCheckInBlacklisted": "This account cannot claim daily check-in rewards."
   },
   "testField": {
     "title": "Test Field",
@@ -1633,7 +1641,22 @@
     "globalUserAgentHint": "Requests will show the effective User-Agent value, so overridden requests display this configured value in the Requests tab.",
     "globalUserAgentRequired": "Enter a User-Agent value before enabling overwrite.",
     "globalUserAgentTooLong": "User-Agent must be 512 characters or fewer.",
-    "globalUserAgentInvalid": "User-Agent cannot contain line breaks."
+    "globalUserAgentInvalid": "User-Agent cannot contain line breaks.",
+    "userPanelRedemptionCodesTab": "Codes",
+    "userPanelCheckInBlacklistTab": "Check-in blacklist",
+    "userPanelRedemptionCodes": "Balance redemption codes",
+    "userPanelRedemptionCodesDesc": "Generate one-time codes. Users redeem them in the user console to add balance. Each code can succeed only once.",
+    "userPanelRedemptionCount": "Count",
+    "userPanelRedemptionAmount": "Amount (USD)",
+    "userPanelRedemptionNote": "Note",
+    "userPanelRedemptionCreate": "Generate codes",
+    "userPanelRedemptionCreated": "Plain codes generated this time. Copy and save them now:",
+    "userPanelRedemptionEmpty": "No redemption codes yet.",
+    "userPanelRedemptionUsedBy": "Used by user #{{userID}}",
+    "userPanelRedemptionDisable": "Disable",
+    "userPanelRedemptionEnable": "Enable",
+    "userPanelCheckInBlacklist": "Check-in blacklist",
+    "userPanelCheckInBlacklistDesc": "Select registered users that cannot claim the daily check-in reward."
   },
   "modelMappings": {
     "title": "Model Mappings",

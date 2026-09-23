@@ -1338,6 +1338,51 @@ export interface InviteCodeCreateResult {
   items: InviteCodeCreateItem[];
 }
 
+// ===== Redemption Codes =====
+
+export type RedemptionCodeStatus = 'active' | 'disabled';
+
+export interface RedemptionCode {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  tenantID: number;
+  codePrefix: string;
+  status: RedemptionCodeStatus;
+  amount: number;
+  usedByUserID?: number;
+  usedAt?: string;
+  createdByUserID: number;
+  note?: string;
+}
+
+export interface CreateRedemptionCodeData {
+  count?: number;
+  amount: number;
+  note?: string;
+}
+
+export interface UpdateRedemptionCodeData {
+  status?: RedemptionCodeStatus;
+  amount?: number;
+  note?: string;
+}
+
+export interface RedemptionCodeCreateItem {
+  code: string;
+  redemptionCode: RedemptionCode;
+}
+
+export interface RedemptionCodeCreateResult {
+  items: RedemptionCodeCreateItem[];
+}
+
+export interface UserPanelRedeemCodeResult {
+  apiToken: APIToken;
+  redeemed: boolean;
+  amount: number;
+}
+
 // ===== API Token =====
 
 export interface APIToken {
@@ -1385,6 +1430,7 @@ export interface UserPanelDailyCheckInResult {
   apiToken?: APIToken;
   alreadyCheckedIn: boolean;
   checkedIn: boolean;
+  blacklisted?: boolean;
   checkInDate: string;
   rewardAmount: number;
 }

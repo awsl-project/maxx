@@ -78,6 +78,7 @@ type DatabaseRepos struct {
 	UserRepo                  repository.UserRepository
 	InviteCodeRepo            repository.InviteCodeRepository
 	InviteCodeUsageRepo       repository.InviteCodeUsageRepository
+	RedemptionCodeRepo        repository.RedemptionCodeRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -154,6 +155,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	userRepo := sqlite.NewUserRepository(db)
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
 	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
+	redemptionCodeRepo := sqlite.NewRedemptionCodeRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -200,6 +202,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		UserRepo:                  userRepo,
 		InviteCodeRepo:            inviteCodeRepo,
 		InviteCodeUsageRepo:       inviteCodeUsageRepo,
+		RedemptionCodeRepo:        redemptionCodeRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -416,6 +419,7 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		pprofMgr, // 直接传入 pprofMgr
 	)
+	adminService.SetRedemptionCodeRepository(repos.RedemptionCodeRepo)
 
 	log.Printf("[Core] Creating backup service")
 	backupService := service.NewBackupService(

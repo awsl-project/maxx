@@ -33,6 +33,10 @@ var (
 	ErrInviteCodeExpired                    = errors.New("invite code expired")
 	ErrInviteCodeExhausted                  = errors.New("invite code exhausted")
 	ErrInviteCodeDisabled                   = errors.New("invite code disabled")
+	ErrRedemptionCodeInvalid                = errors.New("redemption code invalid")
+	ErrRedemptionCodeUsed                   = errors.New("redemption code used")
+	ErrRedemptionCodeDisabled               = errors.New("redemption code disabled")
+	ErrUserPanelCheckInBlacklisted          = errors.New("user panel check-in blacklisted")
 	ErrAPITokenQuotaExhausted               = errors.New("API token quota exhausted")
 )
 

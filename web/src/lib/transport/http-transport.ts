@@ -75,6 +75,11 @@ import type {
   CreateInviteCodeData,
   UpdateInviteCodeData,
   InviteCodeCreateResult,
+  RedemptionCode,
+  CreateRedemptionCodeData,
+  UpdateRedemptionCodeData,
+  RedemptionCodeCreateResult,
+  UserPanelRedeemCodeResult,
   APIToken,
   APITokenCleanupResult,
   APITokenCreateResult,
@@ -1268,6 +1273,17 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async redeemUserPanelCode(code: string): Promise<UserPanelRedeemCodeResult> {
+    const { data } = await this.client.post<UserPanelRedeemCodeResult>(
+      '/user-panel/redemption-codes/redeem',
+      { code },
+    );
+    return this.expectObject<UserPanelRedeemCodeResult>(
+      data,
+      '/user-panel/redemption-codes/redeem',
+    );
+  }
+
   async getUserPanelAnnouncement(): Promise<UserPanelAnnouncement> {
     const { data } = await this.client.get<UserPanelAnnouncement>('/user-panel/announcement');
     return this.expectObject<UserPanelAnnouncement>(data, '/user-panel/announcement');
@@ -1350,6 +1366,38 @@ export class HttpTransport implements Transport {
   async getInviteCodeUsages(id: number): Promise<InviteCodeUsage[]> {
     const { data } = await this.adminClient.get<InviteCodeUsage[]>(`/invite-codes/${id}/usages`);
     return data ?? [];
+  }
+
+  async getRedemptionCodes(): Promise<RedemptionCode[]> {
+    const { data } = await this.adminClient.get<RedemptionCode[]>('/redemption-codes');
+    return this.expectArray<RedemptionCode>(data, '/redemption-codes');
+  }
+
+  async getRedemptionCode(id: number): Promise<RedemptionCode> {
+    const { data } = await this.adminClient.get<RedemptionCode>(`/redemption-codes/${id}`);
+    return this.expectObject<RedemptionCode>(data, `/redemption-codes/${id}`);
+  }
+
+  async createRedemptionCodes(
+    payload: CreateRedemptionCodeData,
+  ): Promise<RedemptionCodeCreateResult> {
+    const { data } = await this.adminClient.post<RedemptionCodeCreateResult>(
+      '/redemption-codes',
+      payload,
+    );
+    return this.expectObject<RedemptionCodeCreateResult>(data, '/redemption-codes');
+  }
+
+  async updateRedemptionCode(
+    id: number,
+    payload: UpdateRedemptionCodeData,
+  ): Promise<RedemptionCode> {
+    const { data } = await this.adminClient.put<RedemptionCode>(`/redemption-codes/${id}`, payload);
+    return this.expectObject<RedemptionCode>(data, `/redemption-codes/${id}`);
+  }
+
+  async deleteRedemptionCode(id: number): Promise<void> {
+    await this.adminClient.delete(`/redemption-codes/${id}`);
   }
 
   // ===== Usage Stats API =====

@@ -135,6 +135,13 @@ export type {
   UpdateInviteCodeData,
   InviteCodeCreateItem,
   InviteCodeCreateResult,
+  RedemptionCode,
+  RedemptionCodeStatus,
+  CreateRedemptionCodeData,
+  UpdateRedemptionCodeData,
+  RedemptionCodeCreateItem,
+  RedemptionCodeCreateResult,
+  UserPanelRedeemCodeResult,
   // API Token
   APIToken,
   APITokenCleanupItem,

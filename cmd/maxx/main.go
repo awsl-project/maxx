@@ -155,6 +155,7 @@ func main() {
 	userRepo := sqlite.NewUserRepository(db)
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
 	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
+	redemptionCodeRepo := sqlite.NewRedemptionCodeRepository(db)
 
 	// Wire Bedrock discovery persistence. The CLI entry point does not
 	// go through core.InitializeServerComponents (the desktop launcher
@@ -433,6 +434,7 @@ func main() {
 		wsHub,
 		pprofMgr, // Pprof reloader
 	)
+	adminService.SetRedemptionCodeRepository(redemptionCodeRepo)
 
 	// Start pprof manager (will check system settings)
 	if err := pprofMgr.Start(context.Background()); err != nil {

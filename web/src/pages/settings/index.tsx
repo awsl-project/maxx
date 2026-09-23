@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment, useId } from 'react';
+import { useState, useEffect, useRef, Fragment, useId, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Settings,
@@ -18,6 +18,8 @@ import {
   Copy,
   Network,
   Bell,
+  Gift,
+  ShieldOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
@@ -45,7 +47,17 @@ import { Textarea } from '@/components/ui/textarea';
 import { MarkdownContent } from '@/lib/markdown';
 import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { BackendAddressControl } from '@/components/backend-address-control';
-import { settingsKeys, useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
+import {
+  settingsKeys,
+  useSettings,
+  useUpdateSetting,
+  useDeleteSetting,
+  useUsers,
+  useRedemptionCodes,
+  useCreateRedemptionCodes,
+  useUpdateRedemptionCode,
+  useDeleteRedemptionCode,
+} from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
 import { buildPprofUrl } from '@/lib/backend-config';
 import { useTransport } from '@/lib/transport/context';
@@ -92,11 +104,29 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS = '45000';
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
 const USER_PANEL_DAILY_CHECKIN_SETTING_KEY = 'user_panel_daily_checkin_enabled';
 const USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY = 'user_panel_daily_checkin_amount';
+const USER_PANEL_DAILY_CHECKIN_BLACKLIST_USER_IDS_SETTING_KEY =
+  'user_panel_daily_checkin_blacklist_user_ids';
 const USER_PANEL_ANNOUNCEMENT_MARKDOWN_SETTING_KEY = 'user_panel_announcement_markdown';
 const INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY = 'invite_registration_auto_approve_enabled';
 const DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE = '{{name}}{{suffix}}';
 const DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT = '10';
 type MultiTenantUILayout = 'current' | 'user_panel';
+
+function formatQuotaAmount(value: number) {
+  const amount = (value || 0) / 1_000_000_000;
+  return `$${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
+}
+
+function parseUserIDListSetting(value?: string): number[] {
+  if (!value?.trim()) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0);
+  } catch {
+    return [];
+  }
+}
 
 interface ProxyRouteExposureSetting {
   key: string;
@@ -2227,7 +2257,12 @@ export default SettingsPage;
 
 function MultiTenantUISection() {
   const { data: settings, isLoading } = useSettings();
+  const { data: users = [] } = useUsers();
+  const { data: redemptionCodes = [] } = useRedemptionCodes();
   const updateSetting = useUpdateSetting();
+  const createRedemptionCodes = useCreateRedemptionCodes();
+  const updateRedemptionCode = useUpdateRedemptionCode();
+  const deleteRedemptionCode = useDeleteRedemptionCode();
   const { t } = useTranslation();
 
   const settingsEnabled = settings?.ui_multitenant_enabled === 'true';
@@ -2241,6 +2276,11 @@ function MultiTenantUISection() {
     settings?.[INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY] === 'true';
   const settingsAnnouncementMarkdown =
     settings?.[USER_PANEL_ANNOUNCEMENT_MARKDOWN_SETTING_KEY] || '';
+  const settingsDailyCheckInBlacklistUserIDs = useMemo(
+    () =>
+      parseUserIDListSetting(settings?.[USER_PANEL_DAILY_CHECKIN_BLACKLIST_USER_IDS_SETTING_KEY]),
+    [settings],
+  );
   const [localEnabled, setLocalEnabled] = useState(settingsEnabled);
   const [localLayout, setLocalLayout] = useState<MultiTenantUILayout>(settingsLayout);
   const [localDailyCheckInEnabled, setLocalDailyCheckInEnabled] = useState(
@@ -2254,6 +2294,13 @@ function MultiTenantUISection() {
   const [localAnnouncementMarkdown, setLocalAnnouncementMarkdown] = useState(
     settingsAnnouncementMarkdown,
   );
+  const [localDailyCheckInBlacklistUserIDs, setLocalDailyCheckInBlacklistUserIDs] = useState(
+    settingsDailyCheckInBlacklistUserIDs,
+  );
+  const [redemptionCount, setRedemptionCount] = useState('1');
+  const [redemptionAmount, setRedemptionAmount] = useState('10');
+  const [redemptionNote, setRedemptionNote] = useState('');
+  const [createdRedemptionCodes, setCreatedRedemptionCodes] = useState<string[]>([]);
 
   useEffect(() => {
     setLocalEnabled(settingsEnabled);
@@ -2262,6 +2309,7 @@ function MultiTenantUISection() {
     setLocalDailyCheckInAmount(settingsDailyCheckInAmount);
     setLocalInviteRegistrationAutoApproveEnabled(settingsInviteRegistrationAutoApproveEnabled);
     setLocalAnnouncementMarkdown(settingsAnnouncementMarkdown);
+    setLocalDailyCheckInBlacklistUserIDs(settingsDailyCheckInBlacklistUserIDs);
   }, [
     settingsEnabled,
     settingsLayout,
@@ -2269,6 +2317,7 @@ function MultiTenantUISection() {
     settingsDailyCheckInAmount,
     settingsInviteRegistrationAutoApproveEnabled,
     settingsAnnouncementMarkdown,
+    settingsDailyCheckInBlacklistUserIDs,
   ]);
 
   const handleToggle = async (checked: boolean) => {
@@ -2348,6 +2397,45 @@ function MultiTenantUISection() {
       value: localAnnouncementMarkdown.trim(),
     });
   };
+
+  const handleToggleDailyCheckInBlacklistUser = (userID: number) => {
+    setLocalDailyCheckInBlacklistUserIDs((current) =>
+      current.includes(userID) ? current.filter((id) => id !== userID) : [...current, userID],
+    );
+  };
+
+  const handleDailyCheckInBlacklistSave = async () => {
+    const uniqueIDs = Array.from(new Set(localDailyCheckInBlacklistUserIDs)).sort((a, b) => a - b);
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_DAILY_CHECKIN_BLACKLIST_USER_IDS_SETTING_KEY,
+      value: JSON.stringify(uniqueIDs),
+    });
+  };
+
+  const handleCreateRedemptionCodes = async () => {
+    const count = Math.max(1, Math.min(100, Number.parseInt(redemptionCount, 10) || 1));
+    const amountUSD = Number(redemptionAmount);
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) return;
+    const result = await createRedemptionCodes.mutateAsync({
+      count,
+      amount: Math.round(amountUSD * 1_000_000_000),
+      note: redemptionNote.trim(),
+    });
+    setCreatedRedemptionCodes(result.items.map((item) => item.code));
+  };
+
+  const handleToggleRedemptionCodeStatus = async (id: number, status: 'active' | 'disabled') => {
+    await updateRedemptionCode.mutateAsync({
+      id,
+      data: { status: status === 'active' ? 'disabled' : 'active' },
+    });
+  };
+
+  const savedBlacklistValue = JSON.stringify(settingsDailyCheckInBlacklistUserIDs);
+  const localBlacklistValue = JSON.stringify(
+    Array.from(new Set(localDailyCheckInBlacklistUserIDs)).sort((a, b) => a - b),
+  );
+  const blacklistChanged = savedBlacklistValue !== localBlacklistValue;
 
   if (isLoading) return null;
 
@@ -2440,9 +2528,15 @@ function MultiTenantUISection() {
                     {t('settings.userPanelOptionsDesc')}
                   </p>
                 </div>
-                <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                <TabsList className="grid w-full grid-cols-4 sm:w-auto">
                   <TabsTrigger value="check-in">
                     {t('settings.userPanelDailyCheckInTab')}
+                  </TabsTrigger>
+                  <TabsTrigger value="redemption">
+                    {t('settings.userPanelRedemptionCodesTab')}
+                  </TabsTrigger>
+                  <TabsTrigger value="blacklist">
+                    {t('settings.userPanelCheckInBlacklistTab')}
                   </TabsTrigger>
                   <TabsTrigger value="announcement">
                     {t('settings.userPanelAnnouncementTab')}
@@ -2493,6 +2587,181 @@ function MultiTenantUISection() {
                       !localDailyCheckInEnabled ||
                       localDailyCheckInAmount === settingsDailyCheckInAmount
                     }
+                  >
+                    {t('common.save')}
+                  </Button>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="redemption" className="mt-0 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Gift className="size-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t('settings.userPanelRedemptionCodes')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('settings.userPanelRedemptionCodesDesc')}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-[120px_160px_1fr_auto] md:items-end">
+                  <div className="space-y-2">
+                    <Label>{t('settings.userPanelRedemptionCount')}</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={redemptionCount}
+                      onChange={(event) => setRedemptionCount(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('settings.userPanelRedemptionAmount')}</Label>
+                    <Input
+                      type="number"
+                      min="0.000001"
+                      step="0.01"
+                      value={redemptionAmount}
+                      onChange={(event) => setRedemptionAmount(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('settings.userPanelRedemptionNote')}</Label>
+                    <Input
+                      value={redemptionNote}
+                      onChange={(event) => setRedemptionNote(event.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreateRedemptionCodes}
+                    disabled={createRedemptionCodes.isPending}
+                  >
+                    {t('settings.userPanelRedemptionCreate')}
+                  </Button>
+                </div>
+                {createdRedemptionCodes.length > 0 && (
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">
+                      {t('settings.userPanelRedemptionCreated')}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {createdRedemptionCodes.map((code) => (
+                        <code key={code} className="rounded bg-muted px-2 py-1 text-xs">
+                          {code}
+                        </code>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {redemptionCodes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {t('settings.userPanelRedemptionEmpty')}
+                    </p>
+                  ) : (
+                    redemptionCodes.map((code) => (
+                      <div
+                        key={code.id}
+                        className="flex flex-col gap-2 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            <code>{code.codePrefix}</code>
+                            <span className="text-muted-foreground">
+                              {formatQuotaAmount(code.amount)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{code.status}</span>
+                            {code.usedAt && (
+                              <span className="text-xs text-muted-foreground">
+                                {t('settings.userPanelRedemptionUsedBy', {
+                                  userID: code.usedByUserID,
+                                })}
+                              </span>
+                            )}
+                          </div>
+                          {code.note && (
+                            <p className="mt-1 text-xs text-muted-foreground">{code.note}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          {!code.usedAt && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleToggleRedemptionCodeStatus(code.id, code.status)}
+                              disabled={updateRedemptionCode.isPending}
+                            >
+                              {code.status === 'active'
+                                ? t('settings.userPanelRedemptionDisable')
+                                : t('settings.userPanelRedemptionEnable')}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => deleteRedemptionCode.mutate(code.id)}
+                            disabled={deleteRedemptionCode.isPending}
+                          >
+                            {t('common.delete')}
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="blacklist" className="mt-0 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+                    <ShieldOff className="size-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t('settings.userPanelCheckInBlacklist')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('settings.userPanelCheckInBlacklistDesc')}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {users.map((user) => {
+                    const selected = localDailyCheckInBlacklistUserIDs.includes(user.id);
+                    return (
+                      <button
+                        key={user.id}
+                        type="button"
+                        className={cn(
+                          'rounded-md border p-3 text-left text-sm transition-colors',
+                          selected
+                            ? 'border-destructive bg-destructive/10 text-foreground'
+                            : 'border-border bg-background hover:bg-muted/40',
+                        )}
+                        onClick={() => handleToggleDailyCheckInBlacklistUser(user.id)}
+                      >
+                        <div className="font-medium">{user.username}</div>
+                        <div className="text-xs text-muted-foreground">
+                          #{user.id} · {user.role} · {user.status}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDailyCheckInBlacklistSave}
+                    disabled={updateSetting.isPending || !blacklistChanged}
                   >
                     {t('common.save')}
                   </Button>

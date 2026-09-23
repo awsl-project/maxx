@@ -227,6 +227,23 @@ type InviteCodeUsage struct {
 
 func (InviteCodeUsage) TableName() string { return "invite_code_usages" }
 
+// RedemptionCode model
+// Each row can be redeemed at most once and atomically credits a user-panel API token balance.
+type RedemptionCode struct {
+	SoftDeleteModel
+	TenantID        uint64 `gorm:"index;uniqueIndex:idx_redemption_codes_tenant_hash"`
+	CodeHash        string `gorm:"size:128;uniqueIndex:idx_redemption_codes_tenant_hash"`
+	CodePrefix      string `gorm:"size:32"`
+	Status          string `gorm:"size:32;default:'active'"`
+	Amount          uint64
+	UsedByUserID    uint64 `gorm:"index"`
+	UsedAt          int64  `gorm:"index"`
+	CreatedByUserID uint64 `gorm:"index"`
+	Note            LongText
+}
+
+func (RedemptionCode) TableName() string { return "redemption_codes" }
+
 // ModelMapping model
 type ModelMapping struct {
 	SoftDeleteModel
@@ -531,6 +548,7 @@ func AllModels() []any {
 		&APIToken{},
 		&InviteCode{},
 		&InviteCodeUsage{},
+		&RedemptionCode{},
 		&ModelMapping{},
 		&AntigravityQuota{},
 		&CodexQuota{},
