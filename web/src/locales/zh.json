@@ -223,7 +223,15 @@
     "dailyCheckInAutoPending": "等待自动签到",
     "dailyCheckInAutoRunning": "自动签到中…",
     "announcementOpen": "打开公告",
-    "announcementTitle": "公告"
+    "announcementTitle": "公告",
+    "redemptionTab": "兑换码",
+    "redemptionTitle": "兑换余额",
+    "redemptionDesc": "输入管理员发放的一次性兑换码，兑换成功后余额会立即增加。",
+    "redemptionPlaceholder": "请输入兑换码",
+    "redemptionSubmit": "兑换",
+    "redemptionSuccess": "兑换成功，已增加 {{amount}} 余额。",
+    "redemptionError": "兑换失败：兑换码无效、已使用或已禁用。",
+    "dailyCheckInBlacklisted": "当前账号不可参与签到。"
   },
   "testField": {
     "title": "测试场",
@@ -1630,7 +1638,22 @@
     "globalUserAgentHint": "Requests tab 会展示最终生效的 User-Agent，因此被覆写的请求会显示这里配置的值。",
     "globalUserAgentRequired": "开启覆写前需要填写 User-Agent 值。",
     "globalUserAgentTooLong": "User-Agent 不能超过 512 个字符。",
-    "globalUserAgentInvalid": "User-Agent 不能包含换行符。"
+    "globalUserAgentInvalid": "User-Agent 不能包含换行符。",
+    "userPanelRedemptionCodesTab": "兑换码",
+    "userPanelCheckInBlacklistTab": "签到黑名单",
+    "userPanelRedemptionCodes": "余额兑换码",
+    "userPanelRedemptionCodesDesc": "生成一次性兑换码，用户在用户控制台兑换后增加余额。每个兑换码只能成功使用一次。",
+    "userPanelRedemptionCount": "数量",
+    "userPanelRedemptionAmount": "金额（美元）",
+    "userPanelRedemptionNote": "备注",
+    "userPanelRedemptionCreate": "生成兑换码",
+    "userPanelRedemptionCreated": "本次生成的明文兑换码，请立即复制保存：",
+    "userPanelRedemptionEmpty": "暂无兑换码。",
+    "userPanelRedemptionUsedBy": "已被用户 #{{userID}} 使用",
+    "userPanelRedemptionDisable": "禁用",
+    "userPanelRedemptionEnable": "启用",
+    "userPanelCheckInBlacklist": "签到黑名单",
+    "userPanelCheckInBlacklistDesc": "从注册用户中选择不能参与每日签到的账号。"
   },
   "modelMappings": {
     "title": "模型映射",

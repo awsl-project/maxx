@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ func validateSystemSettingValue(key, value string) error {
 		return validateRateLimitCooldownDefaultSeconds(value)
 	case domain.SettingKeyUserPanelDailyCheckInAmount:
 		return validateUserPanelDailyCheckInAmount(value)
+	case domain.SettingKeyUserPanelDailyCheckInBlacklistUserIDs:
+		return validateUserPanelDailyCheckInBlacklistUserIDs(value)
 	case domain.SettingKeyOpenAIChatStreamFirstEventTimeoutMS, domain.SettingKeyOpenAIChatStreamIdleTimeoutMS:
 		return validateStreamTimeoutMilliseconds(key, value)
 	default:
@@ -36,6 +39,23 @@ func validateUserPanelDailyCheckInAmount(value string) error {
 	amount, err := strconv.ParseFloat(trimmed, 64)
 	if err != nil || amount <= 0 || amount > 1000000 {
 		return fmt.Errorf("%w: %s must be a positive number no greater than 1000000", domain.ErrInvalidInput, domain.SettingKeyUserPanelDailyCheckInAmount)
+	}
+	return nil
+}
+
+func validateUserPanelDailyCheckInBlacklistUserIDs(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	var ids []uint64
+	if err := json.Unmarshal([]byte(trimmed), &ids); err != nil {
+		return fmt.Errorf("%w: %s must be a JSON array of user IDs", domain.ErrInvalidInput, domain.SettingKeyUserPanelDailyCheckInBlacklistUserIDs)
+	}
+	for _, id := range ids {
+		if id == 0 {
+			return fmt.Errorf("%w: %s cannot contain zero user ID", domain.ErrInvalidInput, domain.SettingKeyUserPanelDailyCheckInBlacklistUserIDs)
+		}
 	}
 	return nil
 }

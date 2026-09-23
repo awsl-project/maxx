@@ -73,6 +73,11 @@ import type {
   CreateInviteCodeData,
   UpdateInviteCodeData,
   InviteCodeCreateResult,
+  RedemptionCode,
+  CreateRedemptionCodeData,
+  UpdateRedemptionCodeData,
+  RedemptionCodeCreateResult,
+  UserPanelRedeemCodeResult,
   User,
   CreateUserData,
   UpdateUserData,
@@ -351,6 +356,7 @@ export interface Transport {
   getUserPanelAvailableModelRoutes(): Promise<UserPanelAvailableModelRouteGroup[]>;
   getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult>;
   checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult>;
+  redeemUserPanelCode(code: string): Promise<UserPanelRedeemCodeResult>;
   getUserPanelAnnouncement(): Promise<UserPanelAnnouncement>;
   getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult>;
   getUserPanelModelStatus(hours?: number): Promise<UserPanelModelStatusRow[]>;
@@ -367,6 +373,13 @@ export interface Transport {
   updateInviteCode(id: number, data: UpdateInviteCodeData): Promise<InviteCode>;
   deleteInviteCode(id: number): Promise<void>;
   getInviteCodeUsages(id: number): Promise<InviteCodeUsage[]>;
+
+  // ===== Redemption Code API =====
+  getRedemptionCodes(): Promise<RedemptionCode[]>;
+  getRedemptionCode(id: number): Promise<RedemptionCode>;
+  createRedemptionCodes(data: CreateRedemptionCodeData): Promise<RedemptionCodeCreateResult>;
+  updateRedemptionCode(id: number, data: UpdateRedemptionCodeData): Promise<RedemptionCode>;
+  deleteRedemptionCode(id: number): Promise<void>;
 
   // ===== Usage Stats API =====
   getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;

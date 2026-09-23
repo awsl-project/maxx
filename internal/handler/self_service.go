@@ -262,6 +262,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "user-panel":
 		switch {
+		case len(parts) == 4 && parts[2] == "redemption-codes" && parts[3] == "redeem":
+			h.handleUserPanelRedeemCode(w, r)
 		case len(parts) == 3 && parts[2] == "models":
 			h.handleUserPanelModels(w, r)
 		case len(parts) == 3 && parts[2] == "model-routes":
@@ -1747,6 +1749,27 @@ func (h *SelfServiceHandler) userPanelCheckInDate(now time.Time) string {
 	return now.In(loc).Format("2006-01-02")
 }
 
+func (h *SelfServiceHandler) userPanelDailyCheckInBlacklisted(userID uint64) bool {
+	if userID == 0 {
+		return false
+	}
+	value, err := h.svc.GetSetting(domain.SettingKeyUserPanelDailyCheckInBlacklistUserIDs)
+	if err != nil || strings.TrimSpace(value) == "" {
+		return false
+	}
+	var ids []uint64
+	if err := json.Unmarshal([]byte(value), &ids); err != nil {
+		log.Printf("[SelfServiceHandler] invalid daily check-in blacklist setting: %v", err)
+		return false
+	}
+	for _, id := range ids {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *SelfServiceHandler) userPanelDailyCheckInRewardAmount() uint64 {
 	value := defaultUserPanelDailyCheckInAmountUSD
 	if configured, err := h.svc.GetSetting(domain.SettingKeyUserPanelDailyCheckInAmount); err == nil && strings.TrimSpace(configured) != "" {
@@ -1757,6 +1780,83 @@ func (h *SelfServiceHandler) userPanelDailyCheckInRewardAmount() uint64 {
 		amount, _ = strconv.ParseFloat(defaultUserPanelDailyCheckInAmountUSD, 64)
 	}
 	return uint64(math.Round(amount * 1_000_000_000))
+}
+
+func (h *SelfServiceHandler) handleUserPanelRedeemCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel redemption is not enabled"})
+		return
+	}
+
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(body.Code) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "redemption code is required"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		result, err := h.svc.CreateAPIToken(tenantID, userPanelAPITokenName(userID), userPanelAPITokenDescription(userID), 0, nil)
+		if err != nil {
+			writeSelfServiceInternalError(w, "CreateUserPanelAPIToken failed", err)
+			return
+		}
+		canonicalToken = result.APIToken
+	}
+
+	redemptionCode, err := h.svc.RedeemUserPanelQuota(tenantID, userID, canonicalToken.ID, body.Code, time.Now())
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrRedemptionCodeUsed):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "redemption code already used"})
+		case errors.Is(err, domain.ErrRedemptionCodeDisabled):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "redemption code disabled"})
+		case errors.Is(err, domain.ErrRedemptionCodeInvalid):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "redemption code invalid"})
+		case errors.Is(err, domain.ErrInvalidInput):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid redemption code input"})
+		default:
+			writeSelfServiceInternalError(w, "RedeemUserPanelQuota failed", err)
+		}
+		return
+	}
+
+	canonicalToken, err = h.svc.GetAPIToken(tenantID, canonicalToken.ID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokenAfterRedeem failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"apiToken": sanitizeAPIToken(canonicalToken),
+		"redeemed": true,
+		"amount":   redemptionCode.Amount,
+	})
 }
 
 func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, r *http.Request) {
@@ -1778,6 +1878,20 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 
 	checkInDate := h.userPanelCheckInDate(time.Now())
 	rewardAmount := h.userPanelDailyCheckInRewardAmount()
+	if h.userPanelDailyCheckInBlacklisted(userID) {
+		if r.Method == http.MethodGet {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"alreadyCheckedIn": false,
+				"checkedIn":        false,
+				"blacklisted":      true,
+				"checkInDate":      checkInDate,
+				"rewardAmount":     rewardAmount,
+			})
+			return
+		}
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "user panel daily check-in is not available for this user"})
+		return
+	}
 	if r.Method == http.MethodGet {
 		alreadyCheckedIn, err := h.svc.HasUserPanelDailyCheckIn(tenantID, userID, checkInDate)
 		if err != nil {
@@ -1787,6 +1901,7 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"alreadyCheckedIn": alreadyCheckedIn,
 			"checkedIn":        false,
+			"blacklisted":      false,
 			"checkInDate":      checkInDate,
 			"rewardAmount":     rewardAmount,
 		})
@@ -1835,6 +1950,7 @@ func (h *SelfServiceHandler) handleUserPanelDailyCheckIn(w http.ResponseWriter, 
 		"apiToken":         sanitizeAPIToken(canonicalToken),
 		"alreadyCheckedIn": !claimed,
 		"checkedIn":        claimed,
+		"blacklisted":      false,
 		"checkInDate":      checkInDate,
 		"rewardAmount":     rewardAmount,
 	})

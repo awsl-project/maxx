@@ -1050,48 +1050,49 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort                            = "proxy_port"                                // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionHours                = "request_retention_hours"                   // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeySessionRetentionHours                = "session_retention_hours"                   // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"          // 请求详情保留秒数（统一），-1=永久保存，0=不保存，>0=保留秒数；当 split=false 时使用。未设置时不再默认永久保存，见下方 split 默认值
-	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"    // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "true"（默认按成功/失败分桶保留）
-	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success"  // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 86400（1 天）
-	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"   // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 259200（3 天）
-	SettingKeyTimezone                             = "timezone"                                  // 时区设置，默认 Asia/Shanghai
-	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                    // Antigravity 配额刷新间隔（分钟），0 表示禁用
-	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"       // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
-	SettingKeyOpenAIAPIKeyCooldownSeconds          = "openai_api_key_cooldown_seconds"           // OpenAI 多 API Key 轮询中单个 key 触发限流/额度/鉴权错误后的冻结秒数，默认 3600 秒
-	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                     // 是否自动排序 Antigravity 路由，"true" 或 "false"
-	SettingKeyAutoSortCodex                        = "auto_sort_codex"                           // 是否自动排序 Codex 路由，"true" 或 "false"
-	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"                // 是否启用 Codex 官方 instructions，"true" 或 "false"
-	SettingKeyReasoningPolicy                      = "reasoning_policy"                          // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
-	SettingKeyForceRetryUpstreamErrors             = "force_retry_upstream_errors"               // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
-	SettingKeyOpenAIChatStreamTimeoutsEnabled      = "openai_chat_stream_timeouts_enabled"       // 是否启用 OpenAI Chat 路由 provider HTTP/SSE 流式超时，"true" 或 "false"，默认 "false"
-	SettingKeyOpenAIChatStreamFirstEventTimeoutMS  = "openai_chat_stream_first_event_timeout_ms" // OpenAI Chat 路由 provider 首事件超时毫秒数，默认 20000，仅启用 openai_chat_stream_timeouts_enabled 时生效
-	SettingKeyOpenAIChatStreamIdleTimeoutMS        = "openai_chat_stream_idle_timeout_ms"        // OpenAI Chat 路由 provider 事件间 idle 超时毫秒数，默认 45000，仅启用 openai_chat_stream_timeouts_enabled 时生效
-	SettingKeyGlobalUserAgentOverrideEnabled       = "global_user_agent_override_enabled"        // 是否用全局 User-Agent 覆写用户请求的 User-Agent，"true" 或 "false"，默认 "false"
-	SettingKeyGlobalUserAgent                      = "global_user_agent"                         // 全局覆写 User-Agent 的目标值，仅在 global_user_agent_override_enabled=true 时生效
-	SettingKeyRequestFailureDetailsEnabled         = "request_failure_details_enabled"           // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
-	SettingKeyTestFieldTabEnabled                  = "ui_test_field_tab_enabled"                 // 是否显示测试场 tab，"true" 或 "false"，默认 "false"
-	SettingKeyProxyManagementEnabled               = "ui_proxy_management_enabled"               // 是否显示代理管理 tab，"true" 或 "false"，默认 "false"
-	SettingKeyOutboundProxies                      = "outbound_proxies"                          // 出站代理列表 JSON 配置
-	SettingKeyModelMappingDebuggerEnabled          = "ui_model_mapping_debugger_enabled"         // 是否显示模型映射调试器，"true" 或 "false"，默认 "false"
-	SettingKeyStrictSupportModelsRoutingEnabled    = "strict_support_models_routing_enabled"     // 是否按提供商支持模型严格跳过不匹配路由，"true" 或 "false"，默认 "false"
-	SettingKeyCodexOpenRouterBridgeEnabled         = "codex_openrouter_bridge_enabled"           // 是否把 Codex→OpenRouter 请求桥接为 OpenAI Chat Completions；"false"（默认）走原生 /responses 透传，保留 custom/freeform 工具（code mode）；"true" 恢复旧的 chat 桥接作为应急开关
-	SettingKeyProxyRequestsDisabled                = "proxy_requests_disabled"                   // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
-	SettingKeyUserPanelDailyCheckInEnabled         = "user_panel_daily_checkin_enabled"          // 用户控制台每日签到，"true" 或 "false"，默认 "false"
-	SettingKeyUserPanelDailyCheckInAmount          = "user_panel_daily_checkin_amount"           // 用户控制台每日签到额度（美元），默认 "10"
-	SettingKeyUserPanelAnnouncementMarkdown        = "user_panel_announcement_markdown"          // 用户控制台公告 Markdown 内容，默认空
-	SettingKeyExternalModelListEnabled             = "external_model_list_enabled"               // 是否使用自定义外部模型列表，"true" 或 "false"，默认 "false"
-	SettingKeyExternalModelList                    = "external_model_list"                       // 自定义外部模型列表，JSON 数组或换行/逗号分隔
-	SettingKeyInviteRegistrationAutoApproveEnabled = "invite_registration_auto_approve_enabled"  // 邀请码注册自动通过审批，"true" 或 "false"，默认 "false"
-	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"       // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"           // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"             // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"                // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyEnablePprof                          = "enable_pprof"                              // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
-	SettingKeyPprofPort                            = "pprof_port"                                // pprof 服务端口，默认 6060
-	SettingKeyPprofPassword                        = "pprof_password"                            // pprof 访问密码，为空表示不需要密码
+	SettingKeyProxyPort                             = "proxy_port"                                  // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours                 = "request_retention_hours"                     // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeySessionRetentionHours                 = "session_retention_hours"                     // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyRequestDetailRetentionSeconds         = "request_detail_retention_seconds"            // 请求详情保留秒数（统一），-1=永久保存，0=不保存，>0=保留秒数；当 split=false 时使用。未设置时不再默认永久保存，见下方 split 默认值
+	SettingKeyRequestDetailRetentionSplitEnabled    = "request_detail_retention_split_enabled"      // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "true"（默认按成功/失败分桶保留）
+	SettingKeyRequestDetailRetentionSecondsSuccess  = "request_detail_retention_seconds_success"    // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 86400（1 天）
+	SettingKeyRequestDetailRetentionSecondsFailed   = "request_detail_retention_seconds_failed"     // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置默认 259200（3 天）
+	SettingKeyTimezone                              = "timezone"                                    // 时区设置，默认 Asia/Shanghai
+	SettingKeyQuotaRefreshInterval                  = "quota_refresh_interval"                      // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyRateLimitCooldownDefaultSeconds       = "cooldown_rate_limit_default_seconds"         // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
+	SettingKeyOpenAIAPIKeyCooldownSeconds           = "openai_api_key_cooldown_seconds"             // OpenAI 多 API Key 轮询中单个 key 触发限流/额度/鉴权错误后的冻结秒数，默认 3600 秒
+	SettingKeyAutoSortAntigravity                   = "auto_sort_antigravity"                       // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyAutoSortCodex                         = "auto_sort_codex"                             // 是否自动排序 Codex 路由，"true" 或 "false"
+	SettingKeyCodexInstructionsEnabled              = "codex_instructions_enabled"                  // 是否启用 Codex 官方 instructions，"true" 或 "false"
+	SettingKeyReasoningPolicy                       = "reasoning_policy"                            // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
+	SettingKeyForceRetryUpstreamErrors              = "force_retry_upstream_errors"                 // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
+	SettingKeyOpenAIChatStreamTimeoutsEnabled       = "openai_chat_stream_timeouts_enabled"         // 是否启用 OpenAI Chat 路由 provider HTTP/SSE 流式超时，"true" 或 "false"，默认 "false"
+	SettingKeyOpenAIChatStreamFirstEventTimeoutMS   = "openai_chat_stream_first_event_timeout_ms"   // OpenAI Chat 路由 provider 首事件超时毫秒数，默认 20000，仅启用 openai_chat_stream_timeouts_enabled 时生效
+	SettingKeyOpenAIChatStreamIdleTimeoutMS         = "openai_chat_stream_idle_timeout_ms"          // OpenAI Chat 路由 provider 事件间 idle 超时毫秒数，默认 45000，仅启用 openai_chat_stream_timeouts_enabled 时生效
+	SettingKeyGlobalUserAgentOverrideEnabled        = "global_user_agent_override_enabled"          // 是否用全局 User-Agent 覆写用户请求的 User-Agent，"true" 或 "false"，默认 "false"
+	SettingKeyGlobalUserAgent                       = "global_user_agent"                           // 全局覆写 User-Agent 的目标值，仅在 global_user_agent_override_enabled=true 时生效
+	SettingKeyRequestFailureDetailsEnabled          = "request_failure_details_enabled"             // 是否在请求详情 Metadata 中展示增强失败详情，"true" 或 "false"，默认 "false"
+	SettingKeyTestFieldTabEnabled                   = "ui_test_field_tab_enabled"                   // 是否显示测试场 tab，"true" 或 "false"，默认 "false"
+	SettingKeyProxyManagementEnabled                = "ui_proxy_management_enabled"                 // 是否显示代理管理 tab，"true" 或 "false"，默认 "false"
+	SettingKeyOutboundProxies                       = "outbound_proxies"                            // 出站代理列表 JSON 配置
+	SettingKeyModelMappingDebuggerEnabled           = "ui_model_mapping_debugger_enabled"           // 是否显示模型映射调试器，"true" 或 "false"，默认 "false"
+	SettingKeyStrictSupportModelsRoutingEnabled     = "strict_support_models_routing_enabled"       // 是否按提供商支持模型严格跳过不匹配路由，"true" 或 "false"，默认 "false"
+	SettingKeyCodexOpenRouterBridgeEnabled          = "codex_openrouter_bridge_enabled"             // 是否把 Codex→OpenRouter 请求桥接为 OpenAI Chat Completions；"false"（默认）走原生 /responses 透传，保留 custom/freeform 工具（code mode）；"true" 恢复旧的 chat 桥接作为应急开关
+	SettingKeyProxyRequestsDisabled                 = "proxy_requests_disabled"                     // 是否全局禁用代理请求，"true" 或 "false"，默认 "false"
+	SettingKeyUserPanelDailyCheckInEnabled          = "user_panel_daily_checkin_enabled"            // 用户控制台每日签到，"true" 或 "false"，默认 "false"
+	SettingKeyUserPanelDailyCheckInAmount           = "user_panel_daily_checkin_amount"             // 用户控制台每日签到额度（美元），默认 "10"
+	SettingKeyUserPanelDailyCheckInBlacklistUserIDs = "user_panel_daily_checkin_blacklist_user_ids" // 用户控制台签到黑名单用户 ID JSON 数组，默认 []
+	SettingKeyUserPanelAnnouncementMarkdown         = "user_panel_announcement_markdown"            // 用户控制台公告 Markdown 内容，默认空
+	SettingKeyExternalModelListEnabled              = "external_model_list_enabled"                 // 是否使用自定义外部模型列表，"true" 或 "false"，默认 "false"
+	SettingKeyExternalModelList                     = "external_model_list"                         // 自定义外部模型列表，JSON 数组或换行/逗号分隔
+	SettingKeyInviteRegistrationAutoApproveEnabled  = "invite_registration_auto_approve_enabled"    // 邀请码注册自动通过审批，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRouteClaudeMessagesEnabled       = "proxy_route_claude_messages_enabled"         // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteOpenAIChatEnabled           = "proxy_route_openai_chat_enabled"             // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteResponsesEnabled            = "proxy_route_responses_enabled"               // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteGeminiEnabled               = "proxy_route_gemini_enabled"                  // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyEnablePprof                           = "enable_pprof"                                // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort                             = "pprof_port"                                  // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword                         = "pprof_password"                              // pprof 访问密码，为空表示不需要密码
 )
 
 // 请求详情保留默认值。

@@ -138,6 +138,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleAPITokens(w, r, id)
 	case "invite-codes":
 		h.handleInviteCodes(w, r, id, parts)
+	case "redemption-codes":
+		h.handleRedemptionCodes(w, r, id, parts)
 	case "model-mappings":
 		h.handleModelMappings(w, r, id)
 	case "usage-stats":

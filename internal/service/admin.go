@@ -70,6 +70,7 @@ type AdminService struct {
 	apiTokenRepo              repository.APITokenRepository
 	inviteCodeRepo            repository.InviteCodeRepository
 	inviteCodeUsageRepo       repository.InviteCodeUsageRepository
+	redemptionCodeRepo        repository.RedemptionCodeRepository
 	modelMappingRepo          repository.ModelMappingRepository
 	usageStatsRepo            repository.UsageStatsRepository
 	responseModelRepo         repository.ResponseModelRepository
@@ -133,6 +134,11 @@ func NewAdminService(
 		broadcaster:               broadcaster,
 		pprofReloader:             pprofReloader,
 	}
+}
+
+// SetRedemptionCodeRepository wires one-time user-panel balance redemption codes.
+func (s *AdminService) SetRedemptionCodeRepository(repo repository.RedemptionCodeRepository) {
+	s.redemptionCodeRepo = repo
 }
 
 // ===== Provider API =====
@@ -1835,6 +1841,116 @@ func (s *AdminService) CleanupExpiredAPITokens(tenantID uint64, now time.Time) (
 		DeletedCount: len(items),
 		Tokens:       items,
 	}, nil
+}
+
+// ===== Redemption Code API =====
+
+func (s *AdminService) GetRedemptionCodes(tenantID uint64) ([]*domain.RedemptionCode, error) {
+	if s.redemptionCodeRepo == nil {
+		return nil, fmt.Errorf("redemption code repository not configured")
+	}
+	return s.redemptionCodeRepo.List(tenantID)
+}
+
+func (s *AdminService) GetRedemptionCode(tenantID uint64, id uint64) (*domain.RedemptionCode, error) {
+	if s.redemptionCodeRepo == nil {
+		return nil, fmt.Errorf("redemption code repository not configured")
+	}
+	return s.redemptionCodeRepo.GetByID(tenantID, id)
+}
+
+func (s *AdminService) CreateRedemptionCodes(tenantID uint64, createdByUserID uint64, count int, amount uint64, note string) (*domain.RedemptionCodeCreateResult, error) {
+	if s.redemptionCodeRepo == nil {
+		return nil, fmt.Errorf("redemption code repository not configured")
+	}
+	if amount == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	if count <= 0 {
+		count = 1
+	}
+	if count > 100 {
+		return nil, fmt.Errorf("count too large (max 100)")
+	}
+
+	result := &domain.RedemptionCodeCreateResult{Items: make([]domain.RedemptionCodeCreateItem, 0, count)}
+	createdIDs := make([]uint64, 0, count)
+	for i := 0; i < count; i++ {
+		var lastErr error
+		for attempt := 0; attempt < 5; attempt++ {
+			plain, _, _, err := generateInviteCode()
+			if err != nil {
+				return nil, err
+			}
+			hash := domain.HashRedemptionCode(plain)
+			prefix := domain.RedemptionCodePrefix(plain)
+			code := &domain.RedemptionCode{
+				TenantID:        tenantID,
+				CodeHash:        hash,
+				CodePrefix:      prefix,
+				Status:          domain.RedemptionCodeStatusActive,
+				Amount:          amount,
+				CreatedByUserID: createdByUserID,
+				Note:            note,
+			}
+			if err := s.redemptionCodeRepo.Create(code); err != nil {
+				lastErr = err
+				continue
+			}
+			createdIDs = append(createdIDs, code.ID)
+			result.Items = append(result.Items, domain.RedemptionCodeCreateItem{Code: plain, RedemptionCode: code})
+			lastErr = nil
+			break
+		}
+		if lastErr != nil {
+			for _, id := range createdIDs {
+				if err := s.redemptionCodeRepo.Delete(tenantID, id); err != nil && err != domain.ErrNotFound {
+					log.Printf("[Admin] Failed to cleanup redemption code %d after create error: %v", id, err)
+				}
+			}
+			return nil, lastErr
+		}
+	}
+	return result, nil
+}
+
+func (s *AdminService) UpdateRedemptionCode(tenantID uint64, code *domain.RedemptionCode) error {
+	if s.redemptionCodeRepo == nil {
+		return fmt.Errorf("redemption code repository not configured")
+	}
+	if code.TenantID != 0 && code.TenantID != tenantID {
+		return domain.ErrNotFound
+	}
+	current, err := s.redemptionCodeRepo.GetByID(tenantID, code.ID)
+	if err != nil {
+		return err
+	}
+	if current.UsedAt != nil {
+		return domain.ErrInvalidState
+	}
+	if code.Status == "" {
+		code.Status = current.Status
+	}
+	if code.Amount == 0 {
+		return domain.ErrInvalidInput
+	}
+	code.TenantID = tenantID
+	return s.redemptionCodeRepo.Update(tenantID, code)
+}
+
+func (s *AdminService) DeleteRedemptionCode(tenantID uint64, id uint64) error {
+	if s.redemptionCodeRepo == nil {
+		return fmt.Errorf("redemption code repository not configured")
+	}
+	return s.redemptionCodeRepo.Delete(tenantID, id)
+}
+
+func (s *AdminService) RedeemUserPanelQuota(tenantID uint64, userID uint64, apiTokenID uint64, code string, now time.Time) (*domain.RedemptionCode, error) {
+	if s.redemptionCodeRepo == nil || tenantID == 0 || userID == 0 || apiTokenID == 0 || strings.TrimSpace(code) == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	hash := domain.HashRedemptionCode(code)
+	return s.redemptionCodeRepo.Redeem(tenantID, hash, userID, apiTokenID, now)
 }
 
 // ===== Invite Code API =====

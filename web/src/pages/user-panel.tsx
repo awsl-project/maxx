@@ -48,6 +48,7 @@ import {
   useUserPanelAvailableModelRoutes,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
+  useRedeemUserPanelCode,
   useUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
   useUserPanelModelStatus,
@@ -353,6 +354,7 @@ export function UserPanelPage() {
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const revealUserPanelToken = useRevealUserPanelAPIToken();
   const dailyCheckIn = useUserPanelDailyCheckIn();
+  const redeemUserPanelCode = useRedeemUserPanelCode();
   const { mutateAsync: runDailyCheckIn } = dailyCheckIn;
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
@@ -361,6 +363,8 @@ export function UserPanelPage() {
   const [revealKeyError, setRevealKeyError] = useState('');
   const [dailyCheckInMessage, setDailyCheckInMessage] = useState('');
   const [dailyCheckInDone, setDailyCheckInDone] = useState(false);
+  const [redemptionCode, setRedemptionCode] = useState('');
+  const [redemptionMessage, setRedemptionMessage] = useState('');
   const [announcementOpen, setAnnouncementOpen] = useState(false);
   const autoDailyCheckInStartedRef = useRef(false);
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
@@ -424,6 +428,12 @@ export function UserPanelPage() {
       autoDailyCheckInStartedRef.current = false;
       setDailyCheckInDone(false);
       setDailyCheckInMessage('');
+      return;
+    }
+
+    if (dailyCheckInStatus?.blacklisted) {
+      setDailyCheckInDone(false);
+      setDailyCheckInMessage(t('userPanel.dailyCheckInBlacklisted'));
       return;
     }
 
@@ -528,6 +538,21 @@ export function UserPanelPage() {
     setKeyCopied(false);
   };
 
+  const handleRedeemCode = async () => {
+    const trimmed = redemptionCode.trim();
+    if (!trimmed) return;
+    setRedemptionMessage('');
+    try {
+      const result = await redeemUserPanelCode.mutateAsync(trimmed);
+      setRedemptionCode('');
+      setRedemptionMessage(
+        t('userPanel.redemptionSuccess', { amount: formatQuotaAmount(result.amount) }),
+      );
+    } catch {
+      setRedemptionMessage(t('userPanel.redemptionError'));
+    }
+  };
+
   const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
   const revealActionPending = revealUserPanelToken.isPending;
 
@@ -568,8 +593,9 @@ export function UserPanelPage() {
         </header>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          <TabsList className="grid w-full grid-cols-3 rounded-xl p-1">
+          <TabsList className="grid w-full grid-cols-4 rounded-xl p-1">
             <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
+            <TabsTrigger value="redemption">{t('userPanel.redemptionTab')}</TabsTrigger>
             <TabsTrigger value="consumption">{t('userPanel.consumptionTab')}</TabsTrigger>
             <TabsTrigger value="model-status">{t('userPanel.modelStatusTab')}</TabsTrigger>
           </TabsList>
@@ -862,6 +888,41 @@ export function UserPanelPage() {
                     ))}
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="redemption" className="space-y-5">
+            <Card className="border-border bg-card shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Gift className="size-4 text-primary" />
+                  {t('userPanel.redemptionTitle')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">{t('userPanel.redemptionDesc')}</p>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    value={redemptionCode}
+                    onChange={(event) => setRedemptionCode(event.target.value)}
+                    placeholder={t('userPanel.redemptionPlaceholder')}
+                    className="font-mono"
+                  />
+                  <Button
+                    type="button"
+                    className="shrink-0"
+                    onClick={handleRedeemCode}
+                    disabled={redeemUserPanelCode.isPending || !redemptionCode.trim()}
+                  >
+                    {redeemUserPanelCode.isPending
+                      ? t('common.loading')
+                      : t('userPanel.redemptionSubmit')}
+                  </Button>
+                </div>
+                {redemptionMessage && (
+                  <p className="text-sm text-muted-foreground">{redemptionMessage}</p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
