@@ -114,7 +114,7 @@ func TestDispatchForceRetryUpstreamErrorsAddsOneRetryBudgetForConnectionError(t 
 	}
 }
 
-func TestDispatchForceRetryUpstreamErrorsOffKeepsZeroRetryBudgetForConnectionError(t *testing.T) {
+func TestDispatchRetryableUpstreamConnectionErrorGetsOneRetryBudget(t *testing.T) {
 	retryErr := domain.NewUpstreamConnectionError("failed to connect to upstream")
 
 	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
@@ -126,17 +126,17 @@ func TestDispatchForceRetryUpstreamErrorsOffKeepsZeroRetryBudgetForConnectionErr
 
 	e.dispatch(c)
 
-	if c.Err == nil {
-		t.Fatal("expected connection error without retry budget")
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
 	}
-	if adapter.calls != 1 {
-		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
 	}
-	if proxyReq.Status != "FAILED" {
-		t.Fatalf("proxy request status = %q, want FAILED", proxyReq.Status)
+	if proxyReq.Status != "COMPLETED" {
+		t.Fatalf("proxy request status = %q, want COMPLETED", proxyReq.Status)
 	}
-	if proxyReq.ProxyUpstreamAttemptCount != 1 {
-		t.Fatalf("attempt count = %d, want 1", proxyReq.ProxyUpstreamAttemptCount)
+	if proxyReq.ProxyUpstreamAttemptCount != 2 {
+		t.Fatalf("attempt count = %d, want 2", proxyReq.ProxyUpstreamAttemptCount)
 	}
 }
 
@@ -481,5 +481,69 @@ func TestDispatchModelScopedNonRetryableErrorFailsOverToNextRoute(t *testing.T) 
 	}
 	if proxyReq.ProviderID != 21 {
 		t.Fatalf("final provider ID = %d, want 21", proxyReq.ProviderID)
+	}
+}
+
+func TestEnsureRetryableUpstreamErrorHasBudgetBoundaries(t *testing.T) {
+	baseErr := func() *domain.ProxyError {
+		return domain.NewUpstreamConnectionError("failed to connect to upstream")
+	}
+	nonRetryable := baseErr()
+	nonRetryable.Retryable = false
+	keyScoped := baseErr()
+	keyScoped.Scope = domain.ScopeKey
+	badRequest := baseErr()
+	badRequest.HTTPStatusCode = http.StatusBadRequest
+	rateLimited := baseErr()
+	rateLimited.HTTPStatusCode = http.StatusTooManyRequests
+	nonNetwork := baseErr()
+	nonNetwork.Reason = domain.CooldownReasonServerError
+	alreadyBudgeted := baseErr()
+	responseRead := baseErr()
+	responseRead.UpstreamFailurePhase = domain.UpstreamFailurePhaseResponseRead
+	unknownPhase := baseErr()
+	unknownPhase.UpstreamFailurePhase = domain.UpstreamFailurePhaseUnknown
+	nonConnectMessage := baseErr()
+	nonConnectMessage.Message = "invalid provider proxy configuration"
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	deadlineCtx, deadlineCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer deadlineCancel()
+
+	cases := []struct {
+		name                      string
+		maxRetries                int
+		proxyErr                  *domain.ProxyError
+		ctx                       context.Context
+		responseCommitted         bool
+		attempt                   int
+		allowPolicyRetryExtension bool
+		want                      int
+	}{
+		{name: "adds one budget for safe connection error", maxRetries: 0, proxyErr: baseErr(), want: 1},
+		{name: "keeps existing budget", maxRetries: 2, proxyErr: alreadyBudgeted, want: 2},
+		{name: "keeps exhausted configured retry budget without policy retry", maxRetries: 1, attempt: 1, proxyErr: baseErr(), want: 1},
+		{name: "raises budget above current attempt after policy retry", maxRetries: 1, attempt: 1, allowPolicyRetryExtension: true, proxyErr: baseErr(), want: 2},
+		{name: "ignores non retryable error", maxRetries: 0, proxyErr: nonRetryable, want: 0},
+		{name: "rejects key scoped error", maxRetries: 0, proxyErr: keyScoped, want: 0},
+		{name: "rejects ordinary four hundred error", maxRetries: 0, proxyErr: badRequest, want: 0},
+		{name: "does not treat rate limit as connection budget", maxRetries: 0, proxyErr: rateLimited, want: 0},
+		{name: "rejects non network upstream error", maxRetries: 0, proxyErr: nonNetwork, want: 0},
+		{name: "rejects response read upstream error", maxRetries: 0, proxyErr: responseRead, want: 0},
+		{name: "rejects unknown upstream failure phase", maxRetries: 0, proxyErr: unknownPhase, want: 0},
+		{name: "rejects connect phase without connection message", maxRetries: 0, proxyErr: nonConnectMessage, want: 0},
+		{name: "rejects canceled context", maxRetries: 0, proxyErr: baseErr(), ctx: canceledCtx, want: 0},
+		{name: "rejects deadline context", maxRetries: 0, proxyErr: baseErr(), ctx: deadlineCtx, want: 0},
+		{name: "rejects committed response", maxRetries: 0, proxyErr: baseErr(), responseCommitted: true, want: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ensureRetryableUpstreamErrorHasBudget(tc.maxRetries, tc.attempt, tc.allowPolicyRetryExtension, tc.proxyErr, tc.ctx, tc.responseCommitted)
+			if got != tc.want {
+				t.Fatalf("budget = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

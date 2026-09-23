@@ -468,6 +468,7 @@ func (a *CustomAdapter) handleOllamaNonStreamResponse(c *flow.Ctx, resp *http.Re
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read Ollama response")
 		proxyErr.Scope = domain.ScopeProvider
 		proxyErr.Reason = domain.CooldownReasonNetworkError
+		proxyErr.UpstreamFailurePhase = domain.UpstreamFailurePhaseResponseRead
 		return proxyErr
 	}
 
