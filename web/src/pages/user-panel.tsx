@@ -259,8 +259,8 @@ function ModelHealthCard({
                 {rows.map((row) => (
                   <TableRow key={`${row.model}:${row.routeID}:${row.providerID}`}>
                     <TableCell className="min-w-[14rem] max-w-[24rem]">
-                      <div className="truncate text-xs text-muted-foreground">{row.model}</div>
-                      <div className="truncate font-medium text-foreground">
+                      <div className="truncate font-medium text-foreground">{row.model}</div>
+                      <div className="truncate text-xs text-muted-foreground">
                         {formatModelHealthClientType(
                           t(`externalModels.routeTypes.${row.clientType}`),
                         )}
