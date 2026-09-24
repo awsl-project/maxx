@@ -210,10 +210,12 @@ function ModelHealthCard({
   rows,
   isLoading,
   isError,
+  hasUserPanelToken,
 }: {
   rows: UserPanelModelHealthRow[];
   isLoading: boolean;
   isError: boolean;
+  hasUserPanelToken: boolean;
 }) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
@@ -277,9 +279,13 @@ function ModelHealthCard({
           <p className="py-8 text-center text-sm text-destructive">
             {t('userPanel.modelStatusLoadFailed')}
           </p>
+        ) : !hasUserPanelToken ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            {t('userPanel.modelHealthNoToken')}
+          </p>
         ) : rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            {t('userPanel.modelStatusNoData')}
+            {t('userPanel.modelHealthNoCheckableRoutes')}
           </p>
         ) : filteredRows.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
@@ -508,7 +514,7 @@ export function UserPanelPage() {
     data: modelHealthRows,
     isLoading: modelHealthLoading,
     isError: modelHealthError,
-  } = useUserPanelModelHealth(Boolean(user) && activeTab === 'model-status');
+  } = useUserPanelModelHealth(Boolean(user));
 
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const todayTokenUsage = totalTokens(todayUsageStats);
@@ -1224,8 +1230,9 @@ export function UserPanelPage() {
           <TabsContent value="model-status" className="space-y-5">
             <ModelHealthCard
               rows={modelHealthRows ?? []}
-              isLoading={modelHealthLoading}
+              isLoading={tokenLoading || modelHealthLoading}
               isError={modelHealthError}
+              hasUserPanelToken={Boolean(userPanelToken?.isEnabled)}
             />
           </TabsContent>
         </Tabs>
