@@ -24,10 +24,14 @@ func (e *Executor) ProbeModelHealth(ctx context.Context, tenantID uint64, apiTok
 	if target.Model == "" || target.RouteID == 0 || target.ProviderID == 0 {
 		return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, Error: "invalid health target"}
 	}
+	sourceType := target.ClientType
+	if sourceType == "" {
+		sourceType = domain.ClientTypeOpenAI
+	}
 	result, err := e.router.Match(&router.MatchContext{
 		Ctx:          ctx,
 		TenantID:     tenantID,
-		ClientType:   domain.ClientTypeOpenAI,
+		ClientType:   sourceType,
 		RequestModel: target.Model,
 		ModelCandidates: func(route *domain.Route, provider *domain.Provider, clientType domain.ClientType, requestModel string) []string {
 			return e.mapModelCandidates(tenantID, requestModel, route, provider, clientType, 0, apiTokenID)
@@ -48,19 +52,19 @@ func (e *Executor) ProbeModelHealth(ctx context.Context, tenantID uint64, apiTok
 	if matched == nil {
 		return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, LatencyMs: time.Since(started).Milliseconds(), Error: "route/provider unavailable for model"}
 	}
-	mappedModel := e.mapModel(tenantID, target.Model, matched.Route, matched.Provider, domain.ClientTypeOpenAI, 0, apiTokenID)
-	body := map[string]any{
-		"model":      mappedModel,
-		"messages":   []map[string]string{{"role": "user", "content": "ping"}},
-		"max_tokens": 1,
-		"stream":     false,
+	mappedModel := e.mapModel(tenantID, target.Model, matched.Route, matched.Provider, sourceType, 0, apiTokenID)
+	requestURI, requestBody, err := buildModelHealthProbeRequest(sourceType, mappedModel)
+	if err != nil {
+		return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, LatencyMs: time.Since(started).Milliseconds(), Error: shortHealthError(err.Error())}
 	}
-	requestBody, _ := json.Marshal(body)
-	clientType := domain.ClientTypeOpenAI
-	requestURI := "/v1/chat/completions"
+	originalRequestBody := bytes.Clone(requestBody)
+	clientType := sourceType
 	if !providerSupportsProbeType(matched.ProviderAdapter.SupportedClientTypes(), clientType) {
 		targetType := GetPreferredTargetType(matched.ProviderAdapter.SupportedClientTypes(), clientType, matched.Provider.Type)
 		if targetType != clientType {
+			if e.converter == nil {
+				return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, LatencyMs: time.Since(started).Milliseconds(), Error: "request converter unavailable"}
+			}
 			converted, convErr := e.converter.TransformRequest(clientType, targetType, requestBody, mappedModel, false)
 			if convErr != nil {
 				return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, LatencyMs: time.Since(started).Milliseconds(), Error: shortHealthError("request conversion failed: " + convErr.Error())}
@@ -75,11 +79,11 @@ func (e *Executor) ProbeModelHealth(ctx context.Context, tenantID uint64, apiTok
 	rec := httptest.NewRecorder()
 	c := flow.NewCtx(NewResponseCapture(rec), req)
 	c.Set(flow.KeyClientType, clientType)
-	c.Set(flow.KeyOriginalClientType, domain.ClientTypeOpenAI)
+	c.Set(flow.KeyOriginalClientType, sourceType)
 	c.Set(flow.KeyRequestModel, target.Model)
 	c.Set(flow.KeyMappedModel, mappedModel)
 	c.Set(flow.KeyRequestBody, requestBody)
-	c.Set(flow.KeyOriginalRequestBody, requestBody)
+	c.Set(flow.KeyOriginalRequestBody, originalRequestBody)
 	c.Set(flow.KeyRequestHeaders, req.Header)
 	c.Set(flow.KeyRequestURI, requestURI)
 	c.Set(flow.KeyIsStream, false)
@@ -94,6 +98,53 @@ func (e *Executor) ProbeModelHealth(ctx context.Context, tenantID uint64, apiTok
 		return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, LatencyMs: latency, Error: shortHealthError(fmt.Sprintf("status %d: %s", rec.Code, rec.Body.String()))}
 	}
 	return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusOK, LatencyMs: latency}
+}
+
+func buildModelHealthProbeRequest(clientType domain.ClientType, mappedModel string) (string, []byte, error) {
+	if mappedModel == "" {
+		return "", nil, fmt.Errorf("mapped model is empty")
+	}
+	switch clientType {
+	case domain.ClientTypeClaude:
+		body := map[string]any{
+			"model":      mappedModel,
+			"messages":   []map[string]string{{"role": "user", "content": "ping"}},
+			"max_tokens": 1,
+			"stream":     false,
+		}
+		requestBody, _ := json.Marshal(body)
+		return "/v1/messages", requestBody, nil
+	case domain.ClientTypeCodex:
+		body := map[string]any{
+			"model":             mappedModel,
+			"input":             "ping",
+			"max_output_tokens": 1,
+			"stream":            false,
+		}
+		requestBody, _ := json.Marshal(body)
+		return "/responses", requestBody, nil
+	case domain.ClientTypeGemini:
+		body := map[string]any{
+			"contents": []map[string]any{{
+				"role":  "user",
+				"parts": []map[string]string{{"text": "ping"}},
+			}},
+			"generationConfig": map[string]any{"maxOutputTokens": 1},
+		}
+		requestBody, _ := json.Marshal(body)
+		return buildGeminiRequestPath("", mappedModel, false), requestBody, nil
+	case "", domain.ClientTypeOpenAI:
+		body := map[string]any{
+			"model":      mappedModel,
+			"messages":   []map[string]string{{"role": "user", "content": "ping"}},
+			"max_tokens": 1,
+			"stream":     false,
+		}
+		requestBody, _ := json.Marshal(body)
+		return "/v1/chat/completions", requestBody, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported health probe client type %q", clientType)
+	}
 }
 
 func providerSupportsProbeType(types []domain.ClientType, want domain.ClientType) bool {

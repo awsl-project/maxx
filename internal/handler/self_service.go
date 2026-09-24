@@ -529,7 +529,7 @@ func (h *SelfServiceHandler) handleUserPanelModelHealth(w http.ResponseWriter, r
 }
 
 func (h *SelfServiceHandler) collectUserPanelModelHealthTargets(tenantID, apiTokenID uint64) ([]domain.ModelHealthCheckTarget, error) {
-	groups, err := h.modelsHandler.collectAvailableModelRouteGroups(tenantID, domain.ClientTypeOpenAI, 0, 0, apiTokenID, "")
+	groups, err := h.collectUserPanelAvailableModelRouteGroups(tenantID, apiTokenID)
 	if err != nil {
 		return nil, err
 	}
@@ -540,7 +540,20 @@ func (h *SelfServiceHandler) collectUserPanelModelHealthTargets(tenantID, apiTok
 			if model == "" {
 				continue
 			}
-			targets = append(targets, domain.ModelHealthCheckTarget{Model: model, ClientType: domain.ClientTypeOpenAI, RouteID: group.RouteID, ProviderID: group.ProviderID, ProviderName: group.ProviderName})
+			clientType := group.ClientType
+			if clientType == "" {
+				clientType = domain.ClientTypeOpenAI
+			}
+			if group.RouteID != 0 && group.ProviderID != 0 {
+				targets = append(targets, domain.ModelHealthCheckTarget{Model: model, ClientType: clientType, RouteID: group.RouteID, ProviderID: group.ProviderID, ProviderName: group.ProviderName})
+				continue
+			}
+			for _, matched := range h.modelsHandler.matchAvailableModelRoutes(tenantID, clientType, 0, 0, apiTokenID, model) {
+				if matched == nil || matched.Route == nil || matched.Provider == nil {
+					continue
+				}
+				targets = append(targets, domain.ModelHealthCheckTarget{Model: model, ClientType: clientType, RouteID: matched.Route.ID, ProviderID: matched.Provider.ID, ProviderName: matched.Provider.Name})
+			}
 		}
 	}
 	return targets, nil

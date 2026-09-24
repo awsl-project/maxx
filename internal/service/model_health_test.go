@@ -76,3 +76,33 @@ func TestGetUserPanelModelHealthGrid_ProbesStaleTargetAndBuilds24hDots(t *testin
 		t.Fatalf("current = %+v, want ok latency", rows[0].Current)
 	}
 }
+
+func TestGetUserPanelModelHealthGrid_ReturnsUnknownRowsWhenProbeCapReached(t *testing.T) {
+	repo := &fakeModelHealthRepo{}
+	checker := &fakeModelHealthChecker{}
+	svc := &AdminService{modelHealthRepo: repo, modelHealthChecker: checker}
+	targets := make([]domain.ModelHealthCheckTarget, 0, modelHealthMaxProbesPerRequest+3)
+	for i := 0; i < modelHealthMaxProbesPerRequest+3; i++ {
+		targets = append(targets, domain.ModelHealthCheckTarget{Model: string(rune('a' + i)), ClientType: domain.ClientTypeOpenAI, RouteID: uint64(i + 1), ProviderID: uint64(i + 101), ProviderName: "newapi"})
+	}
+
+	rows, err := svc.GetUserPanelModelHealthGrid(context.Background(), 1, 7, targets)
+	if err != nil {
+		t.Fatalf("GetUserPanelModelHealthGrid: %v", err)
+	}
+	if checker.calls != modelHealthMaxProbesPerRequest {
+		t.Fatalf("probe calls = %d, want capped %d", checker.calls, modelHealthMaxProbesPerRequest)
+	}
+	if len(rows) != len(targets) {
+		t.Fatalf("rows = %d, want all %d targets represented", len(rows), len(targets))
+	}
+	unknown := 0
+	for _, row := range rows {
+		if row.Current.Status == domain.ModelHealthStatusUnknown {
+			unknown++
+		}
+	}
+	if unknown == 0 {
+		t.Fatalf("want capped, unprobed targets to stay visible as unknown rows")
+	}
+}

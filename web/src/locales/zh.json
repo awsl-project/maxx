@@ -211,6 +211,8 @@
     "modelStatusHint": "近 24 小时统计。",
     "modelStatusLoadFailed": "模型健康加载失败",
     "modelStatusNoData": "暂无模型健康数据",
+    "modelHealthNoToken": "生成或启用用户面板 Key 后开始检查模型健康。",
+    "modelHealthNoCheckableRoutes": "没有可检查的模型或路由。请先启用模型路由。",
     "model": "模型",
     "modelStatusTps": "TPS",
     "modelStatusLatency": "平均延迟",

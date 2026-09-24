@@ -211,6 +211,8 @@
     "modelStatusHint": "Stats from the last 24 hours.",
     "modelStatusLoadFailed": "Failed to load model health",
     "modelStatusNoData": "No model health data yet",
+    "modelHealthNoToken": "Generate or enable your user-panel key to start model health checks.",
+    "modelHealthNoCheckableRoutes": "No checkable models or routes. Enable a model route first.",
     "model": "Model",
     "modelStatusTps": "TPS",
     "modelStatusLatency": "Avg latency",

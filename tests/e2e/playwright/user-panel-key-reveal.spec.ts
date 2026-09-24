@@ -231,8 +231,8 @@ test('user panel key reveal uses a controlled endpoint and eye-toggle UI', async
     const marker = `key reveal proxy marker ${Date.now()}`;
     const proxyResponse = await sendOpenAIProxyRequest(revealed.token, marker);
     expect(proxyResponse.choices?.[0]?.message?.content).toBe('mock key reveal proxy ok');
-    expect(mock.requests).toHaveLength(1);
-    expect(mock.requests[0]).toContain(marker);
+    const markerRequests = mock.requests.filter((requestBody) => requestBody.includes(marker));
+    expect(markerRequests).toHaveLength(1);
 
     const mockFlowScreenshot = '/tmp/maxx-user-panel-key-mock-proxy-response.png';
     await page.evaluate(
