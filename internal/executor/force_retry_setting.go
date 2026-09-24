@@ -62,7 +62,9 @@ func safeUpstreamRetryBoundary(proxyErr *domain.ProxyError, ctx context.Context,
 	if proxyErr.Scope == domain.ScopeRequest || proxyErr.Scope == domain.ScopeKey {
 		return false
 	}
-	if proxyErr.HTTPStatusCode >= http.StatusBadRequest && proxyErr.HTTPStatusCode < http.StatusInternalServerError && proxyErr.HTTPStatusCode != http.StatusTooManyRequests {
+	if proxyErr.HTTPStatusCode >= http.StatusBadRequest && proxyErr.HTTPStatusCode < http.StatusInternalServerError &&
+		proxyErr.HTTPStatusCode != http.StatusTooManyRequests &&
+		proxyErr.HTTPStatusCode != http.StatusRequestTimeout {
 		return false
 	}
 
@@ -78,10 +80,7 @@ func ensureRetryableUpstreamErrorHasBudget(maxRetries int, attempt int, allowPol
 	if proxyErr == nil || !proxyErr.Retryable || !safeUpstreamRetryBoundary(proxyErr, ctx, responseCommitted) {
 		return maxRetries
 	}
-	if proxyErr.HTTPStatusCode != 0 || proxyErr.Reason != domain.CooldownReasonNetworkError || !errors.Is(proxyErr.Err, domain.ErrUpstreamError) {
-		return maxRetries
-	}
-	if proxyErr.UpstreamFailurePhase != domain.UpstreamFailurePhaseConnect || !strings.HasPrefix(proxyErr.Message, "failed to connect") {
+	if !isSafeUpstreamConnectFailure(proxyErr) {
 		return maxRetries
 	}
 	neededBudget := 1
@@ -92,6 +91,25 @@ func ensureRetryableUpstreamErrorHasBudget(maxRetries int, attempt int, allowPol
 		return maxRetries
 	}
 	return neededBudget
+}
+
+func isSafeUpstreamConnectFailure(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil || proxyErr.Reason != domain.CooldownReasonNetworkError {
+		return false
+	}
+	if proxyErr.HTTPStatusCode == 0 {
+		return errors.Is(proxyErr.Err, domain.ErrUpstreamError) &&
+			proxyErr.UpstreamFailurePhase == domain.UpstreamFailurePhaseConnect &&
+			strings.HasPrefix(proxyErr.Message, "failed to connect")
+	}
+	if proxyErr.HTTPStatusCode != http.StatusRequestTimeout {
+		return false
+	}
+	msg := strings.ToLower(proxyErr.Message)
+	if proxyErr.Err != nil {
+		msg += " " + strings.ToLower(proxyErr.Err.Error())
+	}
+	return strings.Contains(msg, "failed to connect to upstream")
 }
 
 func proxyErrorScopeForLog(proxyErr *domain.ProxyError) domain.ErrorScope {

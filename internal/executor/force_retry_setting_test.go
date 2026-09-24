@@ -44,6 +44,14 @@ type forceRetrySequenceAdapter struct {
 	onCall func()
 }
 
+func newHTTP408UpstreamConnectError() *domain.ProxyError {
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream error: failed to connect to upstream: upstream error"), true, "upstream returned status 408")
+	proxyErr.Scope = domain.ScopeEndpoint
+	proxyErr.Reason = domain.CooldownReasonNetworkError
+	proxyErr.HTTPStatusCode = http.StatusRequestTimeout
+	return proxyErr
+}
+
 func (a *forceRetrySequenceAdapter) SupportedClientTypes() []domain.ClientType {
 	return []domain.ClientType{domain.ClientTypeOpenAI}
 }
@@ -137,6 +145,69 @@ func TestDispatchRetryableUpstreamConnectionErrorGetsOneRetryBudget(t *testing.T
 	}
 	if proxyReq.ProxyUpstreamAttemptCount != 2 {
 		t.Fatalf("attempt count = %d, want 2", proxyReq.ProxyUpstreamAttemptCount)
+	}
+}
+
+func TestDispatchRetryableHTTP408ConnectErrorGetsOneRetryBudget(t *testing.T) {
+	retryErr := newHTTP408UpstreamConnectError()
+
+	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		&forceRetrySequenceAdapter{errs: []error{retryErr, nil}},
+		&domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0, ForceRetryUpstreamErrors: false},
+	)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	if proxyReq.Status != "COMPLETED" {
+		t.Fatalf("proxy request status = %q, want COMPLETED", proxyReq.Status)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 2 {
+		t.Fatalf("attempt count = %d, want 2", proxyReq.ProxyUpstreamAttemptCount)
+	}
+}
+
+func TestDispatchHTTP408ConnectErrorFallsThroughAfterRetryBudget(t *testing.T) {
+	first := &forceRetrySequenceAdapter{errs: []error{newHTTP408UpstreamConnectError(), newHTTP408UpstreamConnectError()}}
+	second := &forceRetrySequenceAdapter{}
+	_, proxyReq, c, e := newForceRetryDispatchHarness(
+		t,
+		false,
+		first,
+		&domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0, ForceRetryUpstreamErrors: false},
+	)
+	storedState, ok := c.Get(flow.KeyExecutorState)
+	if !ok {
+		t.Fatal("executor state missing")
+	}
+	state := storedState.(*execState)
+	state.routes = append(state.routes, &router.MatchedRoute{
+		Route:           &domain.Route{ID: 11, TenantID: domain.DefaultTenantID, ProviderID: 21, ClientType: domain.ClientTypeOpenAI},
+		Provider:        &domain.Provider{ID: 21, TenantID: domain.DefaultTenantID, Type: "custom", Name: "custom-success"},
+		ProviderAdapter: second,
+		RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+	})
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if first.calls != 2 || second.calls != 1 {
+		t.Fatalf("adapter calls first=%d second=%d, want 2/1", first.calls, second.calls)
+	}
+	if proxyReq.Status != "COMPLETED" {
+		t.Fatalf("proxy request status = %q, want COMPLETED", proxyReq.Status)
+	}
+	if proxyReq.ProviderID != 21 {
+		t.Fatalf("final provider ID = %d, want 21", proxyReq.ProviderID)
 	}
 }
 
@@ -496,6 +567,11 @@ func TestEnsureRetryableUpstreamErrorHasBudgetBoundaries(t *testing.T) {
 	badRequest.HTTPStatusCode = http.StatusBadRequest
 	rateLimited := baseErr()
 	rateLimited.HTTPStatusCode = http.StatusTooManyRequests
+	http408Connect := newHTTP408UpstreamConnectError()
+	http408ConnectWithoutWrappedCause := newHTTP408UpstreamConnectError()
+	http408ConnectWithoutWrappedCause.Err = errors.New("upstream error: failed to connect to upstream")
+	http408NonConnect := newHTTP408UpstreamConnectError()
+	http408NonConnect.Err = errors.New("upstream error: request timeout waiting for model output")
 	nonNetwork := baseErr()
 	nonNetwork.Reason = domain.CooldownReasonServerError
 	alreadyBudgeted := baseErr()
@@ -529,6 +605,9 @@ func TestEnsureRetryableUpstreamErrorHasBudgetBoundaries(t *testing.T) {
 		{name: "rejects key scoped error", maxRetries: 0, proxyErr: keyScoped, want: 0},
 		{name: "rejects ordinary four hundred error", maxRetries: 0, proxyErr: badRequest, want: 0},
 		{name: "does not treat rate limit as connection budget", maxRetries: 0, proxyErr: rateLimited, want: 0},
+		{name: "adds one budget for http 408 wrapped connection error", maxRetries: 0, proxyErr: http408Connect, want: 1},
+		{name: "adds one budget for http 408 connection message without wrapped cause", maxRetries: 0, proxyErr: http408ConnectWithoutWrappedCause, want: 1},
+		{name: "rejects http 408 without connection message", maxRetries: 0, proxyErr: http408NonConnect, want: 0},
 		{name: "rejects non network upstream error", maxRetries: 0, proxyErr: nonNetwork, want: 0},
 		{name: "rejects response read upstream error", maxRetries: 0, proxyErr: responseRead, want: 0},
 		{name: "rejects unknown upstream failure phase", maxRetries: 0, proxyErr: unknownPhase, want: 0},
