@@ -532,6 +532,104 @@ func (r *selfServiceAPITokenRepo) DeductQuotaBalanceToZero(tenantID uint64, id u
 	return domain.ErrNotFound
 }
 
+type selfServiceRedemptionCodeRepo struct {
+	tokenRepo *selfServiceAPITokenRepo
+	codes     []*domain.RedemptionCode
+	nextID    uint64
+}
+
+func (r *selfServiceRedemptionCodeRepo) Create(code *domain.RedemptionCode) error {
+	if code.ID == 0 {
+		r.nextID++
+		code.ID = r.nextID
+	}
+	r.codes = append(r.codes, code)
+	return nil
+}
+
+func (r *selfServiceRedemptionCodeRepo) CreateWithAPITokenDebit(tenantID uint64, apiTokenID uint64, amount uint64, codes []*domain.RedemptionCode) error {
+	if r.tokenRepo == nil || tenantID == 0 || apiTokenID == 0 || amount == 0 || len(codes) == 0 {
+		return domain.ErrInvalidInput
+	}
+	var token *domain.APIToken
+	for _, candidate := range r.tokenRepo.tokens {
+		if candidate.TenantID == tenantID && candidate.ID == apiTokenID {
+			token = candidate
+			break
+		}
+	}
+	if token == nil {
+		return domain.ErrNotFound
+	}
+	if token.QuotaBalance < amount {
+		return domain.ErrAPITokenQuotaExhausted
+	}
+	token.QuotaBalance -= amount
+	for _, code := range codes {
+		r.nextID++
+		code.ID = r.nextID
+		code.TenantID = tenantID
+		r.codes = append(r.codes, code)
+	}
+	return nil
+}
+
+func (r *selfServiceRedemptionCodeRepo) Update(_ uint64, _ *domain.RedemptionCode) error {
+	return nil
+}
+
+func (r *selfServiceRedemptionCodeRepo) Delete(tenantID uint64, id uint64) error {
+	for i, code := range r.codes {
+		if code.TenantID == tenantID && code.ID == id {
+			r.codes = append(r.codes[:i], r.codes[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (r *selfServiceRedemptionCodeRepo) GetByID(tenantID uint64, id uint64) (*domain.RedemptionCode, error) {
+	for _, code := range r.codes {
+		if code.TenantID == tenantID && code.ID == id {
+			return code, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (r *selfServiceRedemptionCodeRepo) List(tenantID uint64) ([]*domain.RedemptionCode, error) {
+	var result []*domain.RedemptionCode
+	for _, code := range r.codes {
+		if code.TenantID == tenantID {
+			result = append(result, code)
+		}
+	}
+	return result, nil
+}
+
+func (r *selfServiceRedemptionCodeRepo) Redeem(tenantID uint64, codeHash string, userID uint64, apiTokenID uint64, now time.Time) (*domain.RedemptionCode, error) {
+	for _, code := range r.codes {
+		if code.TenantID == tenantID && code.CodeHash == codeHash {
+			if code.Status != domain.RedemptionCodeStatusActive {
+				return nil, domain.ErrRedemptionCodeDisabled
+			}
+			if code.UsedAt != nil {
+				return nil, domain.ErrRedemptionCodeUsed
+			}
+			for _, token := range r.tokenRepo.tokens {
+				if token.TenantID == tenantID && token.ID == apiTokenID {
+					token.QuotaBalance += code.Amount
+					code.UsedByUserID = userID
+					code.UsedAt = &now
+					return code, nil
+				}
+			}
+			return nil, domain.ErrNotFound
+		}
+	}
+	return nil, domain.ErrRedemptionCodeInvalid
+}
+
 type selfServiceDailyCheckInRepo struct {
 	claims map[string]bool
 }
@@ -730,17 +828,18 @@ func (r *selfServiceResponseModelRepo) ListNames() ([]string, error) {
 }
 
 type selfServiceTestDeps struct {
-	providerRepo      repository.ProviderRepository
-	routeRepo         *selfServiceRouteRepo
-	projectRepo       *selfServiceProjectRepo
-	retryConfigRepo   *selfServiceRetryConfigRepo
-	modelMappingRepo  *selfServiceModelMappingRepo
-	settingsRepo      *selfServiceSettingsRepo
-	apiTokenRepo      *selfServiceAPITokenRepo
-	usageStatsRepo    *selfServiceUsageStatsRepo
-	responseModelRepo *selfServiceResponseModelRepo
-	modelPriceRepo    *selfServiceModelPriceRepo
-	dailyCheckInRepo  repository.UserPanelDailyCheckInRepository
+	providerRepo       repository.ProviderRepository
+	routeRepo          *selfServiceRouteRepo
+	projectRepo        *selfServiceProjectRepo
+	retryConfigRepo    *selfServiceRetryConfigRepo
+	modelMappingRepo   *selfServiceModelMappingRepo
+	settingsRepo       *selfServiceSettingsRepo
+	apiTokenRepo       *selfServiceAPITokenRepo
+	redemptionCodeRepo repository.RedemptionCodeRepository
+	usageStatsRepo     *selfServiceUsageStatsRepo
+	responseModelRepo  *selfServiceResponseModelRepo
+	modelPriceRepo     *selfServiceModelPriceRepo
+	dailyCheckInRepo   repository.UserPanelDailyCheckInRepository
 }
 
 type selfServiceProviderRepoWithListError struct {
@@ -782,6 +881,7 @@ func newSelfServiceHandlerForTests(deps selfServiceTestDeps) *SelfServiceHandler
 		nil,
 		nil,
 	)
+	adminSvc.SetRedemptionCodeRepository(deps.redemptionCodeRepo)
 	return NewSelfServiceHandler(adminSvc)
 }
 
@@ -2503,6 +2603,81 @@ func TestSelfServiceHandler_UserPanelDailyCheckInHiddenWhenDisabled(t *testing.T
 	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel/check-in"))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestSelfServiceHandler_UserPanelCreateRedemptionCodesDebitsBalance(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "user 9", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 0, QuotaBalance: 5_000_000_000},
+		},
+	}
+	redemptionRepo := &selfServiceRedemptionCodeRepo{tokenRepo: tokenRepo}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo:       tokenRepo,
+		redemptionCodeRepo: redemptionRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequestWithBody(http.MethodPost, "/user-panel/redemption-codes", `{"count":2,"amount":1000000000,"note":"gift"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if tokenRepo.tokens[0].QuotaBalance != 3_000_000_000 {
+		t.Fatalf("quota after create = %d, want 3 dollars", tokenRepo.tokens[0].QuotaBalance)
+	}
+	if len(redemptionRepo.codes) != 2 {
+		t.Fatalf("created codes = %d, want 2", len(redemptionRepo.codes))
+	}
+	for _, code := range redemptionRepo.codes {
+		if code.CreatedByUserID != 9 || code.Amount != 1_000_000_000 || code.Note != "gift" {
+			t.Fatalf("code = %+v, want user-owned one dollar gift code", code)
+		}
+	}
+	var result struct {
+		APIToken domain.APIToken                   `json:"apiToken"`
+		Items    []domain.RedemptionCodeCreateItem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.APIToken.QuotaBalance != 3_000_000_000 || len(result.Items) != 2 || result.Items[0].Code == "" {
+		t.Fatalf("result = %+v, want debited token and plain codes", result)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelCreateRedemptionCodesRejectsInsufficientBalance(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "user 9", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 0, QuotaBalance: 1_000_000_000},
+		},
+	}
+	redemptionRepo := &selfServiceRedemptionCodeRepo{tokenRepo: tokenRepo}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo:       tokenRepo,
+		redemptionCodeRepo: redemptionRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequestWithBody(http.MethodPost, "/user-panel/redemption-codes", `{"count":2,"amount":1000000000}`))
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusPaymentRequired, rec.Body.String())
+	}
+	if tokenRepo.tokens[0].QuotaBalance != 1_000_000_000 {
+		t.Fatalf("quota after rejected create = %d, want unchanged", tokenRepo.tokens[0].QuotaBalance)
+	}
+	if len(redemptionRepo.codes) != 0 {
+		t.Fatalf("created codes = %d, want none", len(redemptionRepo.codes))
 	}
 }
 

@@ -31,6 +31,8 @@ var protectedSelfServiceRoutePatterns = []string{
 	"/api/user-panel/announcement/",
 	"/api/user-panel/consumption-leaderboard",
 	"/api/user-panel/consumption-leaderboard/",
+	"/api/user-panel/redemption-codes",
+	"/api/user-panel/redemption-codes/",
 	"/api/user-panel/redemption-codes/redeem",
 	"/api/user-panel/redemption-codes/redeem/",
 	"/api/model-mappings",

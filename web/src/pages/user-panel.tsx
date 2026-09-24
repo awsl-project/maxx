@@ -48,6 +48,7 @@ import {
   useUserPanelAvailableModelRoutes,
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
+  useCreateUserPanelRedemptionCodes,
   useRedeemUserPanelCode,
   useUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
@@ -359,6 +360,7 @@ export function UserPanelPage() {
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const revealUserPanelToken = useRevealUserPanelAPIToken();
   const dailyCheckIn = useUserPanelDailyCheckIn();
+  const createUserPanelRedemptionCodes = useCreateUserPanelRedemptionCodes();
   const redeemUserPanelCode = useRedeemUserPanelCode();
   const { mutateAsync: runDailyCheckIn } = dailyCheckIn;
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
@@ -370,6 +372,11 @@ export function UserPanelPage() {
   const [dailyCheckInDone, setDailyCheckInDone] = useState(false);
   const [redemptionCode, setRedemptionCode] = useState('');
   const [redemptionMessage, setRedemptionMessage] = useState('');
+  const [selfRedemptionCount, setSelfRedemptionCount] = useState('1');
+  const [selfRedemptionAmount, setSelfRedemptionAmount] = useState('1');
+  const [selfRedemptionNote, setSelfRedemptionNote] = useState('');
+  const [selfRedemptionMessage, setSelfRedemptionMessage] = useState('');
+  const [createdSelfRedemptionCodes, setCreatedSelfRedemptionCodes] = useState<string[]>([]);
   const [announcementOpen, setAnnouncementOpen] = useState(false);
   const [announcementSeenFingerprint, setAnnouncementSeenFingerprint] = useState('');
   const autoDailyCheckInStartedRef = useRef(false);
@@ -395,6 +402,19 @@ export function UserPanelPage() {
   const dailyCheckInRewardAmount =
     dailyCheckInStatus?.rewardAmount ??
     parseDailyCheckInAmountSetting(publicSettings?.user_panel_daily_checkin_amount);
+  const selfRedemptionCountNumber = Math.max(
+    1,
+    Math.min(100, Number.parseInt(selfRedemptionCount, 10) || 1),
+  );
+  const selfRedemptionAmountUSD = Number(selfRedemptionAmount);
+  const selfRedemptionAmountValue = Number.isFinite(selfRedemptionAmountUSD)
+    ? Math.round(selfRedemptionAmountUSD * 1_000_000_000)
+    : 0;
+  const selfRedemptionTotalValue = selfRedemptionAmountValue * selfRedemptionCountNumber;
+  const canCreateSelfRedemptionCodes =
+    selfRedemptionAmountValue > 0 &&
+    Boolean(userPanelToken) &&
+    (userPanelToken?.quotaBalance ?? 0) >= selfRedemptionTotalValue;
   const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
   const userPanelTokenValue = revealedUserPanelToken || maskedUserPanelToken;
   const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
@@ -558,6 +578,27 @@ export function UserPanelPage() {
     setRevealedUserPanelToken(result.token);
     setRevealKeyError('');
     setKeyCopied(false);
+  };
+
+  const handleCreateSelfRedemptionCodes = async () => {
+    if (!canCreateSelfRedemptionCodes) return;
+    setSelfRedemptionMessage('');
+    try {
+      const result = await createUserPanelRedemptionCodes.mutateAsync({
+        count: selfRedemptionCountNumber,
+        amount: selfRedemptionAmountValue,
+        note: selfRedemptionNote.trim(),
+      });
+      setCreatedSelfRedemptionCodes(result.items.map((item) => item.code));
+      setSelfRedemptionMessage(
+        t('userPanel.selfRedemptionCreateSuccess', {
+          count: result.items.length,
+          amount: formatQuotaAmount(selfRedemptionTotalValue),
+        }),
+      );
+    } catch {
+      setSelfRedemptionMessage(t('userPanel.selfRedemptionCreateError'));
+    }
   };
 
   const handleRedeemCode = async () => {
@@ -925,6 +966,93 @@ export function UserPanelPage() {
           </TabsContent>
 
           <TabsContent value="redemption" className="space-y-5">
+            <Card className="border-border bg-card shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Gift className="size-4 text-primary" />
+                  {t('userPanel.selfRedemptionCreateTitle')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  {t('userPanel.selfRedemptionCreateDesc')}
+                </p>
+                <div className="grid gap-3 md:grid-cols-[120px_160px_1fr_auto] md:items-end">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="self-redemption-count">
+                      {t('userPanel.selfRedemptionCount')}
+                    </label>
+                    <Input
+                      id="self-redemption-count"
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={selfRedemptionCount}
+                      onChange={(event) => setSelfRedemptionCount(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="self-redemption-amount">
+                      {t('userPanel.selfRedemptionAmount')}
+                    </label>
+                    <Input
+                      id="self-redemption-amount"
+                      type="number"
+                      min="0.000001"
+                      step="0.01"
+                      value={selfRedemptionAmount}
+                      onChange={(event) => setSelfRedemptionAmount(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="self-redemption-note">
+                      {t('userPanel.selfRedemptionNote')}
+                    </label>
+                    <Input
+                      id="self-redemption-note"
+                      value={selfRedemptionNote}
+                      onChange={(event) => setSelfRedemptionNote(event.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    className="shrink-0"
+                    onClick={handleCreateSelfRedemptionCodes}
+                    disabled={
+                      createUserPanelRedemptionCodes.isPending || !canCreateSelfRedemptionCodes
+                    }
+                  >
+                    {createUserPanelRedemptionCodes.isPending
+                      ? t('common.loading')
+                      : t('userPanel.selfRedemptionCreateSubmit')}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('userPanel.selfRedemptionTotal', {
+                    amount: formatQuotaAmount(selfRedemptionTotalValue),
+                    balance: formatQuotaBalance(userPanelToken?.quotaBalance ?? 0),
+                  })}
+                </p>
+                {selfRedemptionMessage && (
+                  <p className="text-sm text-muted-foreground">{selfRedemptionMessage}</p>
+                )}
+                {createdSelfRedemptionCodes.length > 0 && (
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">
+                      {t('userPanel.selfRedemptionCreated')}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {createdSelfRedemptionCodes.map((code) => (
+                        <code key={code} className="rounded bg-muted px-2 py-1 text-xs">
+                          {code}
+                        </code>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="border-border bg-card shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">

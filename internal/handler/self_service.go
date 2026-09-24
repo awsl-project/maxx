@@ -262,6 +262,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "user-panel":
 		switch {
+		case len(parts) == 3 && parts[2] == "redemption-codes":
+			h.handleUserPanelCreateRedemptionCodes(w, r)
 		case len(parts) == 4 && parts[2] == "redemption-codes" && parts[3] == "redeem":
 			h.handleUserPanelRedeemCode(w, r)
 		case len(parts) == 3 && parts[2] == "models":
@@ -1780,6 +1782,80 @@ func (h *SelfServiceHandler) userPanelDailyCheckInRewardAmount() uint64 {
 		amount, _ = strconv.ParseFloat(defaultUserPanelDailyCheckInAmountUSD, 64)
 	}
 	return uint64(math.Round(amount * 1_000_000_000))
+}
+
+func (h *SelfServiceHandler) handleUserPanelCreateRedemptionCodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel redemption is not enabled"})
+		return
+	}
+
+	var body struct {
+		Count  int    `json:"count"`
+		Amount uint64 `json:"amount"`
+		Note   string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if body.Amount == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "redemption amount is required"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		result, err := h.svc.CreateAPIToken(tenantID, userPanelAPITokenName(userID), userPanelAPITokenDescription(userID), 0, nil)
+		if err != nil {
+			writeSelfServiceInternalError(w, "CreateUserPanelAPIToken failed", err)
+			return
+		}
+		canonicalToken = result.APIToken
+	}
+
+	result, err := h.svc.CreateUserPanelRedemptionCodes(tenantID, userID, canonicalToken.ID, body.Count, body.Amount, body.Note)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrAPITokenQuotaExhausted):
+			writeJSON(w, http.StatusPaymentRequired, map[string]string{"error": "insufficient quota balance"})
+		case errors.Is(err, domain.ErrInvalidInput):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid redemption code input"})
+		default:
+			writeSelfServiceInternalError(w, "CreateUserPanelRedemptionCodes failed", err)
+		}
+		return
+	}
+
+	canonicalToken, err = h.svc.GetAPIToken(tenantID, canonicalToken.ID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokenAfterCreateRedemptionCodes failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"apiToken": sanitizeAPIToken(canonicalToken),
+		"items":    result.Items,
+	})
 }
 
 func (h *SelfServiceHandler) handleUserPanelRedeemCode(w http.ResponseWriter, r *http.Request) {

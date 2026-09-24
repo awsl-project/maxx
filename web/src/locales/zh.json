@@ -231,6 +231,16 @@
     "redemptionSubmit": "兑换",
     "redemptionSuccess": "兑换成功，已增加 {{amount}} 余额。",
     "redemptionError": "兑换失败：兑换码无效、已使用或已禁用。",
+    "selfRedemptionCreateTitle": "生成兑换码",
+    "selfRedemptionCreateDesc": "使用当前账号余额生成一次性兑换码。生成成功后会立即扣除对应余额。",
+    "selfRedemptionCount": "数量",
+    "selfRedemptionAmount": "单码金额（美元）",
+    "selfRedemptionNote": "备注",
+    "selfRedemptionCreateSubmit": "生成",
+    "selfRedemptionTotal": "预计扣除 {{amount}}，当前余额 {{balance}}。",
+    "selfRedemptionCreated": "本次生成的明文兑换码，请立即复制保存：",
+    "selfRedemptionCreateSuccess": "已生成 {{count}} 个兑换码，并扣除 {{amount}}。",
+    "selfRedemptionCreateError": "生成失败：余额不足或输入无效。",
     "dailyCheckInBlacklisted": "当前账号不可参与签到。"
   },
   "testField": {

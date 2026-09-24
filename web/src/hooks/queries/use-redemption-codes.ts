@@ -4,6 +4,8 @@ import {
   type CreateRedemptionCodeData,
   type RedemptionCode,
   type RedemptionCodeCreateResult,
+  type UserPanelCreateRedemptionCodeData,
+  type UserPanelCreateRedemptionCodeResult,
   type UpdateRedemptionCodeData,
 } from '@/lib/transport';
 import { apiTokenKeys } from './use-api-tokens';
@@ -55,6 +57,23 @@ export function useDeleteRedemptionCode() {
   return useMutation({
     mutationFn: (id: number) => getTransport().deleteRedemptionCode(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: redemptionCodeKeys.lists() }),
+  });
+}
+
+export function useCreateUserPanelRedemptionCodes() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    UserPanelCreateRedemptionCodeResult,
+    unknown,
+    UserPanelCreateRedemptionCodeData
+  >({
+    mutationFn: (data) => getTransport().createUserPanelRedemptionCodes(data),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: apiTokenKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: ['user-panel-token'] }),
+      ]);
+    },
   });
 }
 

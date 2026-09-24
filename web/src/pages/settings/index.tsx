@@ -2658,7 +2658,7 @@ function MultiTenantUISection() {
                     </div>
                   </div>
                 )}
-                <div className="space-y-2">
+                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
                   {redemptionCodes.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       {t('settings.userPanelRedemptionEmpty')}

@@ -43,6 +43,47 @@ func (r *RedemptionCodeRepository) Create(code *domain.RedemptionCode) error {
 	return nil
 }
 
+func (r *RedemptionCodeRepository) CreateWithAPITokenDebit(tenantID uint64, apiTokenID uint64, amount uint64, codes []*domain.RedemptionCode) error {
+	if r.nowFunc == nil {
+		r.nowFunc = time.Now
+	}
+	if tenantID == 0 || apiTokenID == 0 || amount == 0 || len(codes) == 0 {
+		return domain.ErrInvalidInput
+	}
+	now := r.nowFunc()
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		debit := tenantScope(tx.Model(&APIToken{}), tenantID).
+			Where("id = ? AND deleted_at = 0", apiTokenID).
+			Where("quota_balance >= ?", amount).
+			Update("quota_balance", gorm.Expr("quota_balance - ?", amount))
+		if debit.Error != nil {
+			return debit.Error
+		}
+		if debit.RowsAffected != 1 {
+			return domain.ErrAPITokenQuotaExhausted
+		}
+
+		models := make([]*RedemptionCode, 0, len(codes))
+		for _, code := range codes {
+			if code == nil || code.Amount == 0 || code.CodeHash == "" || code.CodePrefix == "" {
+				return domain.ErrInvalidInput
+			}
+			code.TenantID = tenantID
+			code.Status = domain.RedemptionCodeStatusActive
+			code.CreatedAt = now
+			code.UpdatedAt = now
+			models = append(models, r.toModel(code))
+		}
+		if err := tx.Create(&models).Error; err != nil {
+			return err
+		}
+		for i, model := range models {
+			codes[i].ID = model.ID
+		}
+		return nil
+	})
+}
+
 func (r *RedemptionCodeRepository) Update(tenantID uint64, code *domain.RedemptionCode) error {
 	if r.nowFunc == nil {
 		r.nowFunc = time.Now
