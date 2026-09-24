@@ -9,6 +9,8 @@ import (
 
 type ModelHealthCheckRepository struct{ db *DB }
 
+const modelHealthTargetBatchSize = 100
+
 func NewModelHealthCheckRepository(db *DB) *ModelHealthCheckRepository {
 	return &ModelHealthCheckRepository{db: db}
 }
@@ -36,15 +38,21 @@ func (r *ModelHealthCheckRepository) LatestByTargets(tenantID uint64, targets []
 	if len(targets) == 0 {
 		return out, nil
 	}
-	for _, target := range targets {
-		var model ModelHealthCheck
-		err := tenantScope(r.db.gorm, tenantID).
-			Where("model = ? AND client_type = ? AND route_id = ? AND provider_id = ?", target.Model, string(target.ClientType), target.RouteID, target.ProviderID).
-			Order("checked_at DESC, id DESC").Limit(1).First(&model).Error
-		if err != nil {
-			continue
+	for _, batch := range chunkModelHealthTargets(targets, modelHealthTargetBatchSize) {
+		query := tenantScope(r.db.gorm.Model(&ModelHealthCheck{}), tenantID)
+		query = query.Where(r.targetWhere(batch), r.targetArgs(batch)...)
+		var models []ModelHealthCheck
+		if err := query.Order("checked_at DESC, id DESC").Find(&models).Error; err != nil {
+			return nil, err
 		}
-		out[repository.ModelHealthTargetKey(target.Model, target.ClientType, target.RouteID, target.ProviderID)] = r.toDomain(&model)
+		for i := range models {
+			model := &models[i]
+			key := repository.ModelHealthTargetKey(model.Model, domain.ClientType(model.ClientType), model.RouteID, model.ProviderID)
+			if _, ok := out[key]; ok {
+				continue
+			}
+			out[key] = r.toDomain(model)
+		}
 	}
 	return out, nil
 }
@@ -53,15 +61,17 @@ func (r *ModelHealthCheckRepository) ListByTargetsSince(tenantID uint64, targets
 	if len(targets) == 0 {
 		return []*domain.ModelHealthCheck{}, nil
 	}
-	query := tenantScope(r.db.gorm.Model(&ModelHealthCheck{}), tenantID).Where("checked_at >= ?", toTimestamp(since))
-	query = query.Where(r.targetWhere(targets), r.targetArgs(targets)...)
-	var models []ModelHealthCheck
-	if err := query.Order("checked_at ASC, id ASC").Find(&models).Error; err != nil {
-		return nil, err
-	}
-	out := make([]*domain.ModelHealthCheck, 0, len(models))
-	for i := range models {
-		out = append(out, r.toDomain(&models[i]))
+	out := make([]*domain.ModelHealthCheck, 0, len(targets))
+	for _, batch := range chunkModelHealthTargets(targets, modelHealthTargetBatchSize) {
+		query := tenantScope(r.db.gorm.Model(&ModelHealthCheck{}), tenantID).Where("checked_at >= ?", toTimestamp(since))
+		query = query.Where(r.targetWhere(batch), r.targetArgs(batch)...)
+		var models []ModelHealthCheck
+		if err := query.Order("checked_at ASC, id ASC").Find(&models).Error; err != nil {
+			return nil, err
+		}
+		for i := range models {
+			out = append(out, r.toDomain(&models[i]))
+		}
 	}
 	return out, nil
 }
@@ -92,4 +102,19 @@ func (r *ModelHealthCheckRepository) toModel(c *domain.ModelHealthCheck) *ModelH
 }
 func (r *ModelHealthCheckRepository) toDomain(m *ModelHealthCheck) *domain.ModelHealthCheck {
 	return &domain.ModelHealthCheck{ID: m.ID, TenantID: m.TenantID, Model: m.Model, ClientType: domain.ClientType(m.ClientType), RouteID: m.RouteID, ProviderID: m.ProviderID, ProviderName: m.ProviderName, Status: domain.ModelHealthStatus(m.Status), LatencyMs: m.LatencyMs, Error: string(m.Error), CheckedAt: fromTimestamp(m.CheckedAt), CreatedAt: fromTimestamp(m.CreatedAt), UpdatedAt: fromTimestamp(m.UpdatedAt)}
+}
+
+func chunkModelHealthTargets(targets []domain.ModelHealthCheckTarget, size int) [][]domain.ModelHealthCheckTarget {
+	if size <= 0 || len(targets) <= size {
+		return [][]domain.ModelHealthCheckTarget{targets}
+	}
+	chunks := make([][]domain.ModelHealthCheckTarget, 0, (len(targets)+size-1)/size)
+	for start := 0; start < len(targets); start += size {
+		end := start + size
+		if end > len(targets) {
+			end = len(targets)
+		}
+		chunks = append(chunks, targets[start:end])
+	}
+	return chunks
 }
