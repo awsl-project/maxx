@@ -157,6 +157,7 @@ export type {
   UserPanelConsumptionLeaderboardRow,
   UserPanelConsumptionLeaderboardResult,
   UserPanelModelStatusRow,
+  UserPanelModelHealthRow,
   UserPanelAvailableModelRouteGroup,
   // Usage Stats
   UsageStats,

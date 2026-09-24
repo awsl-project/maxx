@@ -52,7 +52,7 @@ import {
   useRedeemUserPanelCode,
   useUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
-  useUserPanelModelStatus,
+  useUserPanelModelHealth,
   usePublicSettings,
   useUserPanelUsageStats,
 } from '@/hooks/queries';
@@ -61,7 +61,7 @@ import type {
   UsageStatsFilter,
   UsageStats,
   UserPanelConsumptionLeaderboardRow,
-  UserPanelModelStatusRow,
+  UserPanelModelHealthRow,
 } from '@/lib/transport';
 import { cn } from '@/lib/utils';
 import {
@@ -94,21 +94,6 @@ function formatQuotaAmount(value: number) {
 
 function formatCostAmount(value: number) {
   return `$${((value || 0) / 1_000_000_000).toFixed(4)}`;
-}
-
-function formatTokensPerSecond(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return '—';
-  return `${value.toFixed(1)} t/s`;
-}
-
-function formatLatency(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return '—';
-  return `${(value / 1000).toFixed(2)}s`;
-}
-
-function formatSuccessRate(value: number, requestCount: number) {
-  if (!requestCount || !Number.isFinite(value)) return '—';
-  return `${value.toFixed(2)}%`;
 }
 
 function getLocalDayBounds(now = new Date()) {
@@ -219,12 +204,12 @@ function ConsumptionLeaderboardCard({
   );
 }
 
-function ModelStatusCard({
+function ModelHealthCard({
   rows,
   isLoading,
   isError,
 }: {
-  rows: UserPanelModelStatusRow[];
+  rows: UserPanelModelHealthRow[];
   isLoading: boolean;
   isError: boolean;
 }) {
@@ -235,11 +220,21 @@ function ModelStatusCard({
       <CardHeader className="border-b border-border">
         <CardTitle className="flex items-center gap-2 text-base font-medium">
           <Activity className="size-4 text-primary" />
-          {t('userPanel.modelStatusTitle')}
+          {t('userPanel.modelHealthTitle')}
         </CardTitle>
       </CardHeader>
       <CardContent className="p-5">
-        <p className="mb-4 text-sm text-muted-foreground">{t('userPanel.modelStatusHint')}</p>
+        <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <HealthDot status="ok" /> {t('userPanel.modelHealthOk')}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <HealthDot status="error" /> {t('userPanel.modelHealthError')}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <HealthDot status="unknown" /> {t('userPanel.modelHealthUnknown')}
+          </span>
+        </div>
         {isLoading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : isError ? (
@@ -251,44 +246,83 @@ function ModelStatusCard({
             {t('userPanel.modelStatusNoData')}
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('userPanel.model')}</TableHead>
-                <TableHead className="text-right">{t('userPanel.modelStatusTps')}</TableHead>
-                <TableHead className="text-right">{t('userPanel.modelStatusLatency')}</TableHead>
-                <TableHead className="text-right">
-                  {t('userPanel.modelStatusSuccessRate')}
-                </TableHead>
-                <TableHead className="text-right">{t('userPanel.modelStatusRequests')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.model}>
-                  <TableCell className="max-w-[18rem] truncate font-mono text-xs font-medium text-foreground">
-                    {row.model}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatTokensPerSecond(row.tokensPerSecond)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatLatency(row.averageLatencyMs)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatSuccessRate(row.successRate, row.requestCount)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatNumber(row.requestCount)}
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('userPanel.modelHealthTarget')}</TableHead>
+                  <TableHead>{t('userPanel.modelHealth24h')}</TableHead>
+                  <TableHead className="text-right">{t('userPanel.modelHealthCurrent')}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={`${row.model}:${row.routeID}:${row.providerID}`}>
+                    <TableCell className="min-w-[14rem] max-w-[24rem]">
+                      <div className="truncate font-mono text-xs font-medium text-foreground">
+                        {row.model}
+                      </div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {row.providerName}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex min-w-[16rem] items-center gap-1">
+                        {row.points.map((point, index) => (
+                          <HealthDot
+                            // eslint-disable-next-line react/no-array-index-key
+                            key={index}
+                            status={point.status}
+                            title={formatHealthPointTitle(point)}
+                          />
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="inline-flex justify-end">
+                        <HealthDot
+                          status={row.current.status}
+                          title={formatHealthPointTitle(row.current)}
+                        />
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>
   );
+}
+
+function HealthDot({
+  status,
+  title,
+}: {
+  status: UserPanelModelHealthRow['current']['status'];
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        'inline-block size-2.5 rounded-full border',
+        status === 'ok' && 'border-emerald-500 bg-emerald-500',
+        status === 'error' && 'border-red-500 bg-red-500',
+        status === 'unknown' && 'border-muted-foreground/35 bg-muted-foreground/20',
+      )}
+    />
+  );
+}
+
+function formatHealthPointTitle(point: UserPanelModelHealthRow['current']) {
+  const parts: string[] = [point.status];
+  if (point.checkedAt) parts.push(new Date(point.checkedAt).toLocaleString());
+  if (point.latencyMs) parts.push(`${point.latencyMs}ms`);
+  if (point.error) parts.push(point.error);
+  return parts.join(' · ');
 }
 
 export function UserPanelPage() {
@@ -345,10 +379,10 @@ export function UserPanelPage() {
     isError: consumptionLeaderboardError,
   } = useUserPanelConsumptionLeaderboard(Boolean(user));
   const {
-    data: modelStatusRows,
-    isLoading: modelStatusLoading,
-    isError: modelStatusError,
-  } = useUserPanelModelStatus(Boolean(user), 24);
+    data: modelHealthRows,
+    isLoading: modelHealthLoading,
+    isError: modelHealthError,
+  } = useUserPanelModelHealth(Boolean(user));
   const { data: userPanelAnnouncement } = useUserPanelAnnouncement(Boolean(user));
   const localUserPanelDayKey = useMemo(() => todayBounds.start.slice(0, 10), [todayBounds.start]);
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
@@ -1107,10 +1141,10 @@ export function UserPanelPage() {
           </TabsContent>
 
           <TabsContent value="model-status" className="space-y-5">
-            <ModelStatusCard
-              rows={modelStatusRows ?? []}
-              isLoading={modelStatusLoading}
-              isError={modelStatusError}
+            <ModelHealthCard
+              rows={modelHealthRows ?? []}
+              isLoading={modelHealthLoading}
+              isError={modelHealthError}
             />
           </TabsContent>
         </Tabs>

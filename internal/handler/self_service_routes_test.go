@@ -49,6 +49,8 @@ func TestRegisterSelfServiceRoutes_RegistersUserPanelModelRoutes(t *testing.T) {
 		"/api/user-panel/model-routes/",
 		"/api/user-panel/model-status",
 		"/api/user-panel/model-status/",
+		"/api/user-panel/model-health",
+		"/api/user-panel/model-health/",
 		"/api/user-panel/announcement",
 		"/api/user-panel/announcement/",
 		"/api/user-panel/redemption-codes",

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/hex"
@@ -85,6 +86,12 @@ type AdminService struct {
 	adapterRefresher          ProviderAdapterRefresher
 	broadcaster               event.Broadcaster
 	pprofReloader             PprofReloader
+	modelHealthRepo           repository.ModelHealthCheckRepository
+	modelHealthChecker        ModelHealthChecker
+}
+
+type ModelHealthChecker interface {
+	ProbeModelHealth(ctx context.Context, tenantID uint64, apiTokenID uint64, target domain.ModelHealthCheckTarget) domain.ModelHealthProbeResult
 }
 
 // PprofReloader is an interface for reloading pprof configuration
@@ -139,6 +146,14 @@ func NewAdminService(
 		broadcaster:               broadcaster,
 		pprofReloader:             pprofReloader,
 	}
+}
+
+func (s *AdminService) SetModelHealthCheckRepository(repo repository.ModelHealthCheckRepository) {
+	s.modelHealthRepo = repo
+}
+
+func (s *AdminService) SetModelHealthChecker(checker ModelHealthChecker) {
+	s.modelHealthChecker = checker
 }
 
 // SetRedemptionCodeRepository wires one-time user-panel balance redemption codes.

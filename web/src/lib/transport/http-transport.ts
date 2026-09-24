@@ -96,6 +96,7 @@ import type {
   UserPanelAvailableModelRouteGroup,
   UserPanelConsumptionLeaderboardResult,
   UserPanelModelStatusRow,
+  UserPanelModelHealthRow,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -1319,6 +1320,11 @@ export class HttpTransport implements Transport {
       params: { hours },
     });
     return this.expectArray<UserPanelModelStatusRow>(data, '/user-panel/model-status');
+  }
+
+  async getUserPanelModelHealth(): Promise<UserPanelModelHealthRow[]> {
+    const { data } = await this.client.get<UserPanelModelHealthRow[]>('/user-panel/model-health');
+    return this.expectArray<UserPanelModelHealthRow>(data, '/user-panel/model-health');
   }
 
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {
