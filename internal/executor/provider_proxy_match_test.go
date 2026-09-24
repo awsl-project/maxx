@@ -10,6 +10,7 @@ import (
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/router"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
 
 const providerProxyMatchTestType = "provider-proxy-route-match-test"
@@ -229,6 +230,8 @@ func TestMatchProviderProxyRouteUsesMappedModelCandidatesForSupportModels(t *tes
 			t.Fatalf("load %s: %v", name, err)
 		}
 	}
+	systemsettingcache.Invalidate(domain.SettingKeyStrictSupportModelsRoutingEnabled)
+	t.Cleanup(func() { systemsettingcache.Invalidate(domain.SettingKeyStrictSupportModelsRoutingEnabled) })
 	r := router.NewRouter(routeRepo, providerRepo, strategyRepo, retryRepo, projectRepo, &stubExecutorSettingsRepo{values: map[string]string{
 		domain.SettingKeyStrictSupportModelsRoutingEnabled: "true",
 	}})
