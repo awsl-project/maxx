@@ -377,11 +377,6 @@ export function UserPanelPage() {
     isLoading: consumptionLeaderboardLoading,
     isError: consumptionLeaderboardError,
   } = useUserPanelConsumptionLeaderboard(Boolean(user));
-  const {
-    data: modelHealthRows,
-    isLoading: modelHealthLoading,
-    isError: modelHealthError,
-  } = useUserPanelModelHealth(Boolean(user));
   const { data: userPanelAnnouncement } = useUserPanelAnnouncement(Boolean(user));
   const localUserPanelDayKey = useMemo(() => todayBounds.start.slice(0, 10), [todayBounds.start]);
   const dailyCheckInEnabled = publicSettings?.user_panel_daily_checkin_enabled === 'true';
@@ -427,6 +422,12 @@ export function UserPanelPage() {
       allowStoredTab,
     });
   });
+
+  const {
+    data: modelHealthRows,
+    isLoading: modelHealthLoading,
+    isError: modelHealthError,
+  } = useUserPanelModelHealth(Boolean(user) && activeTab === 'model-status');
 
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const todayTokenUsage = totalTokens(todayUsageStats);
