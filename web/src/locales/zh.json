@@ -248,7 +248,13 @@
     "modelHealthUnknown": "无数据",
     "modelHealthTarget": "模型 / 类型",
     "modelHealth24h": "24h",
-    "modelHealthCurrent": "当前"
+    "modelHealthCurrent": "当前",
+    "modelHealthSearchPlaceholder": "搜索模型 / 类型 / 渠道",
+    "modelHealthNoMatches": "没有匹配的模型健康记录",
+    "modelHealthShowing": "显示第 {{start}}-{{end}} 条，共 {{total}} 条（总计 {{overall}} 条）",
+    "modelHealthPage": "第 {{page}} / {{total}} 页",
+    "modelHealthPrevious": "上一页",
+    "modelHealthNext": "下一页"
   },
   "testField": {
     "title": "测试场",

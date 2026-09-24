@@ -204,6 +204,8 @@ function ConsumptionLeaderboardCard({
   );
 }
 
+const MODEL_HEALTH_PAGE_SIZE = 50;
+
 function ModelHealthCard({
   rows,
   isLoading,
@@ -214,6 +216,30 @@ function ModelHealthCard({
   isError: boolean;
 }) {
   const { t } = useTranslation();
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredRows = useMemo(() => {
+    if (!normalizedSearch) return rows;
+    return rows.filter((row) => {
+      const routeType = formatModelHealthClientType(
+        t(`externalModels.routeTypes.${row.clientType}`),
+      );
+      return [row.model, routeType, row.providerName]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(normalizedSearch));
+    });
+  }, [normalizedSearch, rows, t]);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / MODEL_HEALTH_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visibleRows = filteredRows.slice(
+    (currentPage - 1) * MODEL_HEALTH_PAGE_SIZE,
+    currentPage * MODEL_HEALTH_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [normalizedSearch, rows.length]);
 
   return (
     <Card className="border-border bg-card shadow-sm">
@@ -224,16 +250,26 @@ function ModelHealthCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="p-5">
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            <HealthDot status="ok" /> {t('userPanel.modelHealthOk')}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <HealthDot status="error" /> {t('userPanel.modelHealthError')}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <HealthDot status="unknown" /> {t('userPanel.modelHealthUnknown')}
-          </span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <HealthDot status="ok" /> {t('userPanel.modelHealthOk')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <HealthDot status="error" /> {t('userPanel.modelHealthError')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <HealthDot status="unknown" /> {t('userPanel.modelHealthUnknown')}
+            </span>
+          </div>
+          {rows.length > MODEL_HEALTH_PAGE_SIZE && (
+            <Input
+              className="h-8 w-full max-w-64"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t('userPanel.modelHealthSearchPlaceholder')}
+            />
+          )}
         </div>
         {isLoading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
@@ -245,50 +281,91 @@ function ModelHealthCard({
           <p className="py-8 text-center text-sm text-muted-foreground">
             {t('userPanel.modelStatusNoData')}
           </p>
+        ) : filteredRows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            {t('userPanel.modelHealthNoMatches')}
+          </p>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('userPanel.modelHealthTarget')}</TableHead>
-                  <TableHead>{t('userPanel.modelHealth24h')}</TableHead>
-                  <TableHead className="text-right">{t('userPanel.modelHealthCurrent')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={`${row.model}:${row.routeID}:${row.providerID}`}>
-                    <TableCell className="min-w-[14rem] max-w-[24rem]">
-                      <div className="truncate font-medium text-foreground">{row.model}</div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {formatModelHealthClientType(
-                          t(`externalModels.routeTypes.${row.clientType}`),
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex min-w-[16rem] items-center gap-1">
-                        {row.points.map((point, index) => (
-                          <HealthDot
-                            key={index}
-                            status={point.status}
-                            title={formatHealthPointTitle(point)}
-                          />
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="inline-flex justify-end">
-                        <HealthDot
-                          status={row.current.status}
-                          title={formatHealthPointTitle(row.current)}
-                        />
-                      </span>
-                    </TableCell>
+          <div className="space-y-3">
+            <div className="text-xs text-muted-foreground">
+              {t('userPanel.modelHealthShowing', {
+                start: (currentPage - 1) * MODEL_HEALTH_PAGE_SIZE + 1,
+                end: Math.min(currentPage * MODEL_HEALTH_PAGE_SIZE, filteredRows.length),
+                total: filteredRows.length,
+                overall: rows.length,
+              })}
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('userPanel.modelHealthTarget')}</TableHead>
+                    <TableHead>{t('userPanel.modelHealth24h')}</TableHead>
+                    <TableHead className="text-right">
+                      {t('userPanel.modelHealthCurrent')}
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {visibleRows.map((row) => (
+                    <TableRow key={`${row.model}:${row.routeID}:${row.providerID}`}>
+                      <TableCell className="min-w-[14rem] max-w-[24rem]">
+                        <div className="truncate font-medium text-foreground">{row.model}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {formatModelHealthClientType(
+                            t(`externalModels.routeTypes.${row.clientType}`),
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex min-w-[16rem] items-center gap-1">
+                          {row.points.map((point, index) => (
+                            <HealthDot
+                              key={index}
+                              status={point.status}
+                              title={formatHealthPointTitle(point)}
+                            />
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="inline-flex justify-end">
+                          <HealthDot
+                            status={row.current.status}
+                            title={formatHealthPointTitle(row.current)}
+                          />
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
+                  disabled={currentPage <= 1}
+                >
+                  {t('userPanel.modelHealthPrevious')}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {t('userPanel.modelHealthPage', { page: currentPage, total: totalPages })}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+                  disabled={currentPage >= totalPages}
+                >
+                  {t('userPanel.modelHealthNext')}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </CardContent>

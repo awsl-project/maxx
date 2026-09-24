@@ -248,7 +248,13 @@
     "modelHealthUnknown": "No data",
     "modelHealthTarget": "Model / type",
     "modelHealth24h": "24h",
-    "modelHealthCurrent": "Now"
+    "modelHealthCurrent": "Now",
+    "modelHealthSearchPlaceholder": "Search model / type / channel",
+    "modelHealthNoMatches": "No matching model health records",
+    "modelHealthShowing": "Showing {{start}}-{{end}} of {{total}} ({{overall}} total)",
+    "modelHealthPage": "Page {{page}} / {{total}}",
+    "modelHealthPrevious": "Previous",
+    "modelHealthNext": "Next"
   },
   "testField": {
     "title": "Test Field",

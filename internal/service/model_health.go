@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	modelHealthWindow       = 24 * time.Hour
-	modelHealthStaleAfter   = 10 * time.Minute
-	modelHealthBucketCount  = 24
-	modelHealthProbeTimeout = 12 * time.Second
+	modelHealthWindow              = 24 * time.Hour
+	modelHealthStaleAfter          = 10 * time.Minute
+	modelHealthBucketCount         = 24
+	modelHealthProbeTimeout        = 12 * time.Second
+	modelHealthMaxProbesPerRequest = 20
 )
 
 type UserPanelModelHealthPoint struct {
@@ -43,12 +44,17 @@ func (s *AdminService) GetUserPanelModelHealthGrid(ctx context.Context, tenantID
 	if err != nil {
 		return nil, err
 	}
+	probesStarted := 0
 	for _, target := range targets {
 		key := repository.ModelHealthTargetKey(target.Model, target.ClientType, target.RouteID, target.ProviderID)
 		last := latest[key]
 		if last != nil && now.Sub(last.CheckedAt) < modelHealthStaleAfter {
 			continue
 		}
+		if probesStarted >= modelHealthMaxProbesPerRequest {
+			continue
+		}
+		probesStarted++
 		check := &domain.ModelHealthCheck{TenantID: tenantID, Model: target.Model, ClientType: target.ClientType, RouteID: target.RouteID, ProviderID: target.ProviderID, ProviderName: target.ProviderName, Status: domain.ModelHealthStatusUnknown, CheckedAt: now}
 		if s.modelHealthChecker != nil {
 			probeCtx, cancel := context.WithTimeout(ctx, modelHealthProbeTimeout)
