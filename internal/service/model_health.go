@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -15,6 +16,7 @@ const (
 	modelHealthBucketCount         = 24
 	modelHealthProbeTimeout        = 12 * time.Second
 	modelHealthMaxProbesPerRequest = 20
+	modelHealthProbeConcurrency    = 5
 )
 
 type UserPanelModelHealthPoint struct {
@@ -44,32 +46,25 @@ func (s *AdminService) GetUserPanelModelHealthGrid(ctx context.Context, tenantID
 	if err != nil {
 		return nil, err
 	}
-	probesStarted := 0
+	probeTargets := make([]domain.ModelHealthCheckTarget, 0, modelHealthMaxProbesPerRequest)
 	for _, target := range targets {
 		key := repository.ModelHealthTargetKey(target.Model, target.ClientType, target.RouteID, target.ProviderID)
 		last := latest[key]
 		if last != nil && now.Sub(last.CheckedAt) < modelHealthStaleAfter {
 			continue
 		}
-		if probesStarted >= modelHealthMaxProbesPerRequest {
+		if len(probeTargets) >= modelHealthMaxProbesPerRequest {
 			continue
 		}
-		probesStarted++
-		check := &domain.ModelHealthCheck{TenantID: tenantID, Model: target.Model, ClientType: target.ClientType, RouteID: target.RouteID, ProviderID: target.ProviderID, ProviderName: target.ProviderName, Status: domain.ModelHealthStatusUnknown, CheckedAt: now}
-		if s.modelHealthChecker != nil {
-			probeCtx, cancel := context.WithTimeout(ctx, modelHealthProbeTimeout)
-			probe := s.modelHealthChecker.ProbeModelHealth(probeCtx, tenantID, apiTokenID, target)
-			cancel()
-			check.Status = probe.Status
-			check.LatencyMs = probe.LatencyMs
-			check.Error = probe.Error
-			if check.Status == "" {
-				check.Status = domain.ModelHealthStatusError
-			}
-		}
+		probeTargets = append(probeTargets, target)
+	}
+
+	checks := s.probeModelHealthTargets(ctx, tenantID, apiTokenID, probeTargets, now)
+	for _, check := range checks {
 		if err := s.modelHealthRepo.Create(check); err != nil {
 			return nil, err
 		}
+		key := repository.ModelHealthTargetKey(check.Model, check.ClientType, check.RouteID, check.ProviderID)
 		latest[key] = check
 	}
 	since := now.Add(-modelHealthWindow)
@@ -78,6 +73,56 @@ func (s *AdminService) GetUserPanelModelHealthGrid(ctx context.Context, tenantID
 		return nil, err
 	}
 	return buildModelHealthRows(targets, history, latest, since, now), nil
+}
+
+func (s *AdminService) probeModelHealthTargets(ctx context.Context, tenantID uint64, apiTokenID uint64, targets []domain.ModelHealthCheckTarget, checkedAt time.Time) []*domain.ModelHealthCheck {
+	if len(targets) == 0 {
+		return nil
+	}
+	checks := make([]*domain.ModelHealthCheck, len(targets))
+	workerCount := modelHealthProbeConcurrency
+	if workerCount > len(targets) {
+		workerCount = len(targets)
+	}
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				target := targets[idx]
+				check := &domain.ModelHealthCheck{TenantID: tenantID, Model: target.Model, ClientType: target.ClientType, RouteID: target.RouteID, ProviderID: target.ProviderID, ProviderName: target.ProviderName, Status: domain.ModelHealthStatusUnknown, CheckedAt: checkedAt}
+				if s.modelHealthChecker != nil {
+					probeCtx, cancel := context.WithTimeout(ctx, modelHealthProbeTimeout)
+					probe := s.modelHealthChecker.ProbeModelHealth(probeCtx, tenantID, apiTokenID, target)
+					cancel()
+					check.Status = probe.Status
+					check.LatencyMs = probe.LatencyMs
+					check.Error = probe.Error
+					if check.Status == "" {
+						check.Status = domain.ModelHealthStatusError
+					}
+				}
+				checks[idx] = check
+			}
+		}()
+	}
+	for idx := range targets {
+		if ctx.Err() != nil {
+			break
+		}
+		jobs <- idx
+	}
+	close(jobs)
+	wg.Wait()
+	out := make([]*domain.ModelHealthCheck, 0, len(checks))
+	for _, check := range checks {
+		if check != nil {
+			out = append(out, check)
+		}
+	}
+	return out
 }
 
 func dedupeHealthTargets(targets []domain.ModelHealthCheckTarget) []domain.ModelHealthCheckTarget {

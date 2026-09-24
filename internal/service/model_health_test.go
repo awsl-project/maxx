@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,11 +50,46 @@ func (r *fakeModelHealthRepo) ListByTargetsSince(tenantID uint64, _ []domain.Mod
 	return out, nil
 }
 
-type fakeModelHealthChecker struct{ calls int }
+type fakeModelHealthChecker struct {
+	mu    sync.Mutex
+	calls int
+}
 
 func (c *fakeModelHealthChecker) ProbeModelHealth(context.Context, uint64, uint64, domain.ModelHealthCheckTarget) domain.ModelHealthProbeResult {
+	c.mu.Lock()
 	c.calls++
+	c.mu.Unlock()
 	return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusOK, LatencyMs: 123}
+}
+
+func (c *fakeModelHealthChecker) callCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
+}
+
+type slowModelHealthChecker struct {
+	delay time.Duration
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *slowModelHealthChecker) ProbeModelHealth(ctx context.Context, _ uint64, _ uint64, _ domain.ModelHealthCheckTarget) domain.ModelHealthProbeResult {
+	select {
+	case <-time.After(c.delay):
+	case <-ctx.Done():
+		return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, Error: ctx.Err().Error()}
+	}
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusOK, LatencyMs: int64(c.delay / time.Millisecond)}
+}
+
+func (c *slowModelHealthChecker) callCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
 }
 
 func TestGetUserPanelModelHealthGrid_ProbesStaleTargetAndBuilds24hDots(t *testing.T) {
@@ -66,8 +102,8 @@ func TestGetUserPanelModelHealthGrid_ProbesStaleTargetAndBuilds24hDots(t *testin
 	if err != nil {
 		t.Fatalf("GetUserPanelModelHealthGrid: %v", err)
 	}
-	if checker.calls != 1 {
-		t.Fatalf("probe calls = %d, want 1", checker.calls)
+	if calls := checker.callCount(); calls != 1 {
+		t.Fatalf("probe calls = %d, want 1", calls)
 	}
 	if len(rows) != 1 || len(rows[0].Points) != modelHealthBucketCount {
 		t.Fatalf("rows = %+v, want one %d-point row", rows, modelHealthBucketCount)
@@ -90,8 +126,8 @@ func TestGetUserPanelModelHealthGrid_ReturnsUnknownRowsWhenProbeCapReached(t *te
 	if err != nil {
 		t.Fatalf("GetUserPanelModelHealthGrid: %v", err)
 	}
-	if checker.calls != modelHealthMaxProbesPerRequest {
-		t.Fatalf("probe calls = %d, want capped %d", checker.calls, modelHealthMaxProbesPerRequest)
+	if calls := checker.callCount(); calls != modelHealthMaxProbesPerRequest {
+		t.Fatalf("probe calls = %d, want capped %d", calls, modelHealthMaxProbesPerRequest)
 	}
 	if len(rows) != len(targets) {
 		t.Fatalf("rows = %d, want all %d targets represented", len(rows), len(targets))
@@ -104,5 +140,32 @@ func TestGetUserPanelModelHealthGrid_ReturnsUnknownRowsWhenProbeCapReached(t *te
 	}
 	if unknown == 0 {
 		t.Fatalf("want capped, unprobed targets to stay visible as unknown rows")
+	}
+}
+
+func TestGetUserPanelModelHealthGrid_ProbesStaleTargetsConcurrently(t *testing.T) {
+	repo := &fakeModelHealthRepo{}
+	checker := &slowModelHealthChecker{delay: 50 * time.Millisecond}
+	svc := &AdminService{modelHealthRepo: repo, modelHealthChecker: checker}
+	targets := make([]domain.ModelHealthCheckTarget, 0, modelHealthProbeConcurrency)
+	for i := 0; i < modelHealthProbeConcurrency; i++ {
+		targets = append(targets, domain.ModelHealthCheckTarget{Model: string(rune('a' + i)), ClientType: domain.ClientTypeOpenAI, RouteID: uint64(i + 1), ProviderID: uint64(i + 101), ProviderName: "no-switch-provider"})
+	}
+
+	started := time.Now()
+	rows, err := svc.GetUserPanelModelHealthGrid(context.Background(), 1, 7, targets)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("GetUserPanelModelHealthGrid: %v", err)
+	}
+	if len(rows) != len(targets) {
+		t.Fatalf("rows = %d, want %d", len(rows), len(targets))
+	}
+	if calls := checker.callCount(); calls != len(targets) {
+		t.Fatalf("probe calls = %d, want %d", calls, len(targets))
+	}
+	serialFloor := checker.delay * time.Duration(len(targets))
+	if elapsed >= serialFloor {
+		t.Fatalf("health probes took %s, want less than serial floor %s", elapsed, serialFloor)
 	}
 }
