@@ -246,7 +246,7 @@
     "modelHealthOk": "OK",
     "modelHealthError": "Down",
     "modelHealthUnknown": "No data",
-    "modelHealthTarget": "Model / channel",
+    "modelHealthTarget": "Model / type",
     "modelHealth24h": "24h",
     "modelHealthCurrent": "Now"
   },

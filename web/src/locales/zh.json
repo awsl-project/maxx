@@ -246,7 +246,7 @@
     "modelHealthOk": "正常",
     "modelHealthError": "异常",
     "modelHealthUnknown": "无数据",
-    "modelHealthTarget": "模型 / 渠道",
+    "modelHealthTarget": "模型 / 类型",
     "modelHealth24h": "24h",
     "modelHealthCurrent": "当前"
   },

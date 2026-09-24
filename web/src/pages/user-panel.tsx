@@ -259,11 +259,11 @@ function ModelHealthCard({
                 {rows.map((row) => (
                   <TableRow key={`${row.model}:${row.routeID}:${row.providerID}`}>
                     <TableCell className="min-w-[14rem] max-w-[24rem]">
-                      <div className="truncate font-mono text-xs font-medium text-foreground">
-                        {row.model}
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {t(`externalModels.routeTypes.${row.clientType}`)}
+                      <div className="truncate text-xs text-muted-foreground">{row.model}</div>
+                      <div className="truncate font-medium text-foreground">
+                        {formatModelHealthClientType(
+                          t(`externalModels.routeTypes.${row.clientType}`),
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -294,6 +294,10 @@ function ModelHealthCard({
       </CardContent>
     </Card>
   );
+}
+
+function formatModelHealthClientType(label: string) {
+  return label.replace(/(?:\s*路由|\s+route)$/i, '');
 }
 
 function HealthDot({
