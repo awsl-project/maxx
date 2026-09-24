@@ -132,6 +132,7 @@ export {
   useRevealUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
   useUserPanelModelStatus,
+  useUserPanelModelHealth,
   useUserPanelAvailableModels,
   useUserPanelAvailableModelRoutes,
   useUserPanelAnnouncement,

@@ -272,6 +272,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleUserPanelModelRoutes(w, r)
 		case len(parts) == 3 && parts[2] == "model-status":
 			h.handleUserPanelModelStatus(w, r)
+		case len(parts) == 3 && parts[2] == "model-health":
+			h.handleUserPanelModelHealth(w, r)
 		case len(parts) == 3 && parts[2] == "check-in":
 			h.handleUserPanelDailyCheckIn(w, r)
 		case len(parts) == 3 && parts[2] == "announcement":
@@ -481,6 +483,67 @@ func (h *SelfServiceHandler) handleUserPanelModelStatus(w http.ResponseWriter, r
 	}
 
 	writeJSON(w, http.StatusOK, mergeUserPanelAvailableModelStatusRows(availableModels, rows))
+}
+
+func (h *SelfServiceHandler) handleUserPanelModelHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel model health is not enabled"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		writeJSON(w, http.StatusOK, []service.UserPanelModelHealthRow{})
+		return
+	}
+	targets, err := h.collectUserPanelModelHealthTargets(tenantID, canonicalToken.ID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "CollectUserPanelModelHealthTargets failed", err)
+		return
+	}
+	rows, err := h.svc.GetUserPanelModelHealthGrid(r.Context(), tenantID, canonicalToken.ID, targets)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelModelHealthGrid failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (h *SelfServiceHandler) collectUserPanelModelHealthTargets(tenantID, apiTokenID uint64) ([]domain.ModelHealthCheckTarget, error) {
+	groups, err := h.modelsHandler.collectAvailableModelRouteGroups(tenantID, domain.ClientTypeOpenAI, 0, 0, apiTokenID, "")
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]domain.ModelHealthCheckTarget, 0)
+	for _, group := range groups {
+		for _, model := range group.Models {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			targets = append(targets, domain.ModelHealthCheckTarget{Model: model, ClientType: domain.ClientTypeOpenAI, RouteID: group.RouteID, ProviderID: group.ProviderID, ProviderName: group.ProviderName})
+		}
+	}
+	return targets, nil
 }
 
 func mergeUserPanelAvailableModelStatusRows(availableModels []string, statusRows []repository.UserPanelModelStatusRow) []repository.UserPanelModelStatusRow {

@@ -13,6 +13,7 @@ export const userPanelTokenKeys = {
   announcement: () => [...userPanelTokenKeys.all, 'announcement'] as const,
   consumptionLeaderboard: () => [...userPanelTokenKeys.all, 'consumption-leaderboard'] as const,
   modelStatus: (hours: number) => [...userPanelTokenKeys.all, 'model-status', hours] as const,
+  modelHealth: () => [...userPanelTokenKeys.all, 'model-health'] as const,
 };
 
 async function refreshUserPanelTokenDependents(queryClient: QueryClient) {
@@ -142,5 +143,14 @@ export function useUserPanelModelStatus(enabled = true, hours = 24) {
     queryKey: userPanelTokenKeys.modelStatus(hours),
     queryFn: () => getTransport().getUserPanelModelStatus(hours),
     enabled,
+  });
+}
+
+export function useUserPanelModelHealth(enabled = true) {
+  return useQuery({
+    queryKey: userPanelTokenKeys.modelHealth(),
+    queryFn: () => getTransport().getUserPanelModelHealth(),
+    enabled,
+    refetchInterval: 5 * 60 * 1000,
   });
 }

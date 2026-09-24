@@ -25,6 +25,8 @@ var protectedSelfServiceRoutePatterns = []string{
 	"/api/user-panel/model-routes/",
 	"/api/user-panel/model-status",
 	"/api/user-panel/model-status/",
+	"/api/user-panel/model-health",
+	"/api/user-panel/model-health/",
 	"/api/user-panel/check-in",
 	"/api/user-panel/check-in/",
 	"/api/user-panel/announcement",

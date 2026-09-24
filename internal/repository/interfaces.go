@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -210,6 +212,20 @@ type UserPanelModelStatusRow struct {
 	SuccessRate      float64 `json:"successRate"`
 	AverageLatencyMs float64 `json:"averageLatencyMs"`
 	TokensPerSecond  float64 `json:"tokensPerSecond"`
+}
+
+type ModelHealthCheckFilter struct {
+	Since *time.Time
+}
+
+type ModelHealthCheckRepository interface {
+	Create(check *domain.ModelHealthCheck) error
+	LatestByTargets(tenantID uint64, targets []domain.ModelHealthCheckTarget) (map[string]*domain.ModelHealthCheck, error)
+	ListByTargetsSince(tenantID uint64, targets []domain.ModelHealthCheckTarget, since time.Time) ([]*domain.ModelHealthCheck, error)
+}
+
+func ModelHealthTargetKey(model string, clientType domain.ClientType, routeID uint64, providerID uint64) string {
+	return string(clientType) + "|" + fmt.Sprint(routeID) + "|" + fmt.Sprint(providerID) + "|" + strings.TrimSpace(model)
 }
 
 type ProxyRequestRepository interface {
