@@ -58,6 +58,12 @@ import {
 } from './column-prefs';
 import { RequestsColumnSettings } from './column-settings';
 import { requestProtocolLabelKey, resolveRequestProtocol } from './request-protocol';
+import {
+  formatDurationNs,
+  formatRequestDuration,
+  getRequestStartTimestampMs,
+  isActiveProxyRequest,
+} from './request-duration';
 import { format as formatDate } from 'date-fns';
 import {
   CartesianGrid,
@@ -756,7 +762,7 @@ export function RequestsPage() {
 
   const activeCount = useMemo(() => {
     return allRequests.reduce((count, req) => {
-      return req.status === 'PENDING' || req.status === 'IN_PROGRESS' ? count + 1 : count;
+      return isActiveProxyRequest(req) ? count + 1 : count;
     }, 0);
   }, [allRequests]);
   const hasActiveRequests = activeCount > 0;
@@ -1233,6 +1239,7 @@ export function RequestsPage() {
                     key={req.id}
                     request={req}
                     providerName={providerMap.get(req.providerID)}
+                    nowMs={nowMs}
                     onOpenRequest={handleOpenRequest}
                   />
                 ))}
@@ -1460,7 +1467,7 @@ function LogRow({
   nowMs,
   onOpenRequest,
 }: LogRowProps) {
-  const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
+  const isPending = isActiveProxyRequest(request);
   const isFailed = request.status === 'FAILED';
   const isServerRestarted = isServerRestartedFailure(request);
   const isPendingBinding =
@@ -1471,30 +1478,15 @@ function LogRow({
 
   useEffect(() => {
     // Check if request is new (less than 5 seconds old)
-    const startTime = new Date(request.startTime).getTime();
-    if (Date.now() - startTime < 5000) {
+    const startTime = getRequestStartTimestampMs(request);
+    if (startTime !== null && Date.now() - startTime < 5000) {
       setIsRecent(true);
       const timer = setTimeout(() => setIsRecent(false), 2000);
       return () => clearTimeout(timer);
     }
-  }, [request.startTime]);
+  }, [request.createdAt, request.startTime]);
 
-  const startTimeMs = useMemo(() => new Date(request.startTime).getTime(), [request.startTime]);
-  const liveDurationMs =
-    isPending && Number.isFinite(startTimeMs) ? Math.max(0, nowMs - startTimeMs) : null;
   const modelChain = getRequestModelChain(request);
-
-  const formatDuration = (ns?: number | null) => {
-    if (ns === undefined || ns === null) return '-';
-    // Convert nanoseconds to seconds with 2 decimal places
-    const seconds = ns / 1_000_000_000;
-    return `${seconds.toFixed(2)}s`;
-  };
-
-  const formatLiveDuration = (ms: number | null) => {
-    if (ms === null) return '-';
-    return `${(ms / 1000).toFixed(2)}s`;
-  };
 
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -1665,7 +1657,9 @@ function LogRow({
               className={`text-xs font-mono ${durationColor}`}
               title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
             >
-              {isPending ? formatLiveDuration(liveDurationMs) : formatDuration(displayDuration)}
+              {isPending
+                ? formatRequestDuration(request, nowMs)
+                : formatDurationNs(displayDuration)}
             </span>
           </TableCell>
         );
@@ -1772,8 +1766,8 @@ const MemoLogRow = memo(LogRow, (prev: Readonly<LogRowProps>, next: Readonly<Log
   if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
   if (prev.onOpenRequest !== next.onOpenRequest) return false;
 
-  const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
-  const nextPending = next.request.status === 'PENDING' || next.request.status === 'IN_PROGRESS';
+  const prevPending = isActiveProxyRequest(prev.request);
+  const nextPending = isActiveProxyRequest(next.request);
   if (prevPending || nextPending) {
     return prev.nowMs === next.nowMs;
   }
@@ -1785,11 +1779,17 @@ const MemoLogRow = memo(LogRow, (prev: Readonly<LogRowProps>, next: Readonly<Log
 type MobileRequestCardProps = {
   request: ProxyRequest;
   providerName?: string;
+  nowMs: number;
   onOpenRequest: (id: number) => void;
 };
 
-function MobileRequestCard({ request, providerName, onOpenRequest }: MobileRequestCardProps) {
-  const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
+function MobileRequestCard({
+  request,
+  providerName,
+  nowMs,
+  onOpenRequest,
+}: MobileRequestCardProps) {
+  const isPending = isActiveProxyRequest(request);
   const isFailed = request.status === 'FAILED';
   const isServerRestarted = isServerRestartedFailure(request);
   const handleClick = useCallback(() => onOpenRequest(request.id), [onOpenRequest, request.id]);
@@ -1800,12 +1800,6 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
     const MM = String(date.getMinutes()).padStart(2, '0');
     const SS = String(date.getSeconds()).padStart(2, '0');
     return `${HH}:${MM}:${SS}`;
-  };
-
-  const formatDurationMs = (ns?: number | null) => {
-    if (!ns) return '-';
-    const seconds = ns / 1_000_000_000;
-    return `${seconds.toFixed(2)}s`;
   };
 
   const formatCostShort = (nanoUSD: number) => {
@@ -1858,7 +1852,7 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
       {/* Row 2: Time + Duration + Cost */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
         <span>{timeStr}</span>
-        <span>{formatDurationMs(request.duration)}</span>
+        <span>{formatRequestDuration(request, nowMs)}</span>
         <span className="ml-auto">{formatCostShort(request.cost)}</span>
       </div>
       {/* Row 3: Provider + User-Agent */}
@@ -1877,6 +1871,13 @@ const MemoMobileRequestCard = memo(
     if (prev.request !== next.request) return false;
     if (prev.providerName !== next.providerName) return false;
     if (prev.onOpenRequest !== next.onOpenRequest) return false;
+
+    const prevPending = isActiveProxyRequest(prev.request);
+    const nextPending = isActiveProxyRequest(next.request);
+    if (prevPending || nextPending) {
+      return prev.nowMs === next.nowMs;
+    }
+
     return true;
   },
 );
