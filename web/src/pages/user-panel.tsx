@@ -263,7 +263,7 @@ function ModelHealthCard({
                         {row.model}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
-                        {row.providerName}
+                        {t(`externalModels.routeTypes.${row.clientType}`)}
                       </div>
                     </TableCell>
                     <TableCell>
