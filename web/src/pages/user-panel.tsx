@@ -270,7 +270,6 @@ function ModelHealthCard({
                       <div className="flex min-w-[16rem] items-center gap-1">
                         {row.points.map((point, index) => (
                           <HealthDot
-                            // eslint-disable-next-line react/no-array-index-key
                             key={index}
                             status={point.status}
                             title={formatHealthPointTitle(point)}
