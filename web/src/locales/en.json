@@ -112,7 +112,7 @@
     "managePasskeys": "Manage Passkeys",
     "apiTokenLimits": "Request Limits",
     "dataManagement": "Data Management",
-    "proxyAccess": "Proxy Access",
+    "proxyAccess": "Access Control",
     "externalModels": "External Models",
     "proxies": "Proxies"
   },
@@ -2349,8 +2349,8 @@
     "description": "Control request retention, session retention, detail storage, backup export, and backup import."
   },
   "proxyAccess": {
-    "title": "Proxy Access",
-    "description": "Control global proxy availability, project binding, visible proxy endpoints, and route-adjacent quota refresh behavior."
+    "title": "Access Control",
+    "description": "Read-only mode only. Writes are prohibited."
   },
   "externalModels": {
     "title": "External Models",
