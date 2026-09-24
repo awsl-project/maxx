@@ -489,6 +489,7 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating request tracker for graceful shutdown")
 	requestTracker := NewRequestTracker()
 	proxyHandler.SetRequestTracker(requestTracker)
+	adminHandler.SetActiveRequestCanceller(requestTracker)
 
 	components := &ServerComponents{
 		Router:                 r,

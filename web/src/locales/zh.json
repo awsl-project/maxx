@@ -114,7 +114,11 @@
     "dataManagement": "数据管理",
     "proxyAccess": "代理访问控制",
     "externalModels": "外部模型",
-    "proxies": "代理"
+    "proxies": "代理",
+    "stopActiveRequests": "停止当前请求",
+    "stopActiveRequestsConfirm": "确定停止所有当前正在请求？这会中断进行中的响应，但不会重启服务。",
+    "stopActiveRequestsSuccess": "已请求停止 {{count}} 个当前请求。",
+    "stopActiveRequestsFailed": "停止当前请求失败，请检查服务状态。"
   },
   "userPanel": {
     "title": "用户控制台",
