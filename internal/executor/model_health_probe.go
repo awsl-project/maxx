@@ -57,6 +57,7 @@ func (e *Executor) ProbeModelHealth(ctx context.Context, tenantID uint64, apiTok
 	if err != nil {
 		return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, LatencyMs: time.Since(started).Milliseconds(), Error: shortHealthError(err.Error())}
 	}
+	responsesClientPath := modelHealthProbeResponsesClientPath(sourceType, requestURI)
 	originalRequestBody := bytes.Clone(requestBody)
 	clientType := sourceType
 	if !providerSupportsProbeType(matched.ProviderAdapter.SupportedClientTypes(), clientType) {
@@ -86,6 +87,9 @@ func (e *Executor) ProbeModelHealth(ctx context.Context, tenantID uint64, apiTok
 	c.Set(flow.KeyOriginalRequestBody, originalRequestBody)
 	c.Set(flow.KeyRequestHeaders, req.Header)
 	c.Set(flow.KeyRequestURI, requestURI)
+	if responsesClientPath != "" {
+		c.Set(flow.KeyResponsesClientPath, responsesClientPath)
+	}
 	c.Set(flow.KeyIsStream, false)
 	c.Set(flow.KeyAPITokenID, apiTokenID)
 	c.Set(flow.KeyProjectID, uint64(0))
@@ -98,6 +102,23 @@ func (e *Executor) ProbeModelHealth(ctx context.Context, tenantID uint64, apiTok
 		return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusError, LatencyMs: latency, Error: shortHealthError(fmt.Sprintf("status %d: %s", rec.Code, rec.Body.String()))}
 	}
 	return domain.ModelHealthProbeResult{Status: domain.ModelHealthStatusOK, LatencyMs: latency}
+}
+
+func modelHealthProbeResponsesClientPath(clientType domain.ClientType, requestURI string) string {
+	if clientType != domain.ClientTypeCodex {
+		return ""
+	}
+	path, rawQuery := splitURI(requestURI)
+	if path == "/responses" {
+		return withQuery("/v1/responses", rawQuery)
+	}
+	if strings.HasPrefix(path, "/responses/") {
+		return withQuery("/v1"+path, rawQuery)
+	}
+	if strings.HasPrefix(path, "/v1/responses") {
+		return requestURI
+	}
+	return ""
 }
 
 func buildModelHealthProbeRequest(clientType domain.ClientType, mappedModel string) (string, []byte, error) {
