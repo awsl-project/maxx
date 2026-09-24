@@ -112,7 +112,7 @@
     "managePasskeys": "管理 Passkey",
     "apiTokenLimits": "请求限制",
     "dataManagement": "数据管理",
-    "proxyAccess": "代理访问控制",
+    "proxyAccess": "访问控制",
     "externalModels": "外部模型",
     "proxies": "代理"
   },
@@ -2345,8 +2345,8 @@
     "description": "管理请求保留、会话保留、详情存储、备份导出与备份导入。"
   },
   "proxyAccess": {
-    "title": "代理访问控制",
-    "description": "管理全局代理可用性、强制项目绑定、可见代理入口和路由相关 quota 刷新行为。"
+    "title": "访问控制",
+    "description": "当前仅为只读模式，禁止写入"
   },
   "externalModels": {
     "title": "外部模型",
