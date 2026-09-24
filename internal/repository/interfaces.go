@@ -49,6 +49,7 @@ type InviteCodeUsageRepository interface {
 
 type RedemptionCodeRepository interface {
 	Create(code *domain.RedemptionCode) error
+	CreateWithAPITokenDebit(tenantID uint64, apiTokenID uint64, amount uint64, codes []*domain.RedemptionCode) error
 	Update(tenantID uint64, code *domain.RedemptionCode) error
 	Delete(tenantID uint64, id uint64) error
 	GetByID(tenantID uint64, id uint64) (*domain.RedemptionCode, error)

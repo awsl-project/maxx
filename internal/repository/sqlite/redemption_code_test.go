@@ -88,3 +88,72 @@ func TestRedemptionCodeRedeem_Disabled(t *testing.T) {
 		t.Fatalf("redeem error = %v, want disabled", err)
 	}
 }
+
+func TestRedemptionCodeCreateWithAPITokenDebit_DebitsAndCreatesAtomically(t *testing.T) {
+	db := newInviteTestDB(t)
+	codeRepo := NewRedemptionCodeRepository(db)
+	tokenRepo := NewAPITokenRepository(db)
+	token := &domain.APIToken{TenantID: 1, Token: "tok-self-create", TokenPrefix: "tok", Name: "user token", IsEnabled: true, QuotaBalance: 5_000_000_000}
+	if err := tokenRepo.Create(token); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+	codes := []*domain.RedemptionCode{
+		{CodeHash: domain.HashRedemptionCode("RC-SELF-1"), CodePrefix: domain.RedemptionCodePrefix("RC-SELF-1"), Amount: 1_000_000_000, CreatedByUserID: 7},
+		{CodeHash: domain.HashRedemptionCode("RC-SELF-2"), CodePrefix: domain.RedemptionCodePrefix("RC-SELF-2"), Amount: 1_000_000_000, CreatedByUserID: 7},
+	}
+
+	if err := codeRepo.CreateWithAPITokenDebit(1, token.ID, 2_000_000_000, codes); err != nil {
+		t.Fatalf("CreateWithAPITokenDebit: %v", err)
+	}
+	updated, err := tokenRepo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("get token: %v", err)
+	}
+	if updated.QuotaBalance != 3_000_000_000 {
+		t.Fatalf("quota balance = %d, want 3 dollars", updated.QuotaBalance)
+	}
+	for _, code := range codes {
+		if code.ID == 0 {
+			t.Fatalf("code ID not populated: %+v", code)
+		}
+		stored, err := codeRepo.GetByID(1, code.ID)
+		if err != nil {
+			t.Fatalf("get code: %v", err)
+		}
+		if stored.CreatedByUserID != 7 || stored.Status != domain.RedemptionCodeStatusActive {
+			t.Fatalf("stored code = %+v, want active user-owned code", stored)
+		}
+	}
+}
+
+func TestRedemptionCodeCreateWithAPITokenDebit_InsufficientBalanceCreatesNothing(t *testing.T) {
+	db := newInviteTestDB(t)
+	codeRepo := NewRedemptionCodeRepository(db)
+	tokenRepo := NewAPITokenRepository(db)
+	token := &domain.APIToken{TenantID: 1, Token: "tok-self-create-low", TokenPrefix: "tok", Name: "user token", IsEnabled: true, QuotaBalance: 1_000_000_000}
+	if err := tokenRepo.Create(token); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+	codes := []*domain.RedemptionCode{
+		{CodeHash: domain.HashRedemptionCode("RC-LOW-1"), CodePrefix: domain.RedemptionCodePrefix("RC-LOW-1"), Amount: 1_000_000_000, CreatedByUserID: 7},
+		{CodeHash: domain.HashRedemptionCode("RC-LOW-2"), CodePrefix: domain.RedemptionCodePrefix("RC-LOW-2"), Amount: 1_000_000_000, CreatedByUserID: 7},
+	}
+
+	if err := codeRepo.CreateWithAPITokenDebit(1, token.ID, 2_000_000_000, codes); !errors.Is(err, domain.ErrAPITokenQuotaExhausted) {
+		t.Fatalf("CreateWithAPITokenDebit error = %v, want quota exhausted", err)
+	}
+	updated, err := tokenRepo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("get token: %v", err)
+	}
+	if updated.QuotaBalance != 1_000_000_000 {
+		t.Fatalf("quota balance = %d, want unchanged", updated.QuotaBalance)
+	}
+	list, err := codeRepo.List(1)
+	if err != nil {
+		t.Fatalf("list codes: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("created codes = %d, want none", len(list))
+	}
+}

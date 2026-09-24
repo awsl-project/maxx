@@ -231,6 +231,16 @@
     "redemptionSubmit": "Redeem",
     "redemptionSuccess": "Redeemed successfully. Added {{amount}} balance.",
     "redemptionError": "Redemption failed: the code is invalid, used, or disabled.",
+    "selfRedemptionCreateTitle": "Generate redemption codes",
+    "selfRedemptionCreateDesc": "Use your current account balance to generate one-time redemption codes. The balance is deducted immediately after success.",
+    "selfRedemptionCount": "Count",
+    "selfRedemptionAmount": "Amount per code (USD)",
+    "selfRedemptionNote": "Note",
+    "selfRedemptionCreateSubmit": "Generate",
+    "selfRedemptionTotal": "Estimated deduction {{amount}}. Current balance {{balance}}.",
+    "selfRedemptionCreated": "Plain codes generated this time. Copy and save them now:",
+    "selfRedemptionCreateSuccess": "Generated {{count}} redemption codes and deducted {{amount}}.",
+    "selfRedemptionCreateError": "Generation failed: insufficient balance or invalid input.",
     "dailyCheckInBlacklisted": "This account cannot claim daily check-in rewards."
   },
   "testField": {

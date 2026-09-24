@@ -142,6 +142,8 @@ export type {
   RedemptionCodeCreateItem,
   RedemptionCodeCreateResult,
   UserPanelRedeemCodeResult,
+  UserPanelCreateRedemptionCodeData,
+  UserPanelCreateRedemptionCodeResult,
   // API Token
   APIToken,
   APITokenCleanupItem,

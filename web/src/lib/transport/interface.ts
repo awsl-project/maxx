@@ -78,6 +78,8 @@ import type {
   UpdateRedemptionCodeData,
   RedemptionCodeCreateResult,
   UserPanelRedeemCodeResult,
+  UserPanelCreateRedemptionCodeData,
+  UserPanelCreateRedemptionCodeResult,
   User,
   CreateUserData,
   UpdateUserData,
@@ -357,6 +359,9 @@ export interface Transport {
   getUserPanelDailyCheckInStatus(): Promise<UserPanelDailyCheckInResult>;
   checkInUserPanelDailyQuota(): Promise<UserPanelDailyCheckInResult>;
   redeemUserPanelCode(code: string): Promise<UserPanelRedeemCodeResult>;
+  createUserPanelRedemptionCodes(
+    data: UserPanelCreateRedemptionCodeData,
+  ): Promise<UserPanelCreateRedemptionCodeResult>;
   getUserPanelAnnouncement(): Promise<UserPanelAnnouncement>;
   getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult>;
   getUserPanelModelStatus(hours?: number): Promise<UserPanelModelStatusRow[]>;

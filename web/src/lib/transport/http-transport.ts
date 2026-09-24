@@ -80,6 +80,8 @@ import type {
   UpdateRedemptionCodeData,
   RedemptionCodeCreateResult,
   UserPanelRedeemCodeResult,
+  UserPanelCreateRedemptionCodeData,
+  UserPanelCreateRedemptionCodeResult,
   APIToken,
   APITokenCleanupResult,
   APITokenCreateResult,
@@ -1281,6 +1283,19 @@ export class HttpTransport implements Transport {
     return this.expectObject<UserPanelRedeemCodeResult>(
       data,
       '/user-panel/redemption-codes/redeem',
+    );
+  }
+
+  async createUserPanelRedemptionCodes(
+    payload: UserPanelCreateRedemptionCodeData,
+  ): Promise<UserPanelCreateRedemptionCodeResult> {
+    const { data } = await this.client.post<UserPanelCreateRedemptionCodeResult>(
+      '/user-panel/redemption-codes',
+      payload,
+    );
+    return this.expectObject<UserPanelCreateRedemptionCodeResult>(
+      data,
+      '/user-panel/redemption-codes',
     );
   }
 

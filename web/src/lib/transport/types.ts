@@ -1384,6 +1384,17 @@ export interface UserPanelRedeemCodeResult {
   amount: number;
 }
 
+export interface UserPanelCreateRedemptionCodeData {
+  count?: number;
+  amount: number;
+  note?: string;
+}
+
+export interface UserPanelCreateRedemptionCodeResult {
+  apiToken: APIToken;
+  items: RedemptionCodeCreateItem[];
+}
+
 // ===== API Token =====
 
 export interface APIToken {

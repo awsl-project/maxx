@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"reflect"
@@ -1913,6 +1914,56 @@ func (s *AdminService) CreateRedemptionCodes(tenantID uint64, createdByUserID ui
 				}
 			}
 			return nil, lastErr
+		}
+	}
+	return result, nil
+}
+
+func (s *AdminService) CreateUserPanelRedemptionCodes(tenantID uint64, userID uint64, apiTokenID uint64, count int, amount uint64, note string) (*domain.RedemptionCodeCreateResult, error) {
+	if s.redemptionCodeRepo == nil || tenantID == 0 || userID == 0 || apiTokenID == 0 || amount == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	if count <= 0 {
+		count = 1
+	}
+	if count > 100 {
+		return nil, domain.ErrInvalidInput
+	}
+	if amount > math.MaxUint64/uint64(count) {
+		return nil, domain.ErrInvalidInput
+	}
+	total := amount * uint64(count)
+
+	result := &domain.RedemptionCodeCreateResult{Items: make([]domain.RedemptionCodeCreateItem, 0, count)}
+	codes := make([]*domain.RedemptionCode, 0, count)
+	for i := 0; i < count; i++ {
+		plain, _, _, err := generateInviteCode()
+		if err != nil {
+			return nil, err
+		}
+		trimmedNote := strings.TrimSpace(note)
+		if trimmedNote == "" {
+			trimmedNote = "user-panel self generated"
+		}
+		code := &domain.RedemptionCode{
+			TenantID:        tenantID,
+			CodeHash:        domain.HashRedemptionCode(plain),
+			CodePrefix:      domain.RedemptionCodePrefix(plain),
+			Status:          domain.RedemptionCodeStatusActive,
+			Amount:          amount,
+			CreatedByUserID: userID,
+			Note:            trimmedNote,
+		}
+		codes = append(codes, code)
+		result.Items = append(result.Items, domain.RedemptionCodeCreateItem{Code: plain, RedemptionCode: code})
+	}
+
+	if err := s.redemptionCodeRepo.CreateWithAPITokenDebit(tenantID, apiTokenID, total, codes); err != nil {
+		return nil, err
+	}
+	if refresher, ok := s.apiTokenRepo.(apiTokenCacheRefresher); ok {
+		if _, refreshErr := refresher.RefreshByID(tenantID, apiTokenID); refreshErr != nil {
+			return nil, refreshErr
 		}
 	}
 	return result, nil
