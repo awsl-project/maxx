@@ -270,10 +270,6 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleUserPanelModels(w, r)
 		case len(parts) == 3 && parts[2] == "model-routes":
 			h.handleUserPanelModelRoutes(w, r)
-		case len(parts) == 3 && parts[2] == "model-status":
-			h.handleUserPanelModelStatus(w, r)
-		case len(parts) == 3 && parts[2] == "model-health":
-			h.handleUserPanelModelHealth(w, r)
 		case len(parts) == 3 && parts[2] == "check-in":
 			h.handleUserPanelDailyCheckIn(w, r)
 		case len(parts) == 3 && parts[2] == "announcement":
@@ -395,12 +391,6 @@ func (h *SelfServiceHandler) handleUserPanelModelRoutes(w http.ResponseWriter, r
 	writeJSON(w, http.StatusOK, groups)
 }
 
-var userPanelModelStatusIgnoredErrors = []string{
-	"Internal server error: SSE error (code=500): Internal server error",
-	"failed to connect to upstream: upstream error",
-	"client disconnected: context canceled",
-}
-
 func (h *SelfServiceHandler) handleUserPanelAnnouncement(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -426,168 +416,6 @@ func (h *SelfServiceHandler) handleUserPanelAnnouncement(w http.ResponseWriter, 
 		"enabled":  markdown != "",
 		"markdown": markdown,
 	})
-}
-
-func (h *SelfServiceHandler) handleUserPanelModelStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-	if !h.userPanelLayoutEnabled() {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel model status is not enabled"})
-		return
-	}
-
-	tenantID := maxxctx.GetTenantID(r.Context())
-	userID := maxxctx.GetUserID(r.Context())
-	if tenantID == 0 || userID == 0 {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
-		return
-	}
-
-	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
-	if err != nil {
-		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
-		return
-	}
-	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
-	if err != nil {
-		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
-		return
-	}
-	if canonicalToken == nil || !canonicalToken.IsEnabled {
-		writeJSON(w, http.StatusOK, []repository.UserPanelModelStatusRow{})
-		return
-	}
-
-	windowHours := 24
-	if raw := strings.TrimSpace(r.URL.Query().Get("hours")); raw != "" {
-		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 && parsed <= 168 {
-			windowHours = parsed
-		}
-	}
-	availableModels, err := h.collectUserPanelAvailableModelNames(tenantID, canonicalToken.ID)
-	if err != nil {
-		writeSelfServiceInternalError(w, "CollectUserPanelModels failed", err)
-		return
-	}
-	if len(availableModels) == 0 {
-		writeJSON(w, http.StatusOK, []repository.UserPanelModelStatusRow{})
-		return
-	}
-
-	rows, err := h.svc.GetUserPanelModelStatus(tenantID, []uint64{canonicalToken.ID}, time.Now().Add(-time.Duration(windowHours)*time.Hour), userPanelModelStatusIgnoredErrors)
-	if err != nil {
-		writeSelfServiceInternalError(w, "GetUserPanelModelStatus failed", err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, mergeUserPanelAvailableModelStatusRows(availableModels, rows))
-}
-
-func (h *SelfServiceHandler) handleUserPanelModelHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-	if !h.userPanelLayoutEnabled() {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel model health is not enabled"})
-		return
-	}
-
-	tenantID := maxxctx.GetTenantID(r.Context())
-	userID := maxxctx.GetUserID(r.Context())
-	if tenantID == 0 || userID == 0 {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
-		return
-	}
-	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
-	if err != nil {
-		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
-		return
-	}
-	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
-	if err != nil {
-		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
-		return
-	}
-	if canonicalToken == nil || !canonicalToken.IsEnabled {
-		writeJSON(w, http.StatusOK, []service.UserPanelModelHealthRow{})
-		return
-	}
-	targets, err := h.collectUserPanelModelHealthTargets(tenantID, canonicalToken.ID)
-	if err != nil {
-		writeSelfServiceInternalError(w, "CollectUserPanelModelHealthTargets failed", err)
-		return
-	}
-	rows, err := h.svc.GetUserPanelModelHealthGrid(r.Context(), tenantID, canonicalToken.ID, targets)
-	if err != nil {
-		writeSelfServiceInternalError(w, "GetUserPanelModelHealthGrid failed", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, rows)
-}
-
-func (h *SelfServiceHandler) collectUserPanelModelHealthTargets(tenantID, apiTokenID uint64) ([]domain.ModelHealthCheckTarget, error) {
-	groups, err := h.collectUserPanelAvailableModelRouteGroups(tenantID, apiTokenID)
-	if err != nil {
-		return nil, err
-	}
-	targets := make([]domain.ModelHealthCheckTarget, 0)
-	for _, group := range groups {
-		for _, model := range group.Models {
-			model = strings.TrimSpace(model)
-			if model == "" {
-				continue
-			}
-			clientType := group.ClientType
-			if clientType == "" {
-				clientType = domain.ClientTypeOpenAI
-			}
-			if group.RouteID != 0 && group.ProviderID != 0 {
-				targets = append(targets, domain.ModelHealthCheckTarget{Model: model, ClientType: clientType, RouteID: group.RouteID, ProviderID: group.ProviderID, ProviderName: group.ProviderName})
-				continue
-			}
-			for _, matched := range h.modelsHandler.matchAvailableModelRoutes(tenantID, clientType, 0, 0, apiTokenID, model) {
-				if matched == nil || matched.Route == nil || matched.Provider == nil {
-					continue
-				}
-				targets = append(targets, domain.ModelHealthCheckTarget{Model: model, ClientType: clientType, RouteID: matched.Route.ID, ProviderID: matched.Provider.ID, ProviderName: matched.Provider.Name})
-			}
-		}
-	}
-	return targets, nil
-}
-
-func mergeUserPanelAvailableModelStatusRows(availableModels []string, statusRows []repository.UserPanelModelStatusRow) []repository.UserPanelModelStatusRow {
-	statusByModel := make(map[string]repository.UserPanelModelStatusRow, len(statusRows))
-	for _, row := range statusRows {
-		model := strings.TrimSpace(row.Model)
-		if model == "" {
-			continue
-		}
-		row.Model = model
-		statusByModel[model] = row
-	}
-
-	merged := make([]repository.UserPanelModelStatusRow, 0, len(availableModels))
-	seen := make(map[string]struct{}, len(availableModels))
-	for _, rawModel := range availableModels {
-		model := strings.TrimSpace(rawModel)
-		if model == "" {
-			continue
-		}
-		if _, ok := seen[model]; ok {
-			continue
-		}
-		seen[model] = struct{}{}
-		if row, ok := statusByModel[model]; ok {
-			merged = append(merged, row)
-			continue
-		}
-		merged = append(merged, repository.UserPanelModelStatusRow{Model: model})
-	}
-	return merged
 }
 
 func (h *SelfServiceHandler) collectUserPanelAvailableModelNames(tenantID, apiTokenID uint64) ([]string, error) {

@@ -96,8 +96,6 @@ import type {
   UserPanelDailyCheckInResult,
   UserPanelAvailableModelRouteGroup,
   UserPanelConsumptionLeaderboardResult,
-  UserPanelModelStatusRow,
-  UserPanelModelHealthRow,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -365,8 +363,6 @@ export interface Transport {
   ): Promise<UserPanelCreateRedemptionCodeResult>;
   getUserPanelAnnouncement(): Promise<UserPanelAnnouncement>;
   getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult>;
-  getUserPanelModelStatus(hours?: number): Promise<UserPanelModelStatusRow[]>;
-  getUserPanelModelHealth(): Promise<UserPanelModelHealthRow[]>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: APITokenUpdateData): Promise<APIToken>;
   rechargeAPITokenQuota(data: APITokenQuotaRechargeData): Promise<APITokenQuotaRechargeResult>;

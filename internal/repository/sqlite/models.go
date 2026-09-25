@@ -533,23 +533,6 @@ type BedrockDiscoveryEntry struct {
 
 func (BedrockDiscoveryEntry) TableName() string { return "bedrock_discovery_entries" }
 
-// ModelHealthCheck stores internal model/provider probe results for the user-panel health grid.
-type ModelHealthCheck struct {
-	BaseModel
-	TenantID     uint64 `gorm:"index;index:idx_model_health_target_checked"`
-	Model        string `gorm:"size:255;index:idx_model_health_target_checked"`
-	ClientType   string `gorm:"size:64;index:idx_model_health_target_checked"`
-	RouteID      uint64 `gorm:"index:idx_model_health_target_checked"`
-	ProviderID   uint64 `gorm:"index:idx_model_health_target_checked"`
-	ProviderName string `gorm:"size:255"`
-	Status       string `gorm:"size:32"`
-	LatencyMs    int64
-	Error        LongText
-	CheckedAt    int64 `gorm:"index;index:idx_model_health_target_checked"`
-}
-
-func (ModelHealthCheck) TableName() string { return "model_health_checks" }
-
 // ==================== All Models for AutoMigrate ====================
 
 // AllModels returns all GORM models for auto-migration
@@ -574,7 +557,6 @@ func AllModels() []any {
 		&ProxyUpstreamAttempt{},
 		&SystemSetting{},
 		&UserPanelDailyCheckIn{},
-		&ModelHealthCheck{},
 		&Cooldown{},
 		&FailureCount{},
 		&UsageStats{},

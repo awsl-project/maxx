@@ -9,14 +9,13 @@ import {
 
 describe('user-panel-tabs', () => {
   it('keeps the public tab order stable', () => {
-    expect(USER_PANEL_TABS).toEqual(['main', 'consumption', 'redemption', 'model-status']);
+    expect(USER_PANEL_TABS).toEqual(['main', 'consumption', 'redemption']);
   });
 
   it('validates only supported user panel tabs', () => {
     expect(isUserPanelTab('main')).toBe(true);
     expect(isUserPanelTab('redemption')).toBe(true);
     expect(isUserPanelTab('requests')).toBe(false);
-    expect(isUserPanelTab('model-status')).toBe(true);
     expect(isUserPanelTab('usage')).toBe(false);
     expect(isUserPanelTab('')).toBe(false);
     expect(isUserPanelTab(null)).toBe(false);
