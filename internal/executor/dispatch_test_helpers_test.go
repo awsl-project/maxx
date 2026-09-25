@@ -50,10 +50,6 @@ func (r *recordingProxyRequestRepo) GetErrorStats(uint64, *repository.ProxyReque
 	return nil, nil
 }
 
-func (r *recordingProxyRequestRepo) GetUserPanelModelStatus(uint64, []uint64, time.Time, []string) ([]repository.UserPanelModelStatusRow, error) {
-	return nil, nil
-}
-
 func (r *recordingProxyRequestRepo) CountFailedWithFilter(uint64, *repository.ProxyRequestFilter) (int64, error) {
 	return 0, nil
 }

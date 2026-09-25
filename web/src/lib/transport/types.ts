@@ -1476,34 +1476,6 @@ export interface UserPanelConsumptionLeaderboardResult {
   all: UserPanelConsumptionLeaderboardRow[];
 }
 
-export type UserPanelModelHealthStatus = 'ok' | 'error' | 'unknown';
-
-export interface UserPanelModelHealthPoint {
-  status: UserPanelModelHealthStatus;
-  checkedAt?: string;
-  latencyMs?: number;
-  error?: string;
-}
-
-export interface UserPanelModelHealthRow {
-  model: string;
-  clientType: ClientType;
-  routeID: number;
-  providerID: number;
-  providerName: string;
-  points: UserPanelModelHealthPoint[];
-  current: UserPanelModelHealthPoint;
-}
-
-export interface UserPanelModelStatusRow {
-  model: string;
-  requestCount: number;
-  successCount: number;
-  failureCount: number;
-  successRate: number;
-  averageLatencyMs: number;
-  tokensPerSecond: number;
-}
 
 export interface APITokenCleanupItem {
   id: number;

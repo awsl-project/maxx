@@ -3306,33 +3306,3 @@ func TestBuildUserPanelConsumptionLeaderboard_ExposesTokenNameAndCost(t *testing
 		t.Fatalf("leaderboard response leaked non-user-panel token data: %s", body)
 	}
 }
-
-func TestMergeUserPanelAvailableModelStatusRowsUsesAvailableModelsAsBase(t *testing.T) {
-	rows := mergeUserPanelAvailableModelStatusRows(
-		[]string{"claude-sonnet-4", "gpt-4o"},
-		[]repository.UserPanelModelStatusRow{
-			{Model: "claude-sonnet-4", RequestCount: 3, SuccessCount: 2, FailureCount: 1, SuccessRate: 66.67, AverageLatencyMs: 2870, TokensPerSecond: 10.5},
-			{Model: "historical-only", RequestCount: 1, FailureCount: 1},
-		},
-	)
-
-	if len(rows) != 2 {
-		t.Fatalf("rows = %#v, want exactly available models", rows)
-	}
-	if rows[0].Model != "claude-sonnet-4" || rows[0].RequestCount != 3 {
-		t.Fatalf("first row = %+v, want available model with stats", rows[0])
-	}
-	if rows[1].Model != "gpt-4o" || rows[1].RequestCount != 0 || rows[1].SuccessRate != 0 || rows[1].AverageLatencyMs != 0 || rows[1].TokensPerSecond != 0 {
-		t.Fatalf("second row = %+v, want available model with empty stats", rows[1])
-	}
-}
-
-func TestMergeUserPanelAvailableModelStatusRowsEmptyWhenNoAvailableModels(t *testing.T) {
-	rows := mergeUserPanelAvailableModelStatusRows(
-		nil,
-		[]repository.UserPanelModelStatusRow{{Model: "historical-only", RequestCount: 1}},
-	)
-	if len(rows) != 0 {
-		t.Fatalf("rows = %#v, want no historical-only rows", rows)
-	}
-}

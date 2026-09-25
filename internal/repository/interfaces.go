@@ -1,8 +1,6 @@
 package repository
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -204,30 +202,6 @@ func (f *ProxyRequestFilter) IsEmpty() bool {
 		(f.ErrorMode == "" || f.ErrorMode == ProxyRequestErrorModeAll)
 }
 
-type UserPanelModelStatusRow struct {
-	Model            string  `json:"model"`
-	RequestCount     uint64  `json:"requestCount"`
-	SuccessCount     uint64  `json:"successCount"`
-	FailureCount     uint64  `json:"failureCount"`
-	SuccessRate      float64 `json:"successRate"`
-	AverageLatencyMs float64 `json:"averageLatencyMs"`
-	TokensPerSecond  float64 `json:"tokensPerSecond"`
-}
-
-type ModelHealthCheckFilter struct {
-	Since *time.Time
-}
-
-type ModelHealthCheckRepository interface {
-	Create(check *domain.ModelHealthCheck) error
-	LatestByTargets(tenantID uint64, targets []domain.ModelHealthCheckTarget) (map[string]*domain.ModelHealthCheck, error)
-	ListByTargetsSince(tenantID uint64, targets []domain.ModelHealthCheckTarget, since time.Time) ([]*domain.ModelHealthCheck, error)
-}
-
-func ModelHealthTargetKey(model string, clientType domain.ClientType, routeID uint64, providerID uint64) string {
-	return string(clientType) + "|" + fmt.Sprint(routeID) + "|" + fmt.Sprint(providerID) + "|" + strings.TrimSpace(model)
-}
-
 type ProxyRequestRepository interface {
 	Create(req *domain.ProxyRequest) error
 	Update(req *domain.ProxyRequest) error
@@ -266,8 +240,6 @@ type ProxyRequestRepository interface {
 	DeleteOlderThan(before time.Time) (int64, error)
 	// HasRecentRequests 检查指定时间之后是否有请求记录
 	HasRecentRequests(since time.Time) (bool, error)
-	// GetUserPanelModelStatus aggregates current-user model performance from raw request rows.
-	GetUserPanelModelStatus(tenantID uint64, apiTokenIDs []uint64, since time.Time, ignoredErrorContains []string) ([]UserPanelModelStatusRow, error)
 	// GetProjectUsageSummaries aggregates per-project request activity for cleanup detection.
 	GetProjectUsageSummaries(tenantID uint64, since time.Time, projectIDs ...uint64) (map[uint64]domain.ProjectUsageSummary, error)
 	// UpdateCost updates only the cost field of a request
