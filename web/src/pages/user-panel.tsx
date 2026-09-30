@@ -67,6 +67,7 @@ import {
   isUserPanelAnnouncementUnread,
 } from '@/lib/user-panel-announcement';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
+import { copyUserPanelToken } from '@/lib/user-panel-key-copy';
 import { visibleUserPanelModelRouteGroups } from '@/lib/user-panel-model-routes';
 import { MarkdownContent } from '@/lib/markdown';
 import {
@@ -453,6 +454,27 @@ export function UserPanelPage() {
     window.setTimeout(() => setKeyCopied(false), 1600);
   };
 
+  const handleCopyUserPanelToken = async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+
+    setRevealKeyError('');
+    try {
+      const token = await copyUserPanelToken({
+        revealedToken: revealedUserPanelToken,
+        revealToken: async () => {
+          const result = await revealUserPanelToken.mutateAsync();
+          return result.token;
+        },
+        writeText: (value) => navigator.clipboard.writeText(value),
+      });
+      setRevealedUserPanelToken(token);
+      setKeyCopied(true);
+      window.setTimeout(() => setKeyCopied(false), 1600);
+    } catch {
+      setRevealKeyError(t('userPanel.revealKeyError'));
+    }
+  };
+
   const handleToggleUserPanelTokenReveal = async () => {
     if (revealedUserPanelToken) {
       setRevealedUserPanelToken('');
@@ -665,7 +687,7 @@ export function UserPanelPage() {
 
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-center">
                       <div className="space-y-1">
-                        <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-1">
+                        <div className="grid grid-cols-[minmax(0,1fr)_2.25rem_2.25rem] gap-1">
                           <Input
                             readOnly
                             type={userPanelTokenRevealed ? 'text' : 'password'}
@@ -694,6 +716,22 @@ export function UserPanelPage() {
                               <EyeOff className="size-3.5" />
                             ) : (
                               <Eye className="size-3.5" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="size-9 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            disabled={tokenActionPending || revealActionPending}
+                            aria-label={t('userPanel.copyKey')}
+                            title={t('userPanel.copyKey')}
+                            onClick={handleCopyUserPanelToken}
+                          >
+                            {revealActionPending && !userPanelTokenRevealed ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Copy className="size-3.5" />
                             )}
                           </Button>
                         </div>
