@@ -470,6 +470,7 @@ func InitializeServerComponents(
 	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	selfServiceHandler := handler.NewSelfServiceHandler(adminService, modelsHandler)
+	selfServiceHandler.SetTokenAuth(tokenAuthMiddleware)
 	selfServiceHandler.SetUserRepo(repos.UserRepo)
 	adminHandler.SetUserRepo(repos.UserRepo)
 	adminHandler.SetAuthEnabled(authEnabled)

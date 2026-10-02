@@ -8,6 +8,7 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  MessageSquare,
   Server,
   Trophy,
   UserRound,
@@ -67,6 +68,7 @@ import {
   isUserPanelAnnouncementUnread,
 } from '@/lib/user-panel-announcement';
 import { buildUserPanelEndpointHints } from '@/lib/user-panel-endpoints';
+import { buildUserPanelChatUrl } from '@/lib/user-panel-chat-url';
 import { visibleUserPanelModelRouteGroups } from '@/lib/user-panel-model-routes';
 import { MarkdownContent } from '@/lib/markdown';
 import {
@@ -270,7 +272,10 @@ export function UserPanelPage() {
   const { mutateAsync: runDailyCheckIn } = dailyCheckIn;
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
+  const [chatUrlCopied, setChatUrlCopied] = useState(false);
+  const [chatUrlError, setChatUrlError] = useState('');
   const [oneTimeToken, setOneTimeToken] = useState('');
+  const [oneTimeTokenAPITokenID, setOneTimeTokenAPITokenID] = useState<number | null>(null);
   const [revealedUserPanelToken, setRevealedUserPanelToken] = useState('');
   const [revealKeyError, setRevealKeyError] = useState('');
   const [dailyCheckInMessage, setDailyCheckInMessage] = useState('');
@@ -324,6 +329,9 @@ export function UserPanelPage() {
   const userPanelTokenValue = revealedUserPanelToken || maskedUserPanelToken;
   const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const currentOneTimeToken = oneTimeTokenAPITokenID === userPanelToken?.id ? oneTimeToken : '';
+  const chatExperienceToken = revealedUserPanelToken || currentOneTimeToken;
+  const chatExperienceUrl = buildUserPanelChatUrl(origin, chatExperienceToken);
   const endpointHints = buildUserPanelEndpointHints(origin, publicSettings).map((endpoint) => ({
     ...endpoint,
     label:
@@ -360,8 +368,12 @@ export function UserPanelPage() {
   }, [announcementSeenStorageKey]);
 
   useEffect(() => {
+    setOneTimeToken('');
+    setOneTimeTokenAPITokenID(null);
     setRevealedUserPanelToken('');
     setRevealKeyError('');
+    setChatUrlCopied(false);
+    setChatUrlError('');
   }, [userPanelToken?.id]);
 
   useEffect(() => {
@@ -468,10 +480,51 @@ export function UserPanelPage() {
       setRevealKeyError(t('userPanel.revealKeyError'));
     }
   };
+  const ensureRevealedUserPanelToken = async () => {
+    if (revealedUserPanelToken) return revealedUserPanelToken;
+    setChatUrlError('');
+    try {
+      const result = await revealUserPanelToken.mutateAsync();
+      setRevealedUserPanelToken(result.token);
+      return result.token;
+    } catch {
+      setChatUrlError(t('userPanel.chatUrlRevealError'));
+      return '';
+    }
+  };
+
+  const handleCopyChatExperienceUrl = async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    if (!revealedUserPanelToken) {
+      await ensureRevealedUserPanelToken();
+      return;
+    }
+    const url = buildUserPanelChatUrl(origin, revealedUserPanelToken);
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setChatUrlCopied(true);
+      window.setTimeout(() => setChatUrlCopied(false), 1600);
+    } catch {
+      setChatUrlError(t('userPanel.chatUrlCopyError'));
+    }
+  };
+
+  const handleOpenChatExperienceUrl = async () => {
+    if (typeof window === 'undefined') return;
+    if (!revealedUserPanelToken) {
+      await ensureRevealedUserPanelToken();
+      return;
+    }
+    const url = buildUserPanelChatUrl(origin, revealedUserPanelToken);
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   const handleCreateUserPanelToken = async () => {
     const result = await createUserPanelToken.mutateAsync();
     setOneTimeToken(result.token);
+    setOneTimeTokenAPITokenID(result.apiToken.id);
     setRevealedUserPanelToken(result.token);
     setRevealKeyError('');
   };
@@ -480,6 +533,7 @@ export function UserPanelPage() {
     if (typeof window !== 'undefined' && !window.confirm(t('userPanel.regenerateConfirm'))) return;
     const result = await regenerateUserPanelToken.mutateAsync();
     setOneTimeToken(result.token);
+    setOneTimeTokenAPITokenID(result.apiToken.id);
     setRevealedUserPanelToken(result.token);
     setRevealKeyError('');
     setKeyCopied(false);
@@ -753,6 +807,49 @@ export function UserPanelPage() {
                 )}
               </CardContent>
             </Card>
+
+            {userPanelToken ? (
+              <Card className="border-border bg-card shadow-sm">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center gap-2 text-base font-medium">
+                    <MessageSquare className="size-4 text-muted-foreground" />
+                    {t('userPanel.chatExperience')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 p-5">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                    <Input
+                      readOnly
+                      value={chatExperienceUrl || t('userPanel.chatExperienceRevealPlaceholder')}
+                      className="h-10 font-mono text-xs"
+                      aria-label={t('userPanel.chatExperienceUrl')}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-2"
+                        disabled={tokenActionPending || revealActionPending}
+                        onClick={handleCopyChatExperienceUrl}
+                      >
+                        <Copy className="size-3.5" />
+                        {chatUrlCopied ? t('common.copied') : t('userPanel.copyChatUrl')}
+                      </Button>
+                      <Button
+                        type="button"
+                        className="gap-2"
+                        disabled={tokenActionPending || revealActionPending}
+                        onClick={handleOpenChatExperienceUrl}
+                      >
+                        <MessageSquare className="size-3.5" />
+                        {t('userPanel.openChat')}
+                      </Button>
+                    </div>
+                  </div>
+                  {chatUrlError ? <p className="text-xs text-destructive">{chatUrlError}</p> : null}
+                </CardContent>
+              </Card>
+            ) : null}
 
             <Card className="border-border bg-card shadow-sm">
               <CardHeader className="border-b border-border">

@@ -47,6 +47,7 @@ type SelfServiceHandler struct {
 	svc           *service.AdminService
 	modelsHandler *ModelsHandler
 	userRepo      repository.UserRepository
+	tokenAuth     *TokenAuthMiddleware
 }
 
 // NewSelfServiceHandler creates a new self-service handler.
@@ -61,6 +62,11 @@ func NewSelfServiceHandler(svc *service.AdminService, modelsHandler ...*ModelsHa
 // SetUserRepo sets the user repository for user-panel cross-user leaderboard endpoints.
 func (h *SelfServiceHandler) SetUserRepo(repo repository.UserRepository) {
 	h.userRepo = repo
+}
+
+// SetTokenAuth sets the API-token resolver used by public chat helper endpoints.
+func (h *SelfServiceHandler) SetTokenAuth(tokenAuth *TokenAuthMiddleware) {
+	h.tokenAuth = tokenAuth
 }
 
 func writeSelfServiceInternalError(w http.ResponseWriter, context string, err error) {
@@ -260,6 +266,13 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
+	case "chat":
+		switch {
+		case len(parts) == 3 && parts[2] == "model-routes":
+			h.handleChatModelRoutes(w, r)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
 	case "user-panel":
 		switch {
 		case len(parts) == 3 && parts[2] == "redemption-codes":
@@ -345,6 +358,39 @@ func (h *SelfServiceHandler) handleUserPanelModels(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusOK, names)
+}
+
+func (h *SelfServiceHandler) handleChatModelRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "chat model routes are not enabled"})
+		return
+	}
+	if h.modelsHandler == nil {
+		writeSelfServiceInternalError(w, "ChatModelRoutes failed", fmt.Errorf("models handler not configured"))
+		return
+	}
+	if h.tokenAuth == nil {
+		writeSelfServiceInternalError(w, "ChatModelRoutes failed", fmt.Errorf("token auth not configured"))
+		return
+	}
+
+	rawToken := strings.TrimSpace(h.tokenAuth.ExtractToken(r, ""))
+	apiToken, err := h.tokenAuth.validateExtractedToken(rawToken)
+	if err != nil || apiToken == nil || apiToken.TenantID == 0 || apiToken.ID == 0 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "valid API token required"})
+		return
+	}
+
+	groups, err := h.collectUserPanelAvailableModelRouteGroups(apiToken.TenantID, apiToken.ID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "CollectChatModelRoutes failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
 }
 
 func (h *SelfServiceHandler) handleUserPanelModelRoutes(w http.ResponseWriter, r *http.Request) {
