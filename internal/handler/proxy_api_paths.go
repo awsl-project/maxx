@@ -102,7 +102,7 @@ func isStaticAPIPath(path string) bool {
 	if path == "/api" || strings.HasPrefix(path, "/api/") ||
 		path == "/provider" || strings.HasPrefix(path, "/provider/") ||
 		path == "/responses" || strings.HasPrefix(path, "/responses/") ||
-		path == "/chat" || strings.HasPrefix(path, "/chat/") ||
+		strings.HasPrefix(path, "/chat/") ||
 		path == "/images" || strings.HasPrefix(path, "/images/") ||
 		path == "/video" || strings.HasPrefix(path, "/video/") ||
 		path == "/videos" || strings.HasPrefix(path, "/videos/") ||

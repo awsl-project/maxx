@@ -46,6 +46,8 @@ var protectedSelfServiceRoutePatterns = []string{
 var publicSelfServiceRoutePatterns = []string{
 	"/api/settings",
 	"/api/settings/",
+	"/api/chat/model-routes",
+	"/api/chat/model-routes/",
 }
 
 var selfServiceRoutePatterns = append(

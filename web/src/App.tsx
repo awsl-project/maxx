@@ -30,6 +30,7 @@ import { ModelPricesPage } from '@/pages/model-prices';
 import { ExternalModelsPage } from '@/pages/external-models';
 import { ProxiesPage } from '@/pages/proxies';
 import { UsersPage } from '@/pages/users';
+import { ChatPage } from '@/pages/chat';
 import { UserPanelPage } from '@/pages/user-panel';
 import { AdminRoute } from '@/components/auth/admin-route';
 import { InviteCodesPage } from '@/pages/invite-codes';
@@ -115,6 +116,10 @@ function AppRoutes() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  if (typeof window !== 'undefined' && window.location.pathname === '/chat') {
+    return <ChatPage />;
+  }
 
   if (isLoading) {
     return (

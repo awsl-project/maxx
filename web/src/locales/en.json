@@ -232,7 +232,14 @@
     "selfRedemptionCreated": "Plain codes generated this time. Copy and save them now:",
     "selfRedemptionCreateSuccess": "Generated {{count}} redemption codes and deducted {{amount}}.",
     "selfRedemptionCreateError": "Generation failed: insufficient balance or invalid input.",
-    "dailyCheckInBlacklisted": "This account cannot claim daily check-in rewards."
+    "dailyCheckInBlacklisted": "This account cannot claim daily check-in rewards.",
+    "chatExperience": "Chat experience",
+    "chatExperienceUrl": "Chat experience URL",
+    "chatExperienceRevealPlaceholder": "Reveal or generate your key to create your personal chat URL.",
+    "chatUrlCopyError": "Failed to copy Chat URL.",
+    "chatUrlRevealError": "Failed to reveal your key for the chat URL. Please try again.",
+    "copyChatUrl": "Copy chat URL",
+    "openChat": "Open chat"
   },
   "testField": {
     "title": "Test Field",

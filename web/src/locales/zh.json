@@ -232,7 +232,14 @@
     "selfRedemptionCreated": "本次生成的明文兑换码，请立即复制保存：",
     "selfRedemptionCreateSuccess": "已生成 {{count}} 个兑换码，并扣除 {{amount}}。",
     "selfRedemptionCreateError": "生成失败：余额不足或输入无效。",
-    "dailyCheckInBlacklisted": "当前账号不可参与签到。"
+    "dailyCheckInBlacklisted": "当前账号不可参与签到。",
+    "chatExperience": "快速体验 Chat",
+    "chatExperienceUrl": "Chat 体验 URL",
+    "chatExperienceRevealPlaceholder": "显示或生成 Key 后，会生成你的专属 Chat URL。",
+    "chatUrlCopyError": "复制 Chat URL 失败。",
+    "chatUrlRevealError": "生成 Chat URL 时显示 Key 失败，请重试。",
+    "copyChatUrl": "复制 Chat URL",
+    "openChat": "打开 Chat"
   },
   "testField": {
     "title": "测试场",
