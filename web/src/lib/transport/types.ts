@@ -714,6 +714,10 @@ export interface ProxyRequestCleanupFailedResult {
   deletedAttemptCount: number;
 }
 
+export interface CancelActiveProxyRequestsResult {
+  cancelledCount: number;
+}
+
 export interface ProxyRequest {
   id: number;
   createdAt: string;

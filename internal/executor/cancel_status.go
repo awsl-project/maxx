@@ -16,6 +16,10 @@ func requestFailureStatusAndError(ctx context.Context, err error) (string, strin
 		return "FAILED", "request did not complete"
 	}
 
+	if errors.Is(context.Cause(ctx), domain.ErrActiveRequestStoppedByAdmin) {
+		return "FAILED", domain.ActiveRequestStoppedByAdminMessage
+	}
+
 	if errors.Is(ctx.Err(), context.Canceled) && isClientDisconnectError(err) {
 		return "CANCELLED", "client disconnected"
 	}
