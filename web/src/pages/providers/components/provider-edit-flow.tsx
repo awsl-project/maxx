@@ -55,6 +55,7 @@ import { GrokProviderView } from './grok-provider-view';
 import { ProviderModelMappings } from './provider-model-mappings';
 import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
 import { ReasoningPolicySettings } from './reasoning-policy-settings';
+import { OpenAISystemPromptField } from './openai-system-prompt-field';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -539,6 +540,7 @@ type EditFormData = {
   disableErrorCooldown?: boolean;
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
+  openAISystemPrompt?: string;
   reasoning?: NonNullable<Provider['config']>['reasoning'];
   maxConcurrency: number;
   runtimeContextLimit: number;
@@ -627,6 +629,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
       smartMappingRetryEnabled: provider.config?.smartMappingRetryEnabled ?? false,
       smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
+      openAISystemPrompt: provider.config?.openAISystemPrompt || '',
       reasoning: provider.config?.reasoning,
       maxConcurrency: normalizeMaxConcurrency(provider.maxConcurrency),
       runtimeContextLimit: normalizeRuntimeContextLimit(provider.runtimeContextLimit),
@@ -753,6 +756,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
+          openAISystemPrompt: formData.openAISystemPrompt?.trim() || undefined,
           reasoning: formData.reasoning,
           proxyURL: formData.proxyURL?.trim() || undefined,
           custom: {
@@ -837,6 +841,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
+          openAISystemPrompt: formData.openAISystemPrompt?.trim() || undefined,
           reasoning: formData.reasoning,
           proxyURL: formData.proxyURL?.trim() || undefined,
           custom: {
@@ -1537,6 +1542,14 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 <ReasoningPolicySettings
                   value={formData.reasoning}
                   onChange={(reasoning) => setFormData((prev) => ({ ...prev, reasoning }))}
+                />
+
+                <OpenAISystemPromptField
+                  value={formData.openAISystemPrompt || ''}
+                  onChange={(openAISystemPrompt) =>
+                    setFormData((prev) => ({ ...prev, openAISystemPrompt }))
+                  }
+                  disabled={saving}
                 />
               </ProviderEditSection>
 

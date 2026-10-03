@@ -282,6 +282,7 @@ export interface ProviderConfig {
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
   retryOpenAIPolicyFlaggedPrompt?: boolean;
+  openAISystemPrompt?: string;
   reasoning?: ReasoningPolicy;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
@@ -1475,7 +1476,6 @@ export interface UserPanelConsumptionLeaderboardResult {
   today: UserPanelConsumptionLeaderboardRow[];
   all: UserPanelConsumptionLeaderboardRow[];
 }
-
 
 export interface APITokenCleanupItem {
   id: number;

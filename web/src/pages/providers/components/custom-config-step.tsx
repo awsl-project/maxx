@@ -41,6 +41,7 @@ import { buildDisguisePayload } from '../utils/disguise';
 import { buildProviderRuntimeModelOptions } from './provider-model-mappings';
 import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
 import { ReasoningPolicySettings } from './reasoning-policy-settings';
+import { OpenAISystemPromptField } from './openai-system-prompt-field';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -174,6 +175,7 @@ export function CustomConfigStep() {
           smartMappingRetryEnabled,
           smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           retryOpenAIPolicyFlaggedPrompt: !!formData.retryOpenAIPolicyFlaggedPrompt,
+          openAISystemPrompt: formData.openAISystemPrompt?.trim() || undefined,
           reasoning: formData.reasoning,
           proxyURL: formData.proxyURL?.trim() || undefined,
           custom: {
@@ -428,6 +430,10 @@ export function CustomConfigStep() {
             <ReasoningPolicySettings
               value={formData.reasoning}
               onChange={(reasoning) => updateFormData({ reasoning })}
+            />
+            <OpenAISystemPromptField
+              value={formData.openAISystemPrompt || ''}
+              onChange={(openAISystemPrompt) => updateFormData({ openAISystemPrompt })}
             />
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">

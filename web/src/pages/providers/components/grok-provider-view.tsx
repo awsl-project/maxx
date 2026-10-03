@@ -9,6 +9,7 @@ import { useUpdateProvider } from '@/hooks/queries';
 import type { ClientType, CreateProviderData, Provider } from '@/lib/transport';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { ProviderModelMappings } from './provider-model-mappings';
+import { OpenAISystemPromptField } from './openai-system-prompt-field';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -43,6 +44,9 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
   const [consecutiveErrorFreezeThreshold, setConsecutiveErrorFreezeThreshold] = useState(
     normalizeConsecutiveErrorFreezeThreshold(provider.config?.consecutiveErrorFreezeThreshold),
   );
+  const [openAISystemPrompt, setOpenAISystemPrompt] = useState(
+    provider.config?.openAISystemPrompt || '',
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -63,6 +67,7 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
         maxConcurrency: normalizeMaxConcurrency(maxConcurrency),
         config: {
           disableErrorCooldown,
+          openAISystemPrompt: openAISystemPrompt.trim() || undefined,
           consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
           consecutiveErrorFreezeThreshold,
           grok: {
@@ -217,6 +222,17 @@ export function GrokProviderView({ provider, onDelete, onClose }: GrokProviderVi
               </div>
               <Switch checked={blackBox} onCheckedChange={setBlackBox} />
             </div>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+              {t('provider.openAIRequestPolicyTitle')}
+            </h3>
+            <OpenAISystemPromptField
+              value={openAISystemPrompt}
+              onChange={setOpenAISystemPrompt}
+              disabled={saving}
+            />
           </div>
 
           {saveStatus === 'error' && (

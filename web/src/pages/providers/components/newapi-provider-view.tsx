@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { ProviderModelMappings } from './provider-model-mappings';
+import { OpenAISystemPromptField } from './openai-system-prompt-field';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -82,6 +83,9 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
   const [retryOpenAIPolicyFlaggedPrompt, setRetryOpenAIPolicyFlaggedPrompt] = useState(
     !!provider.config?.retryOpenAIPolicyFlaggedPrompt,
   );
+  const [openAISystemPrompt, setOpenAISystemPrompt] = useState(
+    provider.config?.openAISystemPrompt || '',
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -112,6 +116,7 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
           consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
           consecutiveErrorFreezeThreshold,
           retryOpenAIPolicyFlaggedPrompt,
+          openAISystemPrompt: openAISystemPrompt.trim() || undefined,
           custom: {
             // Blank preserves the stored values for export-excluded providers.
             baseURL: baseURL.trim(),
@@ -306,6 +311,17 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                 onCheckedChange={setRetryOpenAIPolicyFlaggedPrompt}
               />
             </div>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+              {t('provider.openAIRequestPolicyTitle')}
+            </h3>
+            <OpenAISystemPromptField
+              value={openAISystemPrompt}
+              onChange={setOpenAISystemPrompt}
+              disabled={saving}
+            />
           </div>
 
           {saveStatus === 'error' && (

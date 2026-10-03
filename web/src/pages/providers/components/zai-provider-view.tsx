@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { ProviderModelMappings } from './provider-model-mappings';
+import { OpenAISystemPromptField } from './openai-system-prompt-field';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -52,6 +53,9 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
   const [retryOpenAIPolicyFlaggedPrompt, setRetryOpenAIPolicyFlaggedPrompt] = useState(
     !!provider.config?.retryOpenAIPolicyFlaggedPrompt,
   );
+  const [openAISystemPrompt, setOpenAISystemPrompt] = useState(
+    provider.config?.openAISystemPrompt || '',
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -80,6 +84,7 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
         config: {
           disableErrorCooldown,
           retryOpenAIPolicyFlaggedPrompt,
+          openAISystemPrompt: openAISystemPrompt.trim() || undefined,
           zai: {
             // Blank preserves the stored key (backend keeps existing secret).
             apiKey: apiKey.trim(),
@@ -298,6 +303,17 @@ export function ZaiProviderView({ provider, onDelete, onClose }: ZaiProviderView
                 onCheckedChange={setRetryOpenAIPolicyFlaggedPrompt}
               />
             </div>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+              {t('provider.openAIRequestPolicyTitle')}
+            </h3>
+            <OpenAISystemPromptField
+              value={openAISystemPrompt}
+              onChange={setOpenAISystemPrompt}
+              disabled={saving}
+            />
           </div>
 
           {saveStatus === 'error' && (

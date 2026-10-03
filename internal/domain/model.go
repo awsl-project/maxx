@@ -444,6 +444,10 @@ type ProviderConfig struct {
 	// when the upstream returns the explicit OpenAI policy-flagged prompt error.
 	// It is opt-in and intentionally limited to one same-provider retry.
 	RetryOpenAIPolicyFlaggedPrompt bool `json:"retryOpenAIPolicyFlaggedPrompt,omitempty"`
+	// OpenAISystemPrompt is an optional provider-scoped system prompt injected only
+	// into outbound OpenAI Chat Completions requests. Empty/whitespace means disabled
+	// and leaves the request body byte-for-byte unchanged.
+	OpenAISystemPrompt string `json:"openAISystemPrompt,omitempty"`
 	// ProxyURL is an optional explicit outbound proxy for this provider.
 	// Empty preserves the adapter default. Supported schemes: http, https, socks5, socks5h.
 	ProxyURL string `json:"proxyURL,omitempty"`

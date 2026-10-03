@@ -284,7 +284,7 @@ routeLoop:
 			// Authoritative outbound param stage: apply once per attempt on the
 			// final converted body, before it reaches the adapter. Idempotent, so
 			// re-running on retry is safe.
-			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, mappedModel, matchedRoute.Provider)
+			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, requestURI, mappedModel, matchedRoute.Provider)
 			if effort := requestmeta.ReasoningEffort(requestBody); effort != "" && effort != proxyReq.ReasoningEffort {
 				proxyReq.ReasoningEffort = effort
 				if err := e.proxyRequestRepo.Update(proxyReq); err != nil {

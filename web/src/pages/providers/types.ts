@@ -388,6 +388,7 @@ export type ProviderFormData = {
   smartMappingRetryEnabled?: boolean;
   smartMappingRetryLimit?: number;
   retryOpenAIPolicyFlaggedPrompt?: boolean;
+  openAISystemPrompt?: string;
   reasoning?: ReasoningPolicy;
   maxConcurrency?: number;
   runtimeContextLimit?: number;
