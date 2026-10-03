@@ -20,9 +20,13 @@ import (
 // policy, so the outbound body the adapter observes reflects the executor's
 // authoritative param stage.
 func paramPolicyDispatchCtx(t *testing.T, requestBody string, policy *domain.ReasoningPolicy, adapter *openAIOnlyConversionAdapter) (*flow.Ctx, *Executor, *recordingProxyRequestRepo) {
+	return paramPolicyDispatchCtxWithProviderConfig(t, requestBody, &domain.ProviderConfig{Reasoning: policy}, domain.ClientTypeOpenAI, "/v1/chat/completions", adapter)
+}
+
+func paramPolicyDispatchCtxWithProviderConfig(t *testing.T, requestBody string, providerConfig *domain.ProviderConfig, clientType domain.ClientType, requestURI string, adapter *openAIOnlyConversionAdapter) (*flow.Ctx, *Executor, *recordingProxyRequestRepo) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody)).WithContext(context.Background())
+	req := httptest.NewRequest(http.MethodPost, requestURI, strings.NewReader(requestBody)).WithContext(context.Background())
 	c := flow.NewCtx(rec, req)
 	proxyReq := &domain.ProxyRequest{
 		ID: 301, TenantID: domain.DefaultTenantID, ClientType: domain.ClientTypeOpenAI,
@@ -32,20 +36,20 @@ func paramPolicyDispatchCtx(t *testing.T, requestBody string, policy *domain.Rea
 		ctx:                 context.Background(),
 		proxyReq:            proxyReq,
 		tenantID:            domain.DefaultTenantID,
-		clientType:          domain.ClientTypeOpenAI,
+		clientType:          clientType,
 		requestModel:        "gpt-4o",
 		isStream:            false,
 		requestBody:         []byte(requestBody),
 		originalRequestBody: []byte(requestBody),
 		requestHeaders:      http.Header{"Content-Type": []string{"application/json"}},
-		requestURI:          "/v1/chat/completions",
+		requestURI:          requestURI,
 		routes: []*router.MatchedRoute{
 			{
-				Route: &domain.Route{ID: 32, TenantID: domain.DefaultTenantID, ProviderID: 42, ClientType: domain.ClientTypeOpenAI},
+				Route: &domain.Route{ID: 32, TenantID: domain.DefaultTenantID, ProviderID: 42, ClientType: clientType},
 				Provider: &domain.Provider{
 					ID: 42, TenantID: domain.DefaultTenantID, Type: "custom", Name: "openrouter-like",
-					SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI},
-					Config:               &domain.ProviderConfig{Reasoning: policy},
+					SupportedClientTypes: []domain.ClientType{clientType},
+					Config:               providerConfig,
 				},
 				ProviderAdapter: adapter,
 				RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
@@ -137,5 +141,96 @@ func TestDispatchFillsDefaultEffortWhenAbsent(t *testing.T) {
 	}
 	if got := proxyRepo.updated[len(proxyRepo.updated)-1].ReasoningEffort; got != "low" {
 		t.Fatalf("recorded reasoning effort = %q, want low", got)
+	}
+}
+
+func TestDispatchInjectsProviderOpenAISystemPromptIntoChatCompletions(t *testing.T) {
+	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
+	c, e, _ := paramPolicyDispatchCtxWithProviderConfig(t,
+		`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":false}`,
+		&domain.ProviderConfig{OpenAISystemPrompt: "Be precise."},
+		domain.ClientTypeOpenAI,
+		"/v1/chat/completions",
+		adapter)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if got := gjson.GetBytes(adapter.seenRequestBody, "messages.0.role").String(); got != "system" {
+		t.Fatalf("messages.0.role = %q, want system; body=%s", got, adapter.seenRequestBody)
+	}
+	if got := gjson.GetBytes(adapter.seenRequestBody, "messages.0.content").String(); got != "Be precise." {
+		t.Fatalf("messages.0.content = %q, want injected prompt; body=%s", got, adapter.seenRequestBody)
+	}
+	if got := gjson.GetBytes(adapter.seenRequestBody, "messages.1.role").String(); got != "user" {
+		t.Fatalf("original user message role = %q, want preserved after injection; body=%s", got, adapter.seenRequestBody)
+	}
+}
+
+func TestDispatchInjectsProviderOpenAISystemPromptWithoutRewritingOpaqueFields(t *testing.T) {
+	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
+	body := `{"model":"gpt-4o","metadata":{"large":900719925474099312345,"raw":{"id":12345678901234567890}},"messages":[{"role":"user","content":"hi"}],"stream":false}`
+	c, e, _ := paramPolicyDispatchCtxWithProviderConfig(t,
+		body,
+		&domain.ProviderConfig{OpenAISystemPrompt: "Be precise."},
+		domain.ClientTypeOpenAI,
+		"/v1/chat/completions",
+		adapter)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if got := gjson.GetBytes(adapter.seenRequestBody, "messages.0.role").String(); got != "system" {
+		t.Fatalf("messages.0.role = %q, want system; body=%s", got, adapter.seenRequestBody)
+	}
+	if !strings.Contains(string(adapter.seenRequestBody), `"large":900719925474099312345`) {
+		t.Fatalf("large metadata integer was rewritten; body=%s", adapter.seenRequestBody)
+	}
+	if !strings.Contains(string(adapter.seenRequestBody), `"id":12345678901234567890`) {
+		t.Fatalf("nested raw integer was rewritten; body=%s", adapter.seenRequestBody)
+	}
+}
+
+func TestDispatchDoesNotInjectEmptyOpenAISystemPrompt(t *testing.T) {
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
+	c, e, _ := paramPolicyDispatchCtxWithProviderConfig(t,
+		body,
+		&domain.ProviderConfig{OpenAISystemPrompt: "  "},
+		domain.ClientTypeOpenAI,
+		"/v1/chat/completions",
+		adapter)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if string(adapter.seenRequestBody) != body {
+		t.Fatalf("empty prompt changed body:\n got %s\nwant %s", adapter.seenRequestBody, body)
+	}
+}
+
+func TestDispatchDoesNotInjectOpenAISystemPromptOutsideOpenAIChat(t *testing.T) {
+	body := `{"model":"gpt-image-2","prompt":"a cat"}`
+	adapter := &openAIOnlyConversionAdapter{responseBody: `{"created":1,"data":[]}`}
+	c, e, _ := paramPolicyDispatchCtxWithProviderConfig(t,
+		body,
+		&domain.ProviderConfig{OpenAISystemPrompt: "Do not leak into image requests."},
+		domain.ClientTypeOpenAI,
+		"/v1/images/generations",
+		adapter)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if string(adapter.seenRequestBody) != body {
+		t.Fatalf("non-chat request changed body:\n got %s\nwant %s", adapter.seenRequestBody, body)
 	}
 }

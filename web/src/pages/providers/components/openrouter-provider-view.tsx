@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
 import { OPENROUTER_CLIENT_TYPES } from './openrouter-model-mappings';
 import { ProviderModelMappings } from './provider-model-mappings';
+import { OpenAISystemPromptField } from './openai-system-prompt-field';
 import {
   normalizeMaxConcurrency,
   ProviderMaxConcurrencyField,
@@ -62,6 +63,9 @@ export function OpenRouterProviderView({
   const [retryOpenAIPolicyFlaggedPrompt, setRetryOpenAIPolicyFlaggedPrompt] = useState(
     !!provider.config?.retryOpenAIPolicyFlaggedPrompt,
   );
+  const [openAISystemPrompt, setOpenAISystemPrompt] = useState(
+    provider.config?.openAISystemPrompt || '',
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(
     normalizeMaxConcurrency(provider.maxConcurrency),
   );
@@ -90,6 +94,7 @@ export function OpenRouterProviderView({
           consecutiveErrorFreezeEnabled: disableErrorCooldown && consecutiveErrorFreezeEnabled,
           consecutiveErrorFreezeThreshold,
           retryOpenAIPolicyFlaggedPrompt,
+          openAISystemPrompt: openAISystemPrompt.trim() || undefined,
           openrouter: {
             // Blank preserves the stored key (backend keeps existing secret).
             apiKey: apiKey.trim(),
@@ -265,6 +270,17 @@ export function OpenRouterProviderView({
                 onCheckedChange={setRetryOpenAIPolicyFlaggedPrompt}
               />
             </div>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+              {t('provider.openAIRequestPolicyTitle')}
+            </h3>
+            <OpenAISystemPromptField
+              value={openAISystemPrompt}
+              onChange={setOpenAISystemPrompt}
+              disabled={saving}
+            />
           </div>
 
           {saveStatus === 'error' && (

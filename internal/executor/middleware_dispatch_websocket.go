@@ -104,7 +104,7 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 		c.Err = proxyErr
 		return
 	}
-	outboundFrame = e.applyOutboundParamPolicy(outboundFrame, domain.ClientTypeCodex, mappedModel, matched.Provider)
+	outboundFrame = e.applyOutboundParamPolicy(outboundFrame, domain.ClientTypeCodex, "", mappedModel, matched.Provider)
 	turnExchange := *exchange
 	turnExchange.Frame = outboundFrame
 	if e.router != nil {
