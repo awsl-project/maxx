@@ -169,6 +169,32 @@ func TestDispatchInjectsProviderOpenAISystemPromptIntoChatCompletions(t *testing
 	}
 }
 
+func TestDispatchInjectsProviderOpenAISystemPromptWithoutRewritingOpaqueFields(t *testing.T) {
+	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}
+	body := `{"model":"gpt-4o","metadata":{"large":900719925474099312345,"raw":{"id":12345678901234567890}},"messages":[{"role":"user","content":"hi"}],"stream":false}`
+	c, e, _ := paramPolicyDispatchCtxWithProviderConfig(t,
+		body,
+		&domain.ProviderConfig{OpenAISystemPrompt: "Be precise."},
+		domain.ClientTypeOpenAI,
+		"/v1/chat/completions",
+		adapter)
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if got := gjson.GetBytes(adapter.seenRequestBody, "messages.0.role").String(); got != "system" {
+		t.Fatalf("messages.0.role = %q, want system; body=%s", got, adapter.seenRequestBody)
+	}
+	if !strings.Contains(string(adapter.seenRequestBody), `"large":900719925474099312345`) {
+		t.Fatalf("large metadata integer was rewritten; body=%s", adapter.seenRequestBody)
+	}
+	if !strings.Contains(string(adapter.seenRequestBody), `"id":12345678901234567890`) {
+		t.Fatalf("nested raw integer was rewritten; body=%s", adapter.seenRequestBody)
+	}
+}
+
 func TestDispatchDoesNotInjectEmptyOpenAISystemPrompt(t *testing.T) {
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":false}`
 	adapter := &openAIOnlyConversionAdapter{responseBody: `{"id":"x","object":"chat.completion","choices":[]}`}

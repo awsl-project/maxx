@@ -7,6 +7,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/reqpolicy"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -59,20 +60,27 @@ func applyOpenAISystemPrompt(body []byte, protocol domain.ClientType, requestURI
 		return body
 	}
 
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return body
-	}
-	messages, ok := payload["messages"].([]any)
-	if !ok {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.IsArray() {
 		return body
 	}
 
-	injected := make([]any, 0, len(messages)+1)
-	injected = append(injected, map[string]any{"role": "system", "content": prompt})
-	injected = append(injected, messages...)
-	payload["messages"] = injected
-	out, err := json.Marshal(payload)
+	systemMessage, err := json.Marshal(map[string]string{"role": "system", "content": prompt})
+	if err != nil {
+		return body
+	}
+	messagesRaw := strings.TrimSpace(messages.Raw)
+	if !strings.HasPrefix(messagesRaw, "[") || !strings.HasSuffix(messagesRaw, "]") {
+		return body
+	}
+	innerMessages := strings.TrimSpace(messagesRaw[1 : len(messagesRaw)-1])
+	injectedMessages := "[" + string(systemMessage)
+	if innerMessages != "" {
+		injectedMessages += "," + innerMessages
+	}
+	injectedMessages += "]"
+
+	out, err := sjson.SetRawBytes(body, "messages", []byte(injectedMessages))
 	if err != nil {
 		return body
 	}
