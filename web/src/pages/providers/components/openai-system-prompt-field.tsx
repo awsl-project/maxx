@@ -16,12 +16,9 @@ export function OpenAISystemPromptField({
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="mb-3">
-        <div className="text-sm font-medium text-foreground">
-          {t('provider.openAISystemPrompt')}
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">{t('provider.openAISystemPromptDesc')}</p>
-      </div>
+      <label className="mb-3 block text-sm font-medium text-foreground">
+        {t('provider.openAISystemPrompt')}
+      </label>
       <Textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -29,11 +26,6 @@ export function OpenAISystemPromptField({
         className="min-h-28 font-mono text-sm"
         disabled={disabled}
       />
-      <p className="mt-2 text-xs text-muted-foreground">
-        {value.trim()
-          ? t('provider.openAISystemPromptActiveHint')
-          : t('provider.openAISystemPromptEmptyHint')}
-      </p>
     </div>
   );
 }
