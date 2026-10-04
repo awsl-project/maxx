@@ -1669,7 +1669,16 @@
     "userPanelRedemptionEnable": "Enable",
     "userPanelCheckInBlacklist": "Check-in blacklist",
     "userPanelCheckInBlacklistDesc": "Select registered users that cannot claim the daily check-in reward.",
-    "autoStart": "Start at login"
+    "autoStart": "Start at login",
+    "userPanelErrorChargeTab": "Error charge",
+    "userPanelErrorCharge": "Consecutive error charge",
+    "userPanelErrorChargeDesc": "Charge user-console keys after configured status codes appear consecutively.",
+    "userPanelErrorChargeCodes": "Error codes",
+    "userPanelErrorChargeThreshold": "Consecutive count",
+    "userPanelErrorChargeAmount": "Charge amount",
+    "userPanelErrorChargeCodesError": "Error codes must be HTTP status codes from 100 to 599, separated by commas or spaces.",
+    "userPanelErrorChargeThresholdError": "Consecutive count must be an integer from 1 to 100.",
+    "userPanelErrorChargeAmountError": "Charge amount must be greater than 0."
   },
   "modelMappings": {
     "title": "Model Mappings",

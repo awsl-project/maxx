@@ -107,9 +107,15 @@ const USER_PANEL_DAILY_CHECKIN_AMOUNT_SETTING_KEY = 'user_panel_daily_checkin_am
 const USER_PANEL_DAILY_CHECKIN_BLACKLIST_USER_IDS_SETTING_KEY =
   'user_panel_daily_checkin_blacklist_user_ids';
 const USER_PANEL_ANNOUNCEMENT_MARKDOWN_SETTING_KEY = 'user_panel_announcement_markdown';
+const USER_PANEL_ERROR_CHARGE_ENABLED_SETTING_KEY = 'user_panel_error_charge_enabled';
+const USER_PANEL_ERROR_CHARGE_CODES_SETTING_KEY = 'user_panel_error_charge_codes';
+const USER_PANEL_ERROR_CHARGE_THRESHOLD_SETTING_KEY = 'user_panel_error_charge_threshold';
+const USER_PANEL_ERROR_CHARGE_AMOUNT_SETTING_KEY = 'user_panel_error_charge_amount';
 const INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY = 'invite_registration_auto_approve_enabled';
 const DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE = '{{name}}{{suffix}}';
 const DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT = '10';
+const DEFAULT_USER_PANEL_ERROR_CHARGE_THRESHOLD = '2';
+const DEFAULT_USER_PANEL_ERROR_CHARGE_AMOUNT = '10';
 type MultiTenantUILayout = 'current' | 'user_panel';
 
 function formatQuotaAmount(value: number) {
@@ -2369,6 +2375,15 @@ function MultiTenantUISection() {
     settings?.[INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY] === 'true';
   const settingsAnnouncementMarkdown =
     settings?.[USER_PANEL_ANNOUNCEMENT_MARKDOWN_SETTING_KEY] || '';
+  const settingsErrorChargeEnabled =
+    settings?.[USER_PANEL_ERROR_CHARGE_ENABLED_SETTING_KEY] === 'true';
+  const settingsErrorChargeCodes = settings?.[USER_PANEL_ERROR_CHARGE_CODES_SETTING_KEY] || '';
+  const settingsErrorChargeThreshold =
+    settings?.[USER_PANEL_ERROR_CHARGE_THRESHOLD_SETTING_KEY] ||
+    DEFAULT_USER_PANEL_ERROR_CHARGE_THRESHOLD;
+  const settingsErrorChargeAmount =
+    settings?.[USER_PANEL_ERROR_CHARGE_AMOUNT_SETTING_KEY] ||
+    DEFAULT_USER_PANEL_ERROR_CHARGE_AMOUNT;
   const settingsDailyCheckInBlacklistUserIDs = useMemo(
     () =>
       parseUserIDListSetting(settings?.[USER_PANEL_DAILY_CHECKIN_BLACKLIST_USER_IDS_SETTING_KEY]),
@@ -2387,6 +2402,15 @@ function MultiTenantUISection() {
   const [localAnnouncementMarkdown, setLocalAnnouncementMarkdown] = useState(
     settingsAnnouncementMarkdown,
   );
+  const [localErrorChargeEnabled, setLocalErrorChargeEnabled] = useState(
+    settingsErrorChargeEnabled,
+  );
+  const [localErrorChargeCodes, setLocalErrorChargeCodes] = useState(settingsErrorChargeCodes);
+  const [localErrorChargeThreshold, setLocalErrorChargeThreshold] = useState(
+    settingsErrorChargeThreshold,
+  );
+  const [localErrorChargeAmount, setLocalErrorChargeAmount] = useState(settingsErrorChargeAmount);
+  const [errorChargeError, setErrorChargeError] = useState('');
   const [localDailyCheckInBlacklistUserIDs, setLocalDailyCheckInBlacklistUserIDs] = useState(
     settingsDailyCheckInBlacklistUserIDs,
   );
@@ -2402,6 +2426,10 @@ function MultiTenantUISection() {
     setLocalDailyCheckInAmount(settingsDailyCheckInAmount);
     setLocalInviteRegistrationAutoApproveEnabled(settingsInviteRegistrationAutoApproveEnabled);
     setLocalAnnouncementMarkdown(settingsAnnouncementMarkdown);
+    setLocalErrorChargeEnabled(settingsErrorChargeEnabled);
+    setLocalErrorChargeCodes(settingsErrorChargeCodes);
+    setLocalErrorChargeThreshold(settingsErrorChargeThreshold);
+    setLocalErrorChargeAmount(settingsErrorChargeAmount);
     setLocalDailyCheckInBlacklistUserIDs(settingsDailyCheckInBlacklistUserIDs);
   }, [
     settingsEnabled,
@@ -2410,6 +2438,10 @@ function MultiTenantUISection() {
     settingsDailyCheckInAmount,
     settingsInviteRegistrationAutoApproveEnabled,
     settingsAnnouncementMarkdown,
+    settingsErrorChargeAmount,
+    settingsErrorChargeCodes,
+    settingsErrorChargeEnabled,
+    settingsErrorChargeThreshold,
     settingsDailyCheckInBlacklistUserIDs,
   ]);
 
@@ -2491,6 +2523,46 @@ function MultiTenantUISection() {
     });
   };
 
+  const handleErrorChargeSave = async () => {
+    const codes = localErrorChargeCodes.trim();
+    const threshold = Number.parseInt(localErrorChargeThreshold, 10);
+    const amount = Number(localErrorChargeAmount);
+    if (
+      codes &&
+      !codes
+        .split(/[\s,]+/)
+        .every((code) => /^\d+$/.test(code) && Number(code) >= 100 && Number(code) <= 599)
+    ) {
+      setErrorChargeError(t('settings.userPanelErrorChargeCodesError'));
+      return;
+    }
+    if (!Number.isInteger(threshold) || threshold < 1 || threshold > 100) {
+      setErrorChargeError(t('settings.userPanelErrorChargeThresholdError'));
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setErrorChargeError(t('settings.userPanelErrorChargeAmountError'));
+      return;
+    }
+    setErrorChargeError('');
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_ERROR_CHARGE_CODES_SETTING_KEY,
+      value: codes,
+    });
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_ERROR_CHARGE_THRESHOLD_SETTING_KEY,
+      value: String(threshold),
+    });
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_ERROR_CHARGE_AMOUNT_SETTING_KEY,
+      value: localErrorChargeAmount.trim(),
+    });
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_ERROR_CHARGE_ENABLED_SETTING_KEY,
+      value: localErrorChargeEnabled ? 'true' : 'false',
+    });
+  };
+
   const handleToggleDailyCheckInBlacklistUser = (userID: number) => {
     setLocalDailyCheckInBlacklistUserIDs((current) =>
       current.includes(userID) ? current.filter((id) => id !== userID) : [...current, userID],
@@ -2529,6 +2601,11 @@ function MultiTenantUISection() {
     Array.from(new Set(localDailyCheckInBlacklistUserIDs)).sort((a, b) => a - b),
   );
   const blacklistChanged = savedBlacklistValue !== localBlacklistValue;
+  const errorChargeChanged =
+    localErrorChargeEnabled !== settingsErrorChargeEnabled ||
+    localErrorChargeCodes !== settingsErrorChargeCodes ||
+    localErrorChargeThreshold !== settingsErrorChargeThreshold ||
+    localErrorChargeAmount !== settingsErrorChargeAmount;
 
   if (isLoading) return null;
 
@@ -2621,7 +2698,7 @@ function MultiTenantUISection() {
                     {t('settings.userPanelOptionsDesc')}
                   </p>
                 </div>
-                <TabsList className="grid w-full grid-cols-4 sm:w-auto">
+                <TabsList className="grid w-full grid-cols-5 sm:w-auto">
                   <TabsTrigger value="check-in">
                     {t('settings.userPanelDailyCheckInTab')}
                   </TabsTrigger>
@@ -2630,6 +2707,9 @@ function MultiTenantUISection() {
                   </TabsTrigger>
                   <TabsTrigger value="blacklist">
                     {t('settings.userPanelCheckInBlacklistTab')}
+                  </TabsTrigger>
+                  <TabsTrigger value="error-charge">
+                    {t('settings.userPanelErrorChargeTab')}
                   </TabsTrigger>
                   <TabsTrigger value="announcement">
                     {t('settings.userPanelAnnouncementTab')}
@@ -2859,6 +2939,82 @@ function MultiTenantUISection() {
                     {t('common.save')}
                   </Button>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="error-charge" className="mt-0 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t('settings.userPanelErrorCharge')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('settings.userPanelErrorChargeDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    aria-label={t('settings.userPanelErrorCharge')}
+                    checked={localErrorChargeEnabled}
+                    onCheckedChange={setLocalErrorChargeEnabled}
+                    disabled={updateSetting.isPending}
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-[1fr_120px_140px_auto] md:items-end">
+                  <div className="space-y-2">
+                    <Label htmlFor="user-panel-error-charge-codes">
+                      {t('settings.userPanelErrorChargeCodes')}
+                    </Label>
+                    <Input
+                      id="user-panel-error-charge-codes"
+                      value={localErrorChargeCodes}
+                      onChange={(event) => setLocalErrorChargeCodes(event.target.value)}
+                      placeholder="429, 500"
+                      disabled={updateSetting.isPending || !localErrorChargeEnabled}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="user-panel-error-charge-threshold">
+                      {t('settings.userPanelErrorChargeThreshold')}
+                    </Label>
+                    <Input
+                      id="user-panel-error-charge-threshold"
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={localErrorChargeThreshold}
+                      onChange={(event) => setLocalErrorChargeThreshold(event.target.value)}
+                      disabled={updateSetting.isPending || !localErrorChargeEnabled}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="user-panel-error-charge-amount">
+                      {t('settings.userPanelErrorChargeAmount')}
+                    </Label>
+                    <Input
+                      id="user-panel-error-charge-amount"
+                      type="number"
+                      min="0.000001"
+                      step="0.01"
+                      value={localErrorChargeAmount}
+                      onChange={(event) => setLocalErrorChargeAmount(event.target.value)}
+                      disabled={updateSetting.isPending || !localErrorChargeEnabled}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleErrorChargeSave}
+                    disabled={updateSetting.isPending || !errorChargeChanged}
+                  >
+                    {t('common.save')}
+                  </Button>
+                </div>
+                {errorChargeError ? (
+                  <p role="alert" className="text-xs text-destructive">
+                    {errorChargeError}
+                  </p>
+                ) : null}
+                <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
               </TabsContent>
 
               <TabsContent value="announcement" className="mt-0 space-y-4">
