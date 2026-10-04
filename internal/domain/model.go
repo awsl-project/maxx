@@ -1093,6 +1093,10 @@ const (
 	SettingKeyUserPanelDailyCheckInAmount           = "user_panel_daily_checkin_amount"             // 用户控制台每日签到额度（美元），默认 "10"
 	SettingKeyUserPanelDailyCheckInBlacklistUserIDs = "user_panel_daily_checkin_blacklist_user_ids" // 用户控制台签到黑名单用户 ID JSON 数组，默认 []
 	SettingKeyUserPanelAnnouncementMarkdown         = "user_panel_announcement_markdown"            // 用户控制台公告 Markdown 内容，默认空
+	SettingKeyUserPanelErrorChargeEnabled           = "user_panel_error_charge_enabled"             // 用户控制台连续错误默认扣费，"true" 或 "false"，默认 "false"
+	SettingKeyUserPanelErrorChargeCodes             = "user_panel_error_charge_codes"               // 用户控制台连续错误扣费 HTTP 状态码列表，逗号/空白分隔
+	SettingKeyUserPanelErrorChargeThreshold         = "user_panel_error_charge_threshold"           // 连续错误扣费阈值，默认 "2"
+	SettingKeyUserPanelErrorChargeAmount            = "user_panel_error_charge_amount"              // 连续错误扣费金额（美元），默认 "10"
 	SettingKeyExternalModelListEnabled              = "external_model_list_enabled"                 // 是否使用自定义外部模型列表，"true" 或 "false"，默认 "false"
 	SettingKeyExternalModelList                     = "external_model_list"                         // 自定义外部模型列表，JSON 数组或换行/逗号分隔
 	SettingKeyInviteRegistrationAutoApproveEnabled  = "invite_registration_auto_approve_enabled"    // 邀请码注册自动通过审批，"true" 或 "false"，默认 "false"

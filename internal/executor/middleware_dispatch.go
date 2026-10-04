@@ -427,6 +427,7 @@ routeLoop:
 
 				pricing.MirrorCostToRequest(proxyReq, attemptRecord)
 				proxyReq.TTFT = attemptRecord.TTFT
+				e.applyUserPanelErrorCharge(state, proxyReq, attemptRecord)
 
 				clearProxyRequestDetail(proxyReq, clearDetail)
 
@@ -503,6 +504,7 @@ routeLoop:
 						Body:    responseCapture.Body(),
 					}
 				}
+				e.applyUserPanelErrorCharge(state, proxyReq, attemptRecord)
 				clearProxyRequestDetail(proxyReq, clearDetail)
 				_ = e.proxyRequestRepo.Update(proxyReq)
 				if e.broadcaster != nil {
@@ -516,6 +518,7 @@ routeLoop:
 				proxyReq.Status, proxyReq.Error = requestFailureStatusAndError(ctx, err)
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
+				e.applyUserPanelErrorCharge(state, proxyReq, attemptRecord)
 				clearProxyRequestDetail(proxyReq, clearDetail)
 				_ = e.proxyRequestRepo.Update(proxyReq)
 				if e.broadcaster != nil {
@@ -547,6 +550,7 @@ routeLoop:
 				if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
 					proxyReq.StatusCode = proxyErr.HTTPStatusCode
 				}
+				e.applyUserPanelErrorCharge(state, proxyReq, attemptRecord)
 				clearProxyRequestDetail(proxyReq, clearDetail)
 				_ = e.proxyRequestRepo.Update(proxyReq)
 				if e.broadcaster != nil {
@@ -577,6 +581,7 @@ routeLoop:
 				if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
 					proxyReq.StatusCode = proxyErr.HTTPStatusCode
 				}
+				e.applyUserPanelErrorCharge(state, proxyReq, attemptRecord)
 				clearProxyRequestDetail(proxyReq, clearDetail)
 				_ = e.proxyRequestRepo.Update(proxyReq)
 				if e.broadcaster != nil {
@@ -706,6 +711,7 @@ routeLoop:
 			proxyReq.StatusCode = proxyErr.HTTPStatusCode
 		}
 	}
+	e.applyUserPanelErrorCharge(state, proxyReq, nil)
 	clearProxyRequestDetail(proxyReq, clearDetail)
 	_ = e.proxyRequestRepo.Update(proxyReq)
 	if e.broadcaster != nil {

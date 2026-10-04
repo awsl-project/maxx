@@ -1666,7 +1666,16 @@
     "userPanelRedemptionEnable": "启用",
     "userPanelCheckInBlacklist": "签到黑名单",
     "userPanelCheckInBlacklistDesc": "从注册用户中选择不能参与每日签到的账号。",
-    "autoStart": "开机自启"
+    "autoStart": "开机自启",
+    "userPanelErrorChargeTab": "错误扣费",
+    "userPanelErrorCharge": "连续错误扣费",
+    "userPanelErrorChargeDesc": "指定错误码连续出现达到次数后，对用户控制台密钥扣费。",
+    "userPanelErrorChargeCodes": "错误码",
+    "userPanelErrorChargeThreshold": "连续次数",
+    "userPanelErrorChargeAmount": "扣费金额",
+    "userPanelErrorChargeCodesError": "错误码必须是 100 到 599 的 HTTP 状态码，可用逗号或空格分隔。",
+    "userPanelErrorChargeThresholdError": "连续次数必须是 1 到 100 的整数。",
+    "userPanelErrorChargeAmountError": "扣费金额必须大于 0。"
   },
   "modelMappings": {
     "title": "模型映射",

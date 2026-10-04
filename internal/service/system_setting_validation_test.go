@@ -211,3 +211,28 @@ func TestValidateStreamTimeoutMilliseconds(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateUserPanelErrorChargeSettings(t *testing.T) {
+	valid := map[string]string{
+		domain.SettingKeyUserPanelErrorChargeEnabled:   "false",
+		domain.SettingKeyUserPanelErrorChargeCodes:     "429, 500\n503",
+		domain.SettingKeyUserPanelErrorChargeThreshold: "2",
+		domain.SettingKeyUserPanelErrorChargeAmount:    "10",
+	}
+	for key, value := range valid {
+		if err := validateSystemSettingValue(key, value); err != nil {
+			t.Fatalf("validateSystemSettingValue(%s, %q) error = %v", key, value, err)
+		}
+	}
+
+	invalid := map[string]string{
+		domain.SettingKeyUserPanelErrorChargeCodes:     "999",
+		domain.SettingKeyUserPanelErrorChargeThreshold: "0",
+		domain.SettingKeyUserPanelErrorChargeAmount:    "0",
+	}
+	for key, value := range invalid {
+		if err := validateSystemSettingValue(key, value); !errors.Is(err, domain.ErrInvalidInput) {
+			t.Fatalf("validateSystemSettingValue(%s, %q) error = %v, want ErrInvalidInput", key, value, err)
+		}
+	}
+}

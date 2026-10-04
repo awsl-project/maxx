@@ -76,3 +76,77 @@ func TestDeductAPITokenQuotaUsesAttemptCost(t *testing.T) {
 		t.Fatalf("deduct token/cost = %d/%d, want 7/42", repo.deductedToken, repo.deductedCost)
 	}
 }
+
+type errorChargeSettingRepo struct {
+	values map[string]string
+}
+
+func (r *errorChargeSettingRepo) Get(key string) (string, error) {
+	if value, ok := r.values[key]; ok {
+		return value, nil
+	}
+	return "", domain.ErrNotFound
+}
+func (r *errorChargeSettingRepo) Set(key, value string) error              { return nil }
+func (r *errorChargeSettingRepo) GetAll() ([]*domain.SystemSetting, error) { return nil, nil }
+func (r *errorChargeSettingRepo) Delete(key string) error                  { return nil }
+
+func TestUserPanelErrorChargeStartsAtThresholdAndContinuesUntilSuccess(t *testing.T) {
+	repo := &quotaTokenRepo{token: &domain.APIToken{ID: 7, TenantID: 1, Description: "managed-by=maxx-user-panel;user-id=9", QuotaBalance: 50_000_000_000}}
+	exec := &Executor{
+		apiTokenRepo: repo,
+		settingsRepo: &errorChargeSettingRepo{values: map[string]string{
+			domain.SettingKeyUserPanelErrorChargeEnabled:   "true",
+			domain.SettingKeyUserPanelErrorChargeCodes:     "429, 500",
+			domain.SettingKeyUserPanelErrorChargeThreshold: "2",
+			domain.SettingKeyUserPanelErrorChargeAmount:    "10",
+		}},
+		errorChargeStreak: make(map[errorChargeKey]int),
+	}
+	state := &execState{tenantID: 1, apiTokenID: 7}
+
+	first := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 429}
+	exec.applyUserPanelErrorCharge(state, first, nil)
+	if repo.deductedCost != 0 || first.Cost != 0 {
+		t.Fatalf("first error deducted/request cost = %d/%d, want 0/0", repo.deductedCost, first.Cost)
+	}
+
+	second := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 429}
+	exec.applyUserPanelErrorCharge(state, second, nil)
+	if repo.deductedCost != 10_000_000_000 || second.Cost != 10_000_000_000 {
+		t.Fatalf("second error deducted/request cost = %d/%d, want 10 dollars", repo.deductedCost, second.Cost)
+	}
+
+	third := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 500}
+	exec.applyUserPanelErrorCharge(state, third, nil)
+	if repo.deductedCost != 10_000_000_000 || third.Cost != 10_000_000_000 {
+		t.Fatalf("third consecutive configured error deducted/request cost = %d/%d, want 10 dollars", repo.deductedCost, third.Cost)
+	}
+
+	exec.applyUserPanelErrorCharge(state, &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "COMPLETED", StatusCode: 200}, nil)
+	afterReset := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 429}
+	repo.deductedCost = 0
+	exec.applyUserPanelErrorCharge(state, afterReset, nil)
+	if repo.deductedCost != 0 || afterReset.Cost != 0 {
+		t.Fatalf("first error after success deducted/request cost = %d/%d, want 0/0", repo.deductedCost, afterReset.Cost)
+	}
+}
+
+func TestUserPanelErrorChargeIgnoresRegularAPITokens(t *testing.T) {
+	repo := &quotaTokenRepo{token: &domain.APIToken{ID: 7, TenantID: 1, Description: "regular", QuotaBalance: 50_000_000_000}}
+	exec := &Executor{
+		apiTokenRepo: repo,
+		settingsRepo: &errorChargeSettingRepo{values: map[string]string{
+			domain.SettingKeyUserPanelErrorChargeEnabled:   "true",
+			domain.SettingKeyUserPanelErrorChargeCodes:     "429",
+			domain.SettingKeyUserPanelErrorChargeThreshold: "1",
+			domain.SettingKeyUserPanelErrorChargeAmount:    "10",
+		}},
+		errorChargeStreak: make(map[errorChargeKey]int),
+	}
+	req := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 429}
+	exec.applyUserPanelErrorCharge(&execState{tenantID: 1, apiTokenID: 7}, req, nil)
+	if repo.deductedCost != 0 || req.Cost != 0 {
+		t.Fatalf("regular token deducted/request cost = %d/%d, want 0/0", repo.deductedCost, req.Cost)
+	}
+}

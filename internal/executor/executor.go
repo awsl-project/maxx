@@ -40,6 +40,8 @@ type Executor struct {
 
 	smartMappingMu      sync.RWMutex
 	smartMappingSuccess map[string]string
+	errorChargeMu       sync.Mutex
+	errorChargeStreak   map[errorChargeKey]int
 }
 
 // NewExecutor creates a new executor
@@ -72,6 +74,7 @@ func NewExecutor(
 		engine:              flow.NewEngine(),
 		cooldownSem:         make(chan struct{}, 10),
 		smartMappingSuccess: make(map[string]string),
+		errorChargeStreak:   make(map[errorChargeKey]int),
 	}
 }
 
