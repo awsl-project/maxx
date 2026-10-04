@@ -858,7 +858,11 @@
       "currentQuota": "额度检查：{{status}}",
       "noTargets": "没有选中的 provider。",
       "result": "已更新 {{count}} 个 provider",
-      "submit": "更新"
+      "submit": "更新",
+      "systemPromptLabel": "OpenAI 系统提示词",
+      "systemPromptPlaceholder": "留空则不注入",
+      "currentSystemPrompt": "系统提示词：{{value}}",
+      "emptySystemPrompt": "空"
     }
   },
   "projects": {
@@ -1661,7 +1665,8 @@
     "userPanelRedemptionDisable": "禁用",
     "userPanelRedemptionEnable": "启用",
     "userPanelCheckInBlacklist": "签到黑名单",
-    "userPanelCheckInBlacklistDesc": "从注册用户中选择不能参与每日签到的账号。"
+    "userPanelCheckInBlacklistDesc": "从注册用户中选择不能参与每日签到的账号。",
+    "autoStart": "开机自启"
   },
   "modelMappings": {
     "title": "模型映射",

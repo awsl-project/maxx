@@ -861,7 +861,11 @@
       "currentQuota": "Quota check: {{status}}",
       "noTargets": "No providers selected.",
       "result": "Updated {{count}} providers",
-      "submit": "Update"
+      "submit": "Update",
+      "systemPromptLabel": "OpenAI system prompt",
+      "systemPromptPlaceholder": "Leave empty to disable",
+      "currentSystemPrompt": "System prompt: {{value}}",
+      "emptySystemPrompt": "empty"
     }
   },
   "projects": {
@@ -1664,7 +1668,8 @@
     "userPanelRedemptionDisable": "Disable",
     "userPanelRedemptionEnable": "Enable",
     "userPanelCheckInBlacklist": "Check-in blacklist",
-    "userPanelCheckInBlacklistDesc": "Select registered users that cannot claim the daily check-in reward."
+    "userPanelCheckInBlacklistDesc": "Select registered users that cannot claim the daily check-in reward.",
+    "autoStart": "Start at login"
   },
   "modelMappings": {
     "title": "Model Mappings",

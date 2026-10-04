@@ -185,6 +185,7 @@ export function SettingsPage() {
         <div className="space-y-6">
           <GeneralSection />
           <BackendAddressSection />
+          <AutoStartSection />
           {isAdmin && (
             <>
               <SupportModelRoutingSection />
@@ -341,6 +342,94 @@ function GeneralSection() {
             ))}
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+type DesktopAutoStartStatus = {
+  available: boolean;
+  enabled: boolean;
+  error?: string;
+};
+
+type DesktopLauncherApp = {
+  GetAutoStartStatus?: () => Promise<DesktopAutoStartStatus>;
+  SetAutoStartEnabled?: (enabled: boolean) => Promise<DesktopAutoStartStatus>;
+};
+
+function getDesktopLauncherApp(): DesktopLauncherApp | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return (
+    window as typeof window & {
+      go?: { desktop?: { LauncherApp?: DesktopLauncherApp } };
+    }
+  ).go?.desktop?.LauncherApp;
+}
+
+function AutoStartSection() {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState<DesktopAutoStartStatus | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const launcher = getDesktopLauncherApp();
+    if (!launcher?.GetAutoStartStatus) return;
+    let cancelled = false;
+    launcher
+      .GetAutoStartStatus()
+      .then((nextStatus) => {
+        if (!cancelled) setStatus(nextStatus);
+      })
+      .catch(() => {
+        if (!cancelled) setStatus({ available: false, enabled: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!status?.available) return null;
+
+  const handleToggle = async (checked: boolean) => {
+    const launcher = getDesktopLauncherApp();
+    if (!launcher?.SetAutoStartEnabled) return;
+    setIsSaving(true);
+    try {
+      setStatus(await launcher.SetAutoStartEnabled(checked));
+    } catch (error) {
+      setStatus({
+        available: true,
+        enabled: status.enabled,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Zap className="h-4 w-4 text-muted-foreground" />
+          {t('settings.autoStart')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="windows-auto-start" className="text-sm font-medium">
+            {t('settings.autoStart')}
+          </Label>
+          <Switch
+            id="windows-auto-start"
+            checked={status.enabled}
+            disabled={isSaving}
+            onCheckedChange={handleToggle}
+            aria-label={t('settings.autoStart')}
+          />
+        </div>
+        {status.error ? <p className="mt-3 text-xs text-destructive">{status.error}</p> : null}
       </CardContent>
     </Card>
   );

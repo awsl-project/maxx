@@ -377,6 +377,15 @@ export function UserPanelPage() {
   }, [userPanelToken?.id]);
 
   useEffect(() => {
+    if (!userPanelToken || revealedUserPanelToken || revealUserPanelToken.isPending) return;
+    setChatUrlError('');
+    revealUserPanelToken
+      .mutateAsync()
+      .then((result) => setRevealedUserPanelToken(result.token))
+      .catch(() => setChatUrlError(t('userPanel.chatUrlRevealError')));
+  }, [revealUserPanelToken, revealedUserPanelToken, t, userPanelToken]);
+
+  useEffect(() => {
     autoDailyCheckInStartedRef.current = false;
     setDailyCheckInDone(false);
     setDailyCheckInMessage('');

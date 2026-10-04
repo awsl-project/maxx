@@ -108,6 +108,12 @@ type ServerStatusInfo struct {
 	Message     string `json:"Message,omitempty"` // 状态消息
 }
 
+type AutoStartStatus struct {
+	Available bool   `json:"available"`
+	Enabled   bool   `json:"enabled"`
+	Error     string `json:"error,omitempty"`
+}
+
 // LauncherApp 启动器应用（简化版 DesktopApp）
 // 只负责显示启动画面和启动 HTTP Server
 type LauncherApp struct {
@@ -546,6 +552,27 @@ func (a *LauncherApp) DomReady(ctx context.Context) {
 
 // BeforeClose Wails 关闭前回调
 // 由平台特定文件实现：launcher_windows.go 和 launcher_other.go
+
+func (a *LauncherApp) GetAutoStartStatus() AutoStartStatus {
+	if !packagedWindowsApp() {
+		return AutoStartStatus{Available: false, Enabled: false}
+	}
+	enabled, err := readAutoStartEnabled()
+	if err != nil {
+		return AutoStartStatus{Available: true, Enabled: false, Error: err.Error()}
+	}
+	return AutoStartStatus{Available: true, Enabled: enabled}
+}
+
+func (a *LauncherApp) SetAutoStartEnabled(enabled bool) (AutoStartStatus, error) {
+	if !packagedWindowsApp() {
+		return AutoStartStatus{Available: false, Enabled: false}, fmt.Errorf("auto start is only available in the packaged Windows app")
+	}
+	if err := setAutoStartEnabled(enabled); err != nil {
+		return AutoStartStatus{Available: true, Enabled: false, Error: err.Error()}, err
+	}
+	return a.GetAutoStartStatus(), nil
+}
 
 // GetConfig 获取当前配置（暴露给前端）
 func (a *LauncherApp) GetConfig() DesktopConfig {
