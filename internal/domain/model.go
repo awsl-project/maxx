@@ -564,14 +564,16 @@ type ProviderBulkDeleteResult struct {
 
 // ProviderBulkUpdateRequest updates selected safe runtime fields without requiring config disclosure.
 type ProviderBulkUpdateRequest struct {
-	IDs                    []uint64   `json:"ids"`
-	UpdateProxy            bool       `json:"updateProxy,omitempty"`
-	ProxyURL               string     `json:"proxyURL,omitempty"`
-	UpdateClientMultiplier bool       `json:"updateClientMultiplier,omitempty"`
-	MultiplierClient       ClientType `json:"multiplierClient,omitempty"`
-	Multiplier             uint64     `json:"multiplier,omitempty"`
-	UpdateQuotaEnabled     bool       `json:"updateQuotaEnabled,omitempty"`
-	QuotaEnabled           bool       `json:"quotaEnabled,omitempty"`
+	IDs                      []uint64   `json:"ids"`
+	UpdateProxy              bool       `json:"updateProxy,omitempty"`
+	ProxyURL                 string     `json:"proxyURL,omitempty"`
+	UpdateClientMultiplier   bool       `json:"updateClientMultiplier,omitempty"`
+	MultiplierClient         ClientType `json:"multiplierClient,omitempty"`
+	Multiplier               uint64     `json:"multiplier,omitempty"`
+	UpdateQuotaEnabled       bool       `json:"updateQuotaEnabled,omitempty"`
+	QuotaEnabled             bool       `json:"quotaEnabled,omitempty"`
+	UpdateOpenAISystemPrompt bool       `json:"updateOpenAISystemPrompt,omitempty"`
+	OpenAISystemPrompt       string     `json:"openAISystemPrompt,omitempty"`
 }
 
 // ProviderBulkUpdateResult reports changed and skipped providers.

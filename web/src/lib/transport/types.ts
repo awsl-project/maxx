@@ -402,6 +402,8 @@ export interface ProviderBulkUpdateRequest {
   multiplier?: number;
   updateQuotaEnabled?: boolean;
   quotaEnabled?: boolean;
+  updateOpenAISystemPrompt?: boolean;
+  openAISystemPrompt?: string;
 }
 
 export interface ProviderBulkUpdateResult {

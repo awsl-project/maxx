@@ -148,7 +148,7 @@ type ProviderBulkDeletePreviewItem = {
   streamingCount: number;
 };
 
-type BulkUpdateField = 'proxy' | 'multiplier' | 'quota';
+type BulkUpdateField = 'proxy' | 'multiplier' | 'quota' | 'systemPrompt';
 
 const BULK_UPDATE_CLIENT_TYPES: ClientType[] = ['claude', 'openai', 'codex', 'gemini'];
 const DEFAULT_BULK_UPDATE_MULTIPLIER = '1.00';
@@ -180,6 +180,7 @@ export function ProvidersPage() {
   const [bulkMultiplierClient, setBulkMultiplierClient] = useState<ClientType>('claude');
   const [bulkMultiplierValue, setBulkMultiplierValue] = useState(DEFAULT_BULK_UPDATE_MULTIPLIER);
   const [bulkQuotaEnabled, setBulkQuotaEnabled] = useState(true);
+  const [bulkOpenAISystemPrompt, setBulkOpenAISystemPrompt] = useState('');
   const [bulkProxyUpdateStatus, setBulkProxyUpdateStatus] = useState<{
     updated: number;
     skipped: string[];
@@ -339,6 +340,7 @@ export function ProvidersPage() {
   const bulkUpdateProxyEnabled = bulkUpdateEnabledFields.has('proxy');
   const bulkUpdateMultiplierEnabled = bulkUpdateEnabledFields.has('multiplier');
   const bulkUpdateQuotaEnabled = bulkUpdateEnabledFields.has('quota');
+  const bulkUpdateOpenAISystemPromptEnabled = bulkUpdateEnabledFields.has('systemPrompt');
   const hasBulkUpdateFields = bulkUpdateEnabledFields.size > 0;
   const bulkMultiplierTargets = useMemo(
     () =>
@@ -621,6 +623,7 @@ export function ProvidersPage() {
       setBulkProxyURL('');
       setBulkMultiplierValue(DEFAULT_BULK_UPDATE_MULTIPLIER);
       setBulkQuotaEnabled(true);
+      setBulkOpenAISystemPrompt('');
     }
   };
 
@@ -665,6 +668,8 @@ export function ProvidersPage() {
         multiplier: nextMultiplier,
         updateQuotaEnabled: bulkUpdateQuotaEnabled,
         quotaEnabled: bulkQuotaEnabled,
+        updateOpenAISystemPrompt: bulkUpdateOpenAISystemPromptEnabled,
+        openAISystemPrompt: bulkOpenAISystemPrompt.trim(),
       });
       setIsBulkProxyUpdating(false);
       setBulkProxyUpdateStatus({ updated: result.updatedCount, skipped: result.skipped });
@@ -1418,6 +1423,32 @@ export function ProvidersPage() {
               )}
             </div>
 
+            <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.bulkProxyUpdate.systemPromptLabel')}
+                  </div>
+                </div>
+                <Switch
+                  checked={bulkUpdateOpenAISystemPromptEnabled}
+                  onCheckedChange={(checked) => toggleBulkUpdateField('systemPrompt', checked)}
+                  disabled={isBulkProxyUpdating}
+                  aria-label={t('providers.bulkProxyUpdate.systemPromptLabel')}
+                />
+              </div>
+              {bulkUpdateOpenAISystemPromptEnabled && (
+                <Textarea
+                  value={bulkOpenAISystemPrompt}
+                  onChange={(event) => setBulkOpenAISystemPrompt(event.target.value)}
+                  placeholder={t('providers.bulkProxyUpdate.systemPromptPlaceholder')}
+                  className="min-h-24 font-mono text-sm"
+                  disabled={isBulkProxyUpdating}
+                  aria-label={t('providers.bulkProxyUpdate.systemPromptLabel')}
+                />
+              )}
+            </div>
+
             <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-border p-3 text-sm">
               {bulkProxyUpdateTargets.map((provider) => (
                 <div key={provider.id} className="rounded-md bg-muted/40 p-2">
@@ -1441,6 +1472,13 @@ export function ProvidersPage() {
                       status: provider.config?.quotaEnabled
                         ? t('common.enabled')
                         : t('common.disabled'),
+                    })}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {t('providers.bulkProxyUpdate.currentSystemPrompt', {
+                      value:
+                        provider.config?.openAISystemPrompt ||
+                        t('providers.bulkProxyUpdate.emptySystemPrompt'),
                     })}
                   </div>
                 </div>

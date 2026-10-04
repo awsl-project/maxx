@@ -274,6 +274,10 @@ export function UserPanelPage() {
   const [keyCopied, setKeyCopied] = useState(false);
   const [chatUrlCopied, setChatUrlCopied] = useState(false);
   const [chatUrlError, setChatUrlError] = useState('');
+  const [chatUrlToken, setChatUrlToken] = useState('');
+  const [autoChatUrlRevealAttemptedTokenID, setAutoChatUrlRevealAttemptedTokenID] = useState<
+    number | null
+  >(null);
   const [oneTimeToken, setOneTimeToken] = useState('');
   const [oneTimeTokenAPITokenID, setOneTimeTokenAPITokenID] = useState<number | null>(null);
   const [revealedUserPanelToken, setRevealedUserPanelToken] = useState('');
@@ -330,7 +334,7 @@ export function UserPanelPage() {
   const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const currentOneTimeToken = oneTimeTokenAPITokenID === userPanelToken?.id ? oneTimeToken : '';
-  const chatExperienceToken = revealedUserPanelToken || currentOneTimeToken;
+  const chatExperienceToken = chatUrlToken || currentOneTimeToken;
   const chatExperienceUrl = buildUserPanelChatUrl(origin, chatExperienceToken);
   const endpointHints = buildUserPanelEndpointHints(origin, publicSettings).map((endpoint) => ({
     ...endpoint,
@@ -372,9 +376,27 @@ export function UserPanelPage() {
     setOneTimeTokenAPITokenID(null);
     setRevealedUserPanelToken('');
     setRevealKeyError('');
+    setChatUrlToken('');
+    setAutoChatUrlRevealAttemptedTokenID(null);
     setChatUrlCopied(false);
     setChatUrlError('');
   }, [userPanelToken?.id]);
+
+  useEffect(() => {
+    if (
+      !userPanelToken ||
+      chatUrlToken ||
+      autoChatUrlRevealAttemptedTokenID === userPanelToken.id
+    ) {
+      return;
+    }
+    setAutoChatUrlRevealAttemptedTokenID(userPanelToken.id);
+    setChatUrlError('');
+    revealUserPanelToken
+      .mutateAsync()
+      .then((result) => setChatUrlToken(result.token))
+      .catch(() => setChatUrlError(t('userPanel.chatUrlRevealError')));
+  }, [autoChatUrlRevealAttemptedTokenID, chatUrlToken, revealUserPanelToken, t, userPanelToken]);
 
   useEffect(() => {
     autoDailyCheckInStartedRef.current = false;
@@ -485,7 +507,7 @@ export function UserPanelPage() {
     setChatUrlError('');
     try {
       const result = await revealUserPanelToken.mutateAsync();
-      setRevealedUserPanelToken(result.token);
+      setChatUrlToken(result.token);
       return result.token;
     } catch {
       setChatUrlError(t('userPanel.chatUrlRevealError'));
@@ -495,11 +517,9 @@ export function UserPanelPage() {
 
   const handleCopyChatExperienceUrl = async () => {
     if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    if (!revealedUserPanelToken) {
-      await ensureRevealedUserPanelToken();
-      return;
-    }
-    const url = buildUserPanelChatUrl(origin, revealedUserPanelToken);
+    const token = chatUrlToken || (await ensureRevealedUserPanelToken());
+    if (!token) return;
+    const url = buildUserPanelChatUrl(origin, token);
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
@@ -512,11 +532,9 @@ export function UserPanelPage() {
 
   const handleOpenChatExperienceUrl = async () => {
     if (typeof window === 'undefined') return;
-    if (!revealedUserPanelToken) {
-      await ensureRevealedUserPanelToken();
-      return;
-    }
-    const url = buildUserPanelChatUrl(origin, revealedUserPanelToken);
+    const token = chatUrlToken || (await ensureRevealedUserPanelToken());
+    if (!token) return;
+    const url = buildUserPanelChatUrl(origin, token);
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
@@ -526,6 +544,8 @@ export function UserPanelPage() {
     setOneTimeToken(result.token);
     setOneTimeTokenAPITokenID(result.apiToken.id);
     setRevealedUserPanelToken(result.token);
+    setChatUrlToken(result.token);
+    setAutoChatUrlRevealAttemptedTokenID(result.apiToken.id);
     setRevealKeyError('');
   };
 
@@ -535,6 +555,8 @@ export function UserPanelPage() {
     setOneTimeToken(result.token);
     setOneTimeTokenAPITokenID(result.apiToken.id);
     setRevealedUserPanelToken(result.token);
+    setChatUrlToken(result.token);
+    setAutoChatUrlRevealAttemptedTokenID(result.apiToken.id);
     setRevealKeyError('');
     setKeyCopied(false);
   };
@@ -582,7 +604,10 @@ export function UserPanelPage() {
     setAnnouncementSeenFingerprint(announcementFingerprint);
   };
 
-  const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
+  const tokenActionPending =
+    createUserPanelToken.isPending ||
+    regenerateUserPanelToken.isPending ||
+    revealUserPanelToken.isPending;
   const revealActionPending = revealUserPanelToken.isPending;
 
   return (
