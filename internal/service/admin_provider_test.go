@@ -495,3 +495,51 @@ func TestAdminServiceBulkUpdateProvidersSetsOpenAISystemPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminServiceBulkUpdateProvidersSkipsBlackBoxOpenAISystemPrompt(t *testing.T) {
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("NewDBWithDSN() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	providerRepo := sqlite.NewProviderRepository(db)
+	editable := &domain.Provider{TenantID: domain.DefaultTenantID, Name: "editable", Type: "custom", Config: &domain.ProviderConfig{OpenAISystemPrompt: "old"}}
+	blackBox := &domain.Provider{TenantID: domain.DefaultTenantID, Name: "hidden", Type: "custom", BlackBox: true, Config: &domain.ProviderConfig{OpenAISystemPrompt: "secret"}}
+	for _, provider := range []*domain.Provider{editable, blackBox} {
+		if err := providerRepo.Create(provider); err != nil {
+			t.Fatalf("Create(%s) error = %v", provider.Name, err)
+		}
+	}
+
+	svc := NewAdminService(providerRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil, nil)
+	result, err := svc.BulkUpdateProviders(domain.DefaultTenantID, domain.ProviderBulkUpdateRequest{
+		IDs:                      []uint64{editable.ID, blackBox.ID},
+		UpdateOpenAISystemPrompt: true,
+		OpenAISystemPrompt:       "new",
+	})
+	if err != nil {
+		t.Fatalf("BulkUpdateProviders() error = %v", err)
+	}
+	if result.UpdatedCount != 1 {
+		t.Fatalf("UpdatedCount = %d, want 1; result=%+v", result.UpdatedCount, result)
+	}
+	if len(result.Skipped) != 1 {
+		t.Fatalf("Skipped = %+v, want one black-box skip", result.Skipped)
+	}
+
+	updatedEditable, err := providerRepo.GetByID(domain.DefaultTenantID, editable.ID)
+	if err != nil {
+		t.Fatalf("GetByID(editable) error = %v", err)
+	}
+	updatedBlackBox, err := providerRepo.GetByID(domain.DefaultTenantID, blackBox.ID)
+	if err != nil {
+		t.Fatalf("GetByID(blackBox) error = %v", err)
+	}
+	if updatedEditable.Config.OpenAISystemPrompt != "new" {
+		t.Fatalf("editable prompt = %q, want new", updatedEditable.Config.OpenAISystemPrompt)
+	}
+	if updatedBlackBox.Config.OpenAISystemPrompt != "secret" {
+		t.Fatalf("black-box prompt = %q, want preserved secret", updatedBlackBox.Config.OpenAISystemPrompt)
+	}
+}

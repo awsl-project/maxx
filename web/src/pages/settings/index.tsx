@@ -429,7 +429,11 @@ function AutoStartSection() {
             aria-label={t('settings.autoStart')}
           />
         </div>
-        {status.error ? <p className="mt-3 text-xs text-destructive">{status.error}</p> : null}
+        {status.error ? (
+          <p className="mt-3 text-xs text-destructive" role="alert">
+            {status.error}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

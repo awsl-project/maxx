@@ -571,7 +571,11 @@ func (a *LauncherApp) SetAutoStartEnabled(enabled bool) (AutoStartStatus, error)
 	if err := setAutoStartEnabled(enabled); err != nil {
 		return AutoStartStatus{Available: true, Enabled: false, Error: err.Error()}, err
 	}
-	return a.GetAutoStartStatus(), nil
+	status := a.GetAutoStartStatus()
+	if status.Error != "" {
+		status.Enabled = enabled
+	}
+	return status, nil
 }
 
 // GetConfig 获取当前配置（暴露给前端）

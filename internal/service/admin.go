@@ -258,11 +258,15 @@ func (s *AdminService) BulkUpdateProviders(tenantID uint64, req domain.ProviderB
 		}
 
 		if req.UpdateOpenAISystemPrompt {
-			if provider.Config == nil {
-				provider.Config = &domain.ProviderConfig{}
+			if provider.BlackBox {
+				result.Skipped = append(result.Skipped, fmt.Sprintf("%s: black-box provider not editable", provider.Name))
+			} else {
+				if provider.Config == nil {
+					provider.Config = &domain.ProviderConfig{}
+				}
+				provider.Config.OpenAISystemPrompt = strings.TrimSpace(req.OpenAISystemPrompt)
+				changed = true
 			}
-			provider.Config.OpenAISystemPrompt = strings.TrimSpace(req.OpenAISystemPrompt)
-			changed = true
 		}
 
 		if req.UpdateClientMultiplier {
