@@ -77,6 +77,35 @@ func TestDeductAPITokenQuotaUsesAttemptCost(t *testing.T) {
 	}
 }
 
+type errorChargeAttemptRepo struct {
+	updated *domain.ProxyUpstreamAttempt
+}
+
+func (r *errorChargeAttemptRepo) Create(attempt *domain.ProxyUpstreamAttempt) error { return nil }
+func (r *errorChargeAttemptRepo) Update(attempt *domain.ProxyUpstreamAttempt) error {
+	clone := *attempt
+	r.updated = &clone
+	return nil
+}
+func (r *errorChargeAttemptRepo) ListByProxyRequestID(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error) {
+	return nil, nil
+}
+func (r *errorChargeAttemptRepo) ListAll() ([]*domain.ProxyUpstreamAttempt, error) { return nil, nil }
+func (r *errorChargeAttemptRepo) CountAll() (int64, error)                         { return 0, nil }
+func (r *errorChargeAttemptRepo) StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error {
+	return nil
+}
+func (r *errorChargeAttemptRepo) BatchUpdateCosts(updates map[uint64]domain.AttemptCostUpdate) error {
+	return nil
+}
+func (r *errorChargeAttemptRepo) MarkStaleAttemptsFailed() (int64, error) { return 0, nil }
+func (r *errorChargeAttemptRepo) FixFailedAttemptsWithoutEndTime() (int64, error) {
+	return 0, nil
+}
+func (r *errorChargeAttemptRepo) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
+	return 0, nil
+}
+
 type errorChargeSettingRepo struct {
 	values map[string]string
 }
@@ -111,10 +140,16 @@ func TestUserPanelErrorChargeStartsAtThresholdAndContinuesUntilSuccess(t *testin
 		t.Fatalf("first error deducted/request cost = %d/%d, want 0/0", repo.deductedCost, first.Cost)
 	}
 
-	second := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 429}
-	exec.applyUserPanelErrorCharge(state, second, nil)
-	if repo.deductedCost != 10_000_000_000 || second.Cost != 10_000_000_000 {
-		t.Fatalf("second error deducted/request cost = %d/%d, want 10 dollars", repo.deductedCost, second.Cost)
+	second := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 429, Cost: 123}
+	secondAttempt := &domain.ProxyUpstreamAttempt{ID: 99, Cost: 123}
+	attemptRepo := &errorChargeAttemptRepo{}
+	exec.attemptRepo = attemptRepo
+	exec.applyUserPanelErrorCharge(state, second, secondAttempt)
+	if repo.deductedCost != 10_000_000_000 || second.Cost != 10_000_000_123 || secondAttempt.Cost != 10_000_000_123 {
+		t.Fatalf("second error deducted/request/attempt cost = %d/%d/%d, want 10 dollars added to existing cost", repo.deductedCost, second.Cost, secondAttempt.Cost)
+	}
+	if attemptRepo.updated == nil || attemptRepo.updated.Cost != secondAttempt.Cost {
+		t.Fatalf("charged attempt was not persisted: updated=%+v attemptCost=%d", attemptRepo.updated, secondAttempt.Cost)
 	}
 
 	third := &domain.ProxyRequest{TenantID: 1, APITokenID: 7, Status: "FAILED", StatusCode: 500}

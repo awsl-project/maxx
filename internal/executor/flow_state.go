@@ -15,6 +15,7 @@ type execState struct {
 	routes         []*router.MatchedRoute
 	stickyWrite    *router.StickyWrite
 	currentAttempt *domain.ProxyUpstreamAttempt
+	lastAttempt    *domain.ProxyUpstreamAttempt
 	lastErr        error
 
 	tenantID            uint64
