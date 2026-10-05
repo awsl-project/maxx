@@ -111,11 +111,14 @@ const USER_PANEL_ERROR_CHARGE_ENABLED_SETTING_KEY = 'user_panel_error_charge_ena
 const USER_PANEL_ERROR_CHARGE_CODES_SETTING_KEY = 'user_panel_error_charge_codes';
 const USER_PANEL_ERROR_CHARGE_THRESHOLD_SETTING_KEY = 'user_panel_error_charge_threshold';
 const USER_PANEL_ERROR_CHARGE_AMOUNT_SETTING_KEY = 'user_panel_error_charge_amount';
+const USER_PANEL_INVITE_REDEMPTION_ENABLED_SETTING_KEY = 'user_panel_invite_redemption_enabled';
+const USER_PANEL_INVITE_REDEMPTION_AMOUNT_SETTING_KEY = 'user_panel_invite_redemption_amount';
 const INVITE_REGISTRATION_AUTO_APPROVE_SETTING_KEY = 'invite_registration_auto_approve_enabled';
 const DEFAULT_PROVIDER_CLONE_NAME_TEMPLATE = '{{name}}{{suffix}}';
 const DEFAULT_USER_PANEL_DAILY_CHECKIN_AMOUNT = '10';
 const DEFAULT_USER_PANEL_ERROR_CHARGE_THRESHOLD = '2';
 const DEFAULT_USER_PANEL_ERROR_CHARGE_AMOUNT = '10';
+const DEFAULT_USER_PANEL_INVITE_REDEMPTION_AMOUNT = '10';
 type MultiTenantUILayout = 'current' | 'user_panel';
 
 function formatQuotaAmount(value: number) {
@@ -2384,6 +2387,11 @@ function MultiTenantUISection() {
   const settingsErrorChargeAmount =
     settings?.[USER_PANEL_ERROR_CHARGE_AMOUNT_SETTING_KEY] ||
     DEFAULT_USER_PANEL_ERROR_CHARGE_AMOUNT;
+  const settingsInviteRedemptionEnabled =
+    settings?.[USER_PANEL_INVITE_REDEMPTION_ENABLED_SETTING_KEY] === 'true';
+  const settingsInviteRedemptionAmount =
+    settings?.[USER_PANEL_INVITE_REDEMPTION_AMOUNT_SETTING_KEY] ||
+    DEFAULT_USER_PANEL_INVITE_REDEMPTION_AMOUNT;
   const settingsDailyCheckInBlacklistUserIDs = useMemo(
     () =>
       parseUserIDListSetting(settings?.[USER_PANEL_DAILY_CHECKIN_BLACKLIST_USER_IDS_SETTING_KEY]),
@@ -2410,6 +2418,12 @@ function MultiTenantUISection() {
     settingsErrorChargeThreshold,
   );
   const [localErrorChargeAmount, setLocalErrorChargeAmount] = useState(settingsErrorChargeAmount);
+  const [localInviteRedemptionEnabled, setLocalInviteRedemptionEnabled] = useState(
+    settingsInviteRedemptionEnabled,
+  );
+  const [localInviteRedemptionAmount, setLocalInviteRedemptionAmount] = useState(
+    settingsInviteRedemptionAmount,
+  );
   const [errorChargeError, setErrorChargeError] = useState('');
   const [localDailyCheckInBlacklistUserIDs, setLocalDailyCheckInBlacklistUserIDs] = useState(
     settingsDailyCheckInBlacklistUserIDs,
@@ -2430,6 +2444,8 @@ function MultiTenantUISection() {
     setLocalErrorChargeCodes(settingsErrorChargeCodes);
     setLocalErrorChargeThreshold(settingsErrorChargeThreshold);
     setLocalErrorChargeAmount(settingsErrorChargeAmount);
+    setLocalInviteRedemptionEnabled(settingsInviteRedemptionEnabled);
+    setLocalInviteRedemptionAmount(settingsInviteRedemptionAmount);
     setLocalDailyCheckInBlacklistUserIDs(settingsDailyCheckInBlacklistUserIDs);
   }, [
     settingsEnabled,
@@ -2442,6 +2458,8 @@ function MultiTenantUISection() {
     settingsErrorChargeCodes,
     settingsErrorChargeEnabled,
     settingsErrorChargeThreshold,
+    settingsInviteRedemptionAmount,
+    settingsInviteRedemptionEnabled,
     settingsDailyCheckInBlacklistUserIDs,
   ]);
 
@@ -2500,6 +2518,33 @@ function MultiTenantUISection() {
       setLocalInviteRegistrationAutoApproveEnabled(previous);
       throw error;
     }
+  };
+
+  const handleInviteRedemptionToggle = async (checked: boolean) => {
+    const previous = localInviteRedemptionEnabled;
+    setLocalInviteRedemptionEnabled(checked);
+    try {
+      await updateSetting.mutateAsync({
+        key: USER_PANEL_INVITE_REDEMPTION_ENABLED_SETTING_KEY,
+        value: checked ? 'true' : 'false',
+      });
+    } catch (error) {
+      setLocalInviteRedemptionEnabled(previous);
+      throw error;
+    }
+  };
+
+  const handleInviteRedemptionAmountSave = async () => {
+    const trimmed = localInviteRedemptionAmount.trim();
+    const amount = Number(trimmed);
+    if (!trimmed || !Number.isFinite(amount) || amount <= 0) {
+      setLocalInviteRedemptionAmount(settingsInviteRedemptionAmount);
+      return;
+    }
+    await updateSetting.mutateAsync({
+      key: USER_PANEL_INVITE_REDEMPTION_AMOUNT_SETTING_KEY,
+      value: trimmed,
+    });
   };
 
   const handleDailyCheckInAmountSave = async () => {
@@ -2698,12 +2743,15 @@ function MultiTenantUISection() {
                     {t('settings.userPanelOptionsDesc')}
                   </p>
                 </div>
-                <TabsList className="grid w-full grid-cols-5 sm:w-auto">
+                <TabsList className="grid w-full grid-cols-6 sm:w-auto">
                   <TabsTrigger value="check-in">
                     {t('settings.userPanelDailyCheckInTab')}
                   </TabsTrigger>
                   <TabsTrigger value="redemption">
                     {t('settings.userPanelRedemptionCodesTab')}
+                  </TabsTrigger>
+                  <TabsTrigger value="invite-redemption">
+                    {t('settings.userPanelInviteRedemptionTab')}
                   </TabsTrigger>
                   <TabsTrigger value="blacklist">
                     {t('settings.userPanelCheckInBlacklistTab')}
@@ -2888,6 +2936,51 @@ function MultiTenantUISection() {
                       </div>
                     ))
                   )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="invite-redemption" className="mt-0 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t('settings.userPanelInviteRedemption')}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('settings.userPanelInviteRedemptionDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    aria-label={t('settings.userPanelInviteRedemption')}
+                    checked={localInviteRedemptionEnabled}
+                    onCheckedChange={handleInviteRedemptionToggle}
+                    disabled={updateSetting.isPending}
+                  />
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Label className="text-sm font-medium text-foreground sm:min-w-40">
+                      {t('settings.userPanelInviteRedemptionAmount')}
+                    </Label>
+                    <Input
+                      className="sm:w-48"
+                      type="number"
+                      min="0.000001"
+                      step="0.01"
+                      value={localInviteRedemptionAmount}
+                      onChange={(event) => setLocalInviteRedemptionAmount(event.target.value)}
+                      onBlur={handleInviteRedemptionAmountSave}
+                      disabled={updateSetting.isPending || !localInviteRedemptionEnabled}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleInviteRedemptionAmountSave}
+                    disabled={updateSetting.isPending || !localInviteRedemptionEnabled}
+                  >
+                    {t('common.save')}
+                  </Button>
                 </div>
               </TabsContent>
 

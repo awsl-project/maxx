@@ -1096,17 +1096,19 @@ const (
 	SettingKeyUserPanelErrorChargeEnabled           = "user_panel_error_charge_enabled"             // 用户控制台连续错误默认扣费，"true" 或 "false"，默认 "false"
 	SettingKeyUserPanelErrorChargeCodes             = "user_panel_error_charge_codes"               // 用户控制台连续错误扣费 HTTP 状态码列表，逗号/空白分隔
 	SettingKeyUserPanelErrorChargeThreshold         = "user_panel_error_charge_threshold"           // 连续错误扣费阈值，默认 "2"
-	SettingKeyUserPanelErrorChargeAmount            = "user_panel_error_charge_amount"              // 连续错误扣费金额（美元），默认 "10"
-	SettingKeyExternalModelListEnabled              = "external_model_list_enabled"                 // 是否使用自定义外部模型列表，"true" 或 "false"，默认 "false"
-	SettingKeyExternalModelList                     = "external_model_list"                         // 自定义外部模型列表，JSON 数组或换行/逗号分隔
-	SettingKeyInviteRegistrationAutoApproveEnabled  = "invite_registration_auto_approve_enabled"    // 邀请码注册自动通过审批，"true" 或 "false"，默认 "false"
-	SettingKeyProxyRouteClaudeMessagesEnabled       = "proxy_route_claude_messages_enabled"         // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteOpenAIChatEnabled           = "proxy_route_openai_chat_enabled"             // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteResponsesEnabled            = "proxy_route_responses_enabled"               // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyProxyRouteGeminiEnabled               = "proxy_route_gemini_enabled"                  // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "true"
-	SettingKeyEnablePprof                           = "enable_pprof"                                // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
-	SettingKeyPprofPort                             = "pprof_port"                                  // pprof 服务端口，默认 6060
-	SettingKeyPprofPassword                         = "pprof_password"                              // pprof 访问密码，为空表示不需要密码
+	SettingKeyUserPanelErrorChargeAmount            = "user_panel_error_charge_amount"            // 连续错误扣费金额（美元），默认 "10"
+	SettingKeyUserPanelInviteRedemptionEnabled      = "user_panel_invite_redemption_enabled"      // 用户控制台余额兑换邀请码，"true" 或 "false"，默认 "false"
+	SettingKeyUserPanelInviteRedemptionAmount       = "user_panel_invite_redemption_amount"       // 用户控制台兑换邀请码消耗余额（美元），默认 "10"
+	SettingKeyExternalModelListEnabled              = "external_model_list_enabled"              // 是否使用自定义外部模型列表，"true" 或 "false"，默认 "false"
+	SettingKeyExternalModelList                     = "external_model_list"                      // 自定义外部模型列表，JSON 数组或换行/逗号分隔
+	SettingKeyInviteRegistrationAutoApproveEnabled  = "invite_registration_auto_approve_enabled" // 邀请码注册自动通过审批，"true" 或 "false"，默认 "false"
+	SettingKeyProxyRouteClaudeMessagesEnabled       = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteOpenAIChatEnabled           = "proxy_route_openai_chat_enabled"          // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteResponsesEnabled            = "proxy_route_responses_enabled"            // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteGeminiEnabled               = "proxy_route_gemini_enabled"               // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyEnablePprof                           = "enable_pprof"                             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort                             = "pprof_port"                               // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword                         = "pprof_password"                           // pprof 访问密码，为空表示不需要密码
 )
 
 // 请求详情保留默认值。

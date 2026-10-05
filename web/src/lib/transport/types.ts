@@ -669,12 +669,7 @@ export interface ResponseInfo {
 }
 
 export type ProxyRequestStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED'
-  | 'REJECTED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
 
 export type ProxyRequestErrorMode = 'all' | 'only' | 'exclude';
 
@@ -764,11 +759,7 @@ export interface ProxyRequest {
 // ===== ProxyUpstreamAttempt =====
 
 export type ProxyUpstreamAttemptStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface ProxyUpstreamAttempt {
   id: number;
@@ -1396,6 +1387,12 @@ export interface UserPanelCreateRedemptionCodeData {
 export interface UserPanelCreateRedemptionCodeResult {
   apiToken: APIToken;
   items: RedemptionCodeCreateItem[];
+}
+
+export interface UserPanelCreateInviteCodeResult {
+  apiToken: APIToken;
+  items: InviteCodeCreateItem[];
+  amount: number;
 }
 
 // ===== API Token =====

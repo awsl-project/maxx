@@ -80,6 +80,7 @@ import type {
   UserPanelRedeemCodeResult,
   UserPanelCreateRedemptionCodeData,
   UserPanelCreateRedemptionCodeResult,
+  UserPanelCreateInviteCodeResult,
   User,
   CreateUserData,
   UpdateUserData,
@@ -361,6 +362,7 @@ export interface Transport {
   createUserPanelRedemptionCodes(
     data: UserPanelCreateRedemptionCodeData,
   ): Promise<UserPanelCreateRedemptionCodeResult>;
+  createUserPanelInviteCode(): Promise<UserPanelCreateInviteCodeResult>;
   getUserPanelAnnouncement(): Promise<UserPanelAnnouncement>;
   getUserPanelConsumptionLeaderboard(): Promise<UserPanelConsumptionLeaderboardResult>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;

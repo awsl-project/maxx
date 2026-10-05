@@ -2106,6 +2106,34 @@ func (s *AdminService) CreateInviteCodes(
 	return result, nil
 }
 
+func (s *AdminService) CreateUserPanelInviteCode(tenantID uint64, userID uint64, apiTokenID uint64, amount uint64) (*domain.InviteCodeCreateResult, error) {
+	if s.inviteCodeRepo == nil || tenantID == 0 || userID == 0 || apiTokenID == 0 || amount == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	plain, hash, prefix, err := generateInviteCode()
+	if err != nil {
+		return nil, err
+	}
+	code := &domain.InviteCode{
+		TenantID:        tenantID,
+		CodeHash:        hash,
+		CodePrefix:      prefix,
+		Status:          domain.InviteCodeStatusActive,
+		MaxUses:         1,
+		CreatedByUserID: userID,
+		Note:            "user-panel balance exchanged",
+	}
+	if err := s.inviteCodeRepo.CreateWithAPITokenDebit(tenantID, apiTokenID, amount, code); err != nil {
+		return nil, err
+	}
+	if refresher, ok := s.apiTokenRepo.(apiTokenCacheRefresher); ok {
+		if _, refreshErr := refresher.RefreshByID(tenantID, apiTokenID); refreshErr != nil {
+			return nil, refreshErr
+		}
+	}
+	return &domain.InviteCodeCreateResult{Items: []domain.InviteCodeCreateItem{{Code: plain, InviteCode: code}}}, nil
+}
+
 func (s *AdminService) UpdateInviteCode(tenantID uint64, code *domain.InviteCode) error {
 	if s.inviteCodeRepo == nil {
 		return fmt.Errorf("invite code repository not configured")

@@ -19,28 +19,31 @@ import (
 )
 
 var publicSettingsAllowlist = map[string]struct{}{
-	"api_token_auth_enabled":                         {},
-	"force_project_binding":                          {},
-	"force_project_timeout":                          {},
-	"auto_sort_antigravity":                          {},
-	"auto_sort_codex":                                {},
-	"ui_multitenant_enabled":                         {},
-	"ui_multitenant_layout":                          {},
-	domain.SettingKeyRequestFailureDetailsEnabled:    {},
-	domain.SettingKeyTestFieldTabEnabled:             {},
-	domain.SettingKeyProxyManagementEnabled:          {},
-	domain.SettingKeyModelMappingDebuggerEnabled:     {},
-	domain.SettingKeyUserPanelDailyCheckInEnabled:    {},
-	domain.SettingKeyUserPanelDailyCheckInAmount:     {},
-	domain.SettingKeyExternalModelListEnabled:        {},
-	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},
-	domain.SettingKeyProxyRouteOpenAIChatEnabled:     {},
-	domain.SettingKeyProxyRouteResponsesEnabled:      {},
-	domain.SettingKeyProxyRouteGeminiEnabled:         {},
+	"api_token_auth_enabled":                          {},
+	"force_project_binding":                           {},
+	"force_project_timeout":                           {},
+	"auto_sort_antigravity":                           {},
+	"auto_sort_codex":                                 {},
+	"ui_multitenant_enabled":                          {},
+	"ui_multitenant_layout":                           {},
+	domain.SettingKeyRequestFailureDetailsEnabled:     {},
+	domain.SettingKeyTestFieldTabEnabled:              {},
+	domain.SettingKeyProxyManagementEnabled:           {},
+	domain.SettingKeyModelMappingDebuggerEnabled:      {},
+	domain.SettingKeyUserPanelDailyCheckInEnabled:     {},
+	domain.SettingKeyUserPanelDailyCheckInAmount:      {},
+	domain.SettingKeyUserPanelInviteRedemptionEnabled: {},
+	domain.SettingKeyUserPanelInviteRedemptionAmount:  {},
+	domain.SettingKeyExternalModelListEnabled:         {},
+	domain.SettingKeyProxyRouteClaudeMessagesEnabled:  {},
+	domain.SettingKeyProxyRouteOpenAIChatEnabled:      {},
+	domain.SettingKeyProxyRouteResponsesEnabled:       {},
+	domain.SettingKeyProxyRouteGeminiEnabled:          {},
 }
 
 const userPanelAPITokenDescriptionPrefix = "managed-by=maxx-user-panel;user-id="
 const defaultUserPanelDailyCheckInAmountUSD = "10"
+const defaultUserPanelInviteRedemptionAmountUSD = "10"
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
 type SelfServiceHandler struct {
@@ -275,6 +278,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "user-panel":
 		switch {
+		case len(parts) == 3 && parts[2] == "invite-codes":
+			h.handleUserPanelCreateInviteCode(w, r)
 		case len(parts) == 3 && parts[2] == "redemption-codes":
 			h.handleUserPanelCreateRedemptionCodes(w, r)
 		case len(parts) == 4 && parts[2] == "redemption-codes" && parts[3] == "redeem":
@@ -1722,6 +1727,23 @@ func (h *SelfServiceHandler) userPanelDailyCheckInBlacklisted(userID uint64) boo
 	return false
 }
 
+func (h *SelfServiceHandler) userPanelInviteRedemptionEnabled() bool {
+	enabled, err := h.svc.GetSetting(domain.SettingKeyUserPanelInviteRedemptionEnabled)
+	return err == nil && strings.EqualFold(strings.TrimSpace(enabled), "true")
+}
+
+func (h *SelfServiceHandler) userPanelInviteRedemptionAmount() uint64 {
+	value := defaultUserPanelInviteRedemptionAmountUSD
+	if configured, err := h.svc.GetSetting(domain.SettingKeyUserPanelInviteRedemptionAmount); err == nil && strings.TrimSpace(configured) != "" {
+		value = configured
+	}
+	amount, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || amount <= 0 {
+		amount, _ = strconv.ParseFloat(defaultUserPanelInviteRedemptionAmountUSD, 64)
+	}
+	return uint64(math.Round(amount * 1_000_000_000))
+}
+
 func (h *SelfServiceHandler) userPanelDailyCheckInRewardAmount() uint64 {
 	value := defaultUserPanelDailyCheckInAmountUSD
 	if configured, err := h.svc.GetSetting(domain.SettingKeyUserPanelDailyCheckInAmount); err == nil && strings.TrimSpace(configured) != "" {
@@ -1732,6 +1754,68 @@ func (h *SelfServiceHandler) userPanelDailyCheckInRewardAmount() uint64 {
 		amount, _ = strconv.ParseFloat(defaultUserPanelDailyCheckInAmountUSD, 64)
 	}
 	return uint64(math.Round(amount * 1_000_000_000))
+}
+
+func (h *SelfServiceHandler) handleUserPanelCreateInviteCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.userPanelLayoutEnabled() || !h.userPanelInviteRedemptionEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel invite redemption is not enabled"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		writeJSON(w, http.StatusPaymentRequired, map[string]string{"error": "insufficient quota balance"})
+		return
+	}
+
+	amount := h.userPanelInviteRedemptionAmount()
+	if canonicalToken.QuotaBalance <= amount {
+		writeJSON(w, http.StatusPaymentRequired, map[string]string{"error": "insufficient quota balance"})
+		return
+	}
+	result, err := h.svc.CreateUserPanelInviteCode(tenantID, userID, canonicalToken.ID, amount)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrAPITokenQuotaExhausted):
+			writeJSON(w, http.StatusPaymentRequired, map[string]string{"error": "insufficient quota balance"})
+		case errors.Is(err, domain.ErrInvalidInput):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite code redemption input"})
+		default:
+			writeSelfServiceInternalError(w, "CreateUserPanelInviteCode failed", err)
+		}
+		return
+	}
+
+	canonicalToken, err = h.svc.GetAPIToken(tenantID, canonicalToken.ID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokenAfterCreateInviteCode failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"apiToken": sanitizeAPIToken(canonicalToken),
+		"items":    result.Items,
+		"amount":   amount,
+	})
 }
 
 func (h *SelfServiceHandler) handleUserPanelCreateRedemptionCodes(w http.ResponseWriter, r *http.Request) {

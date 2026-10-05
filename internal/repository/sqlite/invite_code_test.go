@@ -338,3 +338,72 @@ func TestInviteCodeConsumeAndCreateUser_RollbackOnUserCreateFailure(t *testing.T
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+func TestInviteCodeCreateWithAPITokenDebit_DebitsAndCreatesAtomically(t *testing.T) {
+	db := newInviteTestDB(t)
+	tokenRepo := NewAPITokenRepository(db)
+	codeRepo := NewInviteCodeRepository(db)
+	token := &domain.APIToken{TenantID: 1, Token: "maxx_invite", TokenPrefix: "maxx_inv", Name: "user panel", IsEnabled: true, QuotaBalance: 3_000_000_000}
+	if err := tokenRepo.Create(token); err != nil {
+		t.Fatalf("Create token: %v", err)
+	}
+	plain := "INVITE-SELF-1"
+	code := &domain.InviteCode{CodeHash: domain.HashInviteCode(plain), CodePrefix: domain.InviteCodePrefix(plain), MaxUses: 1, CreatedByUserID: 7}
+	if err := codeRepo.CreateWithAPITokenDebit(1, token.ID, 2_000_000_000, code); err != nil {
+		t.Fatalf("CreateWithAPITokenDebit: %v", err)
+	}
+	updated, err := tokenRepo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("Get token: %v", err)
+	}
+	if updated.QuotaBalance != 1_000_000_000 {
+		t.Fatalf("quota balance = %d, want 1000000000", updated.QuotaBalance)
+	}
+	stored, err := codeRepo.GetByID(1, code.ID)
+	if err != nil {
+		t.Fatalf("Get invite code: %v", err)
+	}
+	if stored.MaxUses != 1 || stored.CreatedByUserID != 7 || stored.Status != domain.InviteCodeStatusActive {
+		t.Fatalf("stored invite = %+v, want single-use active code created by user 7", stored)
+	}
+}
+
+func TestInviteCodeCreateWithAPITokenDebit_EqualBalanceCreatesNothing(t *testing.T) {
+	db := newInviteTestDB(t)
+	tokenRepo := NewAPITokenRepository(db)
+	codeRepo := NewInviteCodeRepository(db)
+	token := &domain.APIToken{TenantID: 1, Token: "maxx_equal", TokenPrefix: "maxx_equ", Name: "user panel", IsEnabled: true, QuotaBalance: 2_000_000_000}
+	if err := tokenRepo.Create(token); err != nil {
+		t.Fatalf("Create token: %v", err)
+	}
+	plain := "INVITE-EQUAL-1"
+	code := &domain.InviteCode{CodeHash: domain.HashInviteCode(plain), CodePrefix: domain.InviteCodePrefix(plain), MaxUses: 1, CreatedByUserID: 7}
+	if err := codeRepo.CreateWithAPITokenDebit(1, token.ID, 2_000_000_000, code); !errors.Is(err, domain.ErrAPITokenQuotaExhausted) {
+		t.Fatalf("CreateWithAPITokenDebit error = %v, want quota exhausted", err)
+	}
+}
+
+func TestInviteCodeCreateWithAPITokenDebit_InsufficientBalanceCreatesNothing(t *testing.T) {
+	db := newInviteTestDB(t)
+	tokenRepo := NewAPITokenRepository(db)
+	codeRepo := NewInviteCodeRepository(db)
+	token := &domain.APIToken{TenantID: 1, Token: "maxx_low", TokenPrefix: "maxx_low", Name: "user panel", IsEnabled: true, QuotaBalance: 1_000_000_000}
+	if err := tokenRepo.Create(token); err != nil {
+		t.Fatalf("Create token: %v", err)
+	}
+	plain := "INVITE-LOW-1"
+	code := &domain.InviteCode{CodeHash: domain.HashInviteCode(plain), CodePrefix: domain.InviteCodePrefix(plain), MaxUses: 1, CreatedByUserID: 7}
+	if err := codeRepo.CreateWithAPITokenDebit(1, token.ID, 2_000_000_000, code); !errors.Is(err, domain.ErrAPITokenQuotaExhausted) {
+		t.Fatalf("CreateWithAPITokenDebit error = %v, want quota exhausted", err)
+	}
+	updated, err := tokenRepo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("Get token: %v", err)
+	}
+	if updated.QuotaBalance != 1_000_000_000 {
+		t.Fatalf("quota balance = %d, want unchanged", updated.QuotaBalance)
+	}
+	if _, err := codeRepo.GetByCodeHash(1, domain.HashInviteCode(plain)); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetByCodeHash error = %v, want not found", err)
+	}
+}

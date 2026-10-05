@@ -31,6 +31,7 @@ type UserRepository interface {
 
 type InviteCodeRepository interface {
 	Create(code *domain.InviteCode) error
+	CreateWithAPITokenDebit(tenantID uint64, apiTokenID uint64, amount uint64, code *domain.InviteCode) error
 	Update(tenantID uint64, code *domain.InviteCode) error
 	Delete(tenantID uint64, id uint64) error
 	GetByID(tenantID uint64, id uint64) (*domain.InviteCode, error)

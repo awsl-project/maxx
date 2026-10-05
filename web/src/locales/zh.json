@@ -239,7 +239,14 @@
     "chatUrlCopyError": "复制 Chat URL 失败。",
     "chatUrlRevealError": "生成 Chat URL 时显示 Key 失败，请重试。",
     "copyChatUrl": "复制 Chat URL",
-    "openChat": "打开 Chat"
+    "openChat": "打开 Chat",
+    "inviteRedemptionTitle": "兑换邀请码",
+    "inviteRedemptionDesc": "消耗 {{amount}} 余额生成 1 个一次性邀请码。",
+    "inviteRedemptionBalance": "当前余额 {{balance}}。",
+    "inviteRedemptionSubmit": "兑换邀请码",
+    "inviteRedemptionSuccess": "已扣除 {{amount}} 并生成邀请码。",
+    "inviteRedemptionError": "兑换失败：余额不足或功能未开启。",
+    "inviteRedemptionCreated": "本次生成的邀请码，请立即复制保存："
   },
   "testField": {
     "title": "测试场",
@@ -1675,7 +1682,11 @@
     "userPanelErrorChargeAmount": "扣费金额",
     "userPanelErrorChargeCodesError": "错误码必须是 100 到 599 的 HTTP 状态码，可用逗号或空格分隔。",
     "userPanelErrorChargeThresholdError": "连续次数必须是 1 到 100 的整数。",
-    "userPanelErrorChargeAmountError": "扣费金额必须大于 0。"
+    "userPanelErrorChargeAmountError": "扣费金额必须大于 0。",
+    "userPanelInviteRedemptionTab": "邀请码",
+    "userPanelInviteRedemption": "余额兑换邀请码",
+    "userPanelInviteRedemptionDesc": "开启后，用户可在用户控制台消耗配置余额生成一次性邀请码。默认关闭。",
+    "userPanelInviteRedemptionAmount": "兑换消耗余额（美元）"
   },
   "modelMappings": {
     "title": "模型映射",
