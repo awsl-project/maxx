@@ -22,6 +22,9 @@ type adminTestInviteCodeRepo struct {
 }
 
 func (r *adminTestInviteCodeRepo) Create(code *domain.InviteCode) error { return nil }
+func (r *adminTestInviteCodeRepo) CreateWithAPITokenDebit(tenantID uint64, apiTokenID uint64, amount uint64, code *domain.InviteCode) error {
+	return r.Create(code)
+}
 func (r *adminTestInviteCodeRepo) Update(tenantID uint64, code *domain.InviteCode) error {
 	if r.updateErr != nil {
 		return r.updateErr

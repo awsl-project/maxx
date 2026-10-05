@@ -48,6 +48,39 @@ func (r *InviteCodeRepository) Create(code *domain.InviteCode) error {
 	return nil
 }
 
+func (r *InviteCodeRepository) CreateWithAPITokenDebit(tenantID uint64, apiTokenID uint64, amount uint64, code *domain.InviteCode) error {
+	if r.nowFunc == nil {
+		r.nowFunc = time.Now
+	}
+	if tenantID == 0 || apiTokenID == 0 || amount == 0 || code == nil || code.CodeHash == "" || code.CodePrefix == "" {
+		return domain.ErrInvalidInput
+	}
+	now := r.nowFunc()
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		debit := tenantScope(tx.Model(&APIToken{}), tenantID).
+			Where("id = ? AND deleted_at = 0", apiTokenID).
+			Where("quota_balance > ?", amount).
+			Update("quota_balance", gorm.Expr("quota_balance - ?", amount))
+		if debit.Error != nil {
+			return debit.Error
+		}
+		if debit.RowsAffected != 1 {
+			return domain.ErrAPITokenQuotaExhausted
+		}
+
+		code.TenantID = tenantID
+		code.Status = domain.InviteCodeStatusActive
+		code.CreatedAt = now
+		code.UpdatedAt = now
+		model := r.toModel(code)
+		if err := tx.Create(model).Error; err != nil {
+			return err
+		}
+		code.ID = model.ID
+		return nil
+	})
+}
+
 func (r *InviteCodeRepository) Update(tenantID uint64, code *domain.InviteCode) error {
 	if r.nowFunc == nil {
 		r.nowFunc = time.Now

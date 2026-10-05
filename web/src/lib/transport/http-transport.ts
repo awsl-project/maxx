@@ -82,6 +82,7 @@ import type {
   UserPanelRedeemCodeResult,
   UserPanelCreateRedemptionCodeData,
   UserPanelCreateRedemptionCodeResult,
+  UserPanelCreateInviteCodeResult,
   APIToken,
   APITokenCleanupResult,
   APITokenCreateResult,
@@ -1298,6 +1299,13 @@ export class HttpTransport implements Transport {
     );
   }
 
+  async createUserPanelInviteCode(): Promise<UserPanelCreateInviteCodeResult> {
+    const { data } = await this.client.post<UserPanelCreateInviteCodeResult>(
+      '/user-panel/invite-codes',
+    );
+    return this.expectObject<UserPanelCreateInviteCodeResult>(data, '/user-panel/invite-codes');
+  }
+
   async getUserPanelAnnouncement(): Promise<UserPanelAnnouncement> {
     const { data } = await this.client.get<UserPanelAnnouncement>('/user-panel/announcement');
     return this.expectObject<UserPanelAnnouncement>(data, '/user-panel/announcement');
@@ -1312,7 +1320,6 @@ export class HttpTransport implements Transport {
       '/user-panel/consumption-leaderboard',
     );
   }
-
 
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {
     const { data } = await this.adminClient.post<APITokenCreateResult>('/api-tokens', payload);

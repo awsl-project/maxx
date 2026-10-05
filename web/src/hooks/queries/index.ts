@@ -156,6 +156,7 @@ export {
   useRedemptionCode,
   useCreateRedemptionCodes,
   useCreateUserPanelRedemptionCodes,
+  useCreateUserPanelInviteCode,
   useUpdateRedemptionCode,
   useDeleteRedemptionCode,
   useRedeemUserPanelCode,

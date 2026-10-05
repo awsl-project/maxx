@@ -144,6 +144,7 @@ export type {
   UserPanelRedeemCodeResult,
   UserPanelCreateRedemptionCodeData,
   UserPanelCreateRedemptionCodeResult,
+  UserPanelCreateInviteCodeResult,
   // API Token
   APIToken,
   APITokenCleanupItem,

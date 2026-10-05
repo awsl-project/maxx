@@ -59,7 +59,10 @@ type stubInviteRepo struct {
 	lastRollbackUsageID uint64
 }
 
-func (r *stubInviteRepo) Create(code *domain.InviteCode) error                  { return nil }
+func (r *stubInviteRepo) Create(code *domain.InviteCode) error { return nil }
+func (r *stubInviteRepo) CreateWithAPITokenDebit(tenantID uint64, apiTokenID uint64, amount uint64, code *domain.InviteCode) error {
+	return r.Create(code)
+}
 func (r *stubInviteRepo) Update(tenantID uint64, code *domain.InviteCode) error { return nil }
 func (r *stubInviteRepo) Delete(tenantID uint64, id uint64) error               { return nil }
 func (r *stubInviteRepo) GetByID(tenantID uint64, id uint64) (*domain.InviteCode, error) {

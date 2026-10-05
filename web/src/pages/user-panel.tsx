@@ -49,6 +49,7 @@ import {
   useUserPanelDailyCheckInStatus,
   useUserPanelDailyCheckIn,
   useCreateUserPanelRedemptionCodes,
+  useCreateUserPanelInviteCode,
   useRedeemUserPanelCode,
   useUserPanelAPIToken,
   useUserPanelConsumptionLeaderboard,
@@ -268,6 +269,7 @@ export function UserPanelPage() {
   const revealUserPanelToken = useRevealUserPanelAPIToken();
   const dailyCheckIn = useUserPanelDailyCheckIn();
   const createUserPanelRedemptionCodes = useCreateUserPanelRedemptionCodes();
+  const createUserPanelInviteCode = useCreateUserPanelInviteCode();
   const redeemUserPanelCode = useRedeemUserPanelCode();
   const { mutateAsync: runDailyCheckIn } = dailyCheckIn;
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
@@ -291,6 +293,8 @@ export function UserPanelPage() {
   const [selfRedemptionNote, setSelfRedemptionNote] = useState('');
   const [selfRedemptionMessage, setSelfRedemptionMessage] = useState('');
   const [createdSelfRedemptionCodes, setCreatedSelfRedemptionCodes] = useState<string[]>([]);
+  const [createdInviteCode, setCreatedInviteCode] = useState('');
+  const [inviteRedemptionMessage, setInviteRedemptionMessage] = useState('');
   const [announcementOpen, setAnnouncementOpen] = useState(false);
   const [announcementSeenFingerprint, setAnnouncementSeenFingerprint] = useState('');
   const autoDailyCheckInStartedRef = useRef(false);
@@ -299,8 +303,7 @@ export function UserPanelPage() {
     if (typeof window === 'undefined') return 'main';
     const params = new URLSearchParams(window.location.search);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     return resolveUserPanelTab({
       urlTab: params.get('tab'),
@@ -329,6 +332,15 @@ export function UserPanelPage() {
     selfRedemptionAmountValue > 0 &&
     Boolean(userPanelToken) &&
     (userPanelToken?.quotaBalance ?? 0) >= selfRedemptionTotalValue;
+  const inviteRedemptionEnabled = publicSettings?.user_panel_invite_redemption_enabled === 'true';
+  const inviteRedemptionAmount =
+    parseDailyCheckInAmountSetting(publicSettings?.user_panel_invite_redemption_amount) ??
+    10_000_000_000;
+  const canCreateInviteCode =
+    inviteRedemptionEnabled &&
+    inviteRedemptionAmount > 0 &&
+    Boolean(userPanelToken) &&
+    (userPanelToken?.quotaBalance ?? 0) >= inviteRedemptionAmount;
   const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
   const userPanelTokenValue = revealedUserPanelToken || maskedUserPanelToken;
   const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
@@ -385,6 +397,8 @@ export function UserPanelPage() {
   useEffect(() => {
     if (
       !userPanelToken ||
+      oneTimeTokenAPITokenID !== userPanelToken.id ||
+      !oneTimeToken ||
       chatUrlToken ||
       autoChatUrlRevealAttemptedTokenID === userPanelToken.id
     ) {
@@ -392,11 +406,14 @@ export function UserPanelPage() {
     }
     setAutoChatUrlRevealAttemptedTokenID(userPanelToken.id);
     setChatUrlError('');
-    revealUserPanelToken
-      .mutateAsync()
-      .then((result) => setChatUrlToken(result.token))
-      .catch(() => setChatUrlError(t('userPanel.chatUrlRevealError')));
-  }, [autoChatUrlRevealAttemptedTokenID, chatUrlToken, revealUserPanelToken, t, userPanelToken]);
+    setChatUrlToken(oneTimeToken);
+  }, [
+    autoChatUrlRevealAttemptedTokenID,
+    chatUrlToken,
+    oneTimeToken,
+    oneTimeTokenAPITokenID,
+    userPanelToken,
+  ]);
 
   useEffect(() => {
     autoDailyCheckInStartedRef.current = false;
@@ -456,8 +473,7 @@ export function UserPanelPage() {
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     const storedTab = window.localStorage.getItem(tabStorageKey);
     const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     const allowStoredTab = navigationEntry?.type === 'reload';
     setActiveTab(resolveUserPanelTab({ urlTab, storedTab, allowStoredTab }));
   }, [tabStorageKey]);
@@ -559,6 +575,23 @@ export function UserPanelPage() {
     setAutoChatUrlRevealAttemptedTokenID(result.apiToken.id);
     setRevealKeyError('');
     setKeyCopied(false);
+  };
+
+  const handleCreateInviteCode = async () => {
+    if (!canCreateInviteCode) return;
+    setInviteRedemptionMessage('');
+    setCreatedInviteCode('');
+    try {
+      const result = await createUserPanelInviteCode.mutateAsync();
+      setCreatedInviteCode(result.items[0]?.code ?? '');
+      setInviteRedemptionMessage(
+        t('userPanel.inviteRedemptionSuccess', {
+          amount: formatQuotaAmount(result.amount || inviteRedemptionAmount),
+        }),
+      );
+    } catch {
+      setInviteRedemptionMessage(t('userPanel.inviteRedemptionError'));
+    }
   };
 
   const handleCreateSelfRedemptionCodes = async () => {
@@ -992,6 +1025,54 @@ export function UserPanelPage() {
           </TabsContent>
 
           <TabsContent value="redemption" className="space-y-5">
+            {inviteRedemptionEnabled && (
+              <Card className="border-border bg-card shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Gift className="size-4 text-primary" />
+                    {t('userPanel.inviteRedemptionTitle')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {t('userPanel.inviteRedemptionDesc', {
+                      amount: formatQuotaAmount(inviteRedemptionAmount),
+                    })}
+                  </p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      {t('userPanel.inviteRedemptionBalance', {
+                        balance: formatQuotaBalance(userPanelToken?.quotaBalance ?? 0),
+                      })}
+                    </p>
+                    <Button
+                      type="button"
+                      className="shrink-0"
+                      onClick={handleCreateInviteCode}
+                      disabled={createUserPanelInviteCode.isPending || !canCreateInviteCode}
+                    >
+                      {createUserPanelInviteCode.isPending
+                        ? t('common.loading')
+                        : t('userPanel.inviteRedemptionSubmit')}
+                    </Button>
+                  </div>
+                  {inviteRedemptionMessage && (
+                    <p className="text-sm text-muted-foreground">{inviteRedemptionMessage}</p>
+                  )}
+                  {createdInviteCode && (
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <div className="mb-2 text-xs font-medium text-muted-foreground">
+                        {t('userPanel.inviteRedemptionCreated')}
+                      </div>
+                      <code className="rounded bg-muted px-2 py-1 text-xs">
+                        {createdInviteCode}
+                      </code>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="border-border bg-card shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">

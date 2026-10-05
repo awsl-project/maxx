@@ -6,6 +6,7 @@ import {
   type RedemptionCodeCreateResult,
   type UserPanelCreateRedemptionCodeData,
   type UserPanelCreateRedemptionCodeResult,
+  type UserPanelCreateInviteCodeResult,
   type UpdateRedemptionCodeData,
 } from '@/lib/transport';
 import { apiTokenKeys } from './use-api-tokens';
@@ -68,6 +69,19 @@ export function useCreateUserPanelRedemptionCodes() {
     UserPanelCreateRedemptionCodeData
   >({
     mutationFn: (data) => getTransport().createUserPanelRedemptionCodes(data),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: apiTokenKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: ['user-panel-token'] }),
+      ]);
+    },
+  });
+}
+
+export function useCreateUserPanelInviteCode() {
+  const queryClient = useQueryClient();
+  return useMutation<UserPanelCreateInviteCodeResult, unknown, void>({
+    mutationFn: () => getTransport().createUserPanelInviteCode(),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: apiTokenKeys.lists() }),

@@ -239,7 +239,14 @@
     "chatUrlCopyError": "Failed to copy Chat URL.",
     "chatUrlRevealError": "Failed to reveal your key for the chat URL. Please try again.",
     "copyChatUrl": "Copy chat URL",
-    "openChat": "Open chat"
+    "openChat": "Open chat",
+    "inviteRedemptionTitle": "Redeem invite code",
+    "inviteRedemptionDesc": "Spend {{amount}} balance to generate one single-use invite code.",
+    "inviteRedemptionBalance": "Current balance {{balance}}.",
+    "inviteRedemptionSubmit": "Redeem invite code",
+    "inviteRedemptionSuccess": "Deducted {{amount}} and generated an invite code.",
+    "inviteRedemptionError": "Redemption failed: insufficient balance or feature disabled.",
+    "inviteRedemptionCreated": "Invite code generated this time. Copy and save it now:"
   },
   "testField": {
     "title": "Test Field",
@@ -1678,7 +1685,11 @@
     "userPanelErrorChargeAmount": "Charge amount",
     "userPanelErrorChargeCodesError": "Error codes must be HTTP status codes from 100 to 599, separated by commas or spaces.",
     "userPanelErrorChargeThresholdError": "Consecutive count must be an integer from 1 to 100.",
-    "userPanelErrorChargeAmountError": "Charge amount must be greater than 0."
+    "userPanelErrorChargeAmountError": "Charge amount must be greater than 0.",
+    "userPanelInviteRedemptionTab": "Invites",
+    "userPanelInviteRedemption": "Balance invite redemption",
+    "userPanelInviteRedemptionDesc": "Allow users to spend configured balance in the user console to generate single-use invite codes. Disabled by default.",
+    "userPanelInviteRedemptionAmount": "Redemption cost (USD)"
   },
   "modelMappings": {
     "title": "Model Mappings",
