@@ -378,6 +378,7 @@ routeLoop:
 				if e.broadcaster != nil {
 					e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
 				}
+				state.lastAttempt = attemptRecord
 				state.currentAttempt = nil
 
 				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType), mappedModel)
@@ -460,6 +461,7 @@ routeLoop:
 			if e.broadcaster != nil {
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
 			}
+			state.lastAttempt = attemptRecord
 			state.currentAttempt = nil
 
 			proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
@@ -711,7 +713,7 @@ routeLoop:
 			proxyReq.StatusCode = proxyErr.HTTPStatusCode
 		}
 	}
-	e.applyUserPanelErrorCharge(state, proxyReq, nil)
+	e.applyUserPanelErrorCharge(state, proxyReq, state.lastAttempt)
 	clearProxyRequestDetail(proxyReq, clearDetail)
 	_ = e.proxyRequestRepo.Update(proxyReq)
 	if e.broadcaster != nil {
