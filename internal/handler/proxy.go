@@ -24,6 +24,7 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
+	"github.com/google/uuid"
 )
 
 const proxyRequestsDisabledMessage = "proxy requests are temporarily disabled by admin"
@@ -341,14 +342,21 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
-	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
-	if apiToken == nil {
-		// Keep unauthenticated sessions separate from sessions that may carry a
-		// token's project binding. Scope explicit client IDs as well as generated
-		// IDs so toggling token auth cannot reuse the other mode's project.
-		// Hashing keeps the scoped ID within the session column's size limit.
-		sessionHash := sha256.Sum256([]byte(sessionID))
-		sessionID = "noauth-" + hex.EncodeToString(sessionHash[:])
+	var sessionID string
+	if apiToken != nil {
+		sessionID = h.clientAdapter.ExtractSessionID(r, body, clientType)
+	} else {
+		clientSessionID := h.clientAdapter.ExtractExplicitSessionID(r, body, clientType)
+		if clientSessionID == "" {
+			// Arbitrary API keys are placeholders when auth is disabled. They
+			// must not group unrelated requests into a project-bound session.
+			sessionID = "noauth-" + uuid.NewString()
+		} else {
+			// Explicit sessions retain manual binding within this auth mode.
+			// Hashing separates them from authenticated sessions and bounds the ID.
+			sessionHash := sha256.Sum256([]byte(clientSessionID))
+			sessionID = "noauth-" + hex.EncodeToString(sessionHash[:])
+		}
 	}
 	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
 	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非

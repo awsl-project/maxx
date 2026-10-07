@@ -108,6 +108,16 @@ func (a *Adapter) extractModel(req *http.Request, clientType domain.ClientType, 
 }
 
 func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientType, body []byte) string {
+	if sid := a.ExtractExplicitSessionID(req, body, clientType); sid != "" {
+		return sid
+	}
+	return a.generateSessionID(req, body)
+}
+
+// ExtractExplicitSessionID returns a client-provided session identity without
+// deriving one from authentication headers, User-Agent, or the remote address.
+// An empty result means the client did not provide a session identity.
+func (a *Adapter) ExtractExplicitSessionID(req *http.Request, body []byte, clientType domain.ClientType) string {
 	// 1. For Codex client, try Session_id header first
 	if clientType == domain.ClientTypeCodex {
 		if sid := req.Header.Get("Session_id"); sid != "" {
@@ -143,8 +153,7 @@ func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientTy
 		return sid
 	}
 
-	// 5. Generate deterministic session ID from request characteristics
-	return a.generateSessionID(req, body)
+	return ""
 }
 
 func (a *Adapter) generateSessionID(req *http.Request, body []byte) string {

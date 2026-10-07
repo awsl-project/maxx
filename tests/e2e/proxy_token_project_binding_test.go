@@ -73,19 +73,27 @@ func TestProxyTokenProjectBindingIsolatedWhenAuthDisabled(t *testing.T) {
 				t.Fatal("authenticated and unauthenticated requests must use separate sessions")
 			}
 
-			// Manual binding remains available within the unauthenticated mode.
+			// Only explicit sessions may reuse a manually bound project.
 			resp = env.AdminPut("/api/admin/sessions/"+noAuthSessionID+"/project", map[string]any{"projectID": manualProjectID})
 			AssertStatus(t, resp, http.StatusOK)
 			resp.Body.Close()
-			if got := proxyRequest("/v1/chat/completions", manualProjectID, 0); got != noAuthSessionID {
+			wantNoAuthProjectID := uint64(0)
+			if explicitSessionID {
+				wantNoAuthProjectID = manualProjectID
+			}
+			got := proxyRequest("/v1/chat/completions", wantNoAuthProjectID, 0)
+			if explicitSessionID && got != noAuthSessionID {
 				t.Fatalf("unauthenticated session changed: got %q, want %q", got, noAuthSessionID)
+			}
+			if !explicitSessionID && got == noAuthSessionID {
+				t.Fatal("requests without explicit session IDs must not reuse a project-bound fallback session")
 			}
 			setAuth("true")
 			if got := proxyRequest("/v1/chat/completions", tokenProjectID, token.APIToken.ID); got != authSessionID {
 				t.Fatalf("authenticated session changed: got %q, want %q", got, authSessionID)
 			}
 			setAuth("false")
-			proxyRequest("/v1/chat/completions", manualProjectID, 0)
+			proxyRequest("/v1/chat/completions", wantNoAuthProjectID, 0)
 
 			// Explicit project selection still works for new unauthenticated sessions.
 			headers["X-Session-Id"] = "project-url-session"
@@ -93,6 +101,67 @@ func TestProxyTokenProjectBindingIsolatedWhenAuthDisabled(t *testing.T) {
 			headers["X-Session-Id"] = "project-header-session"
 			headers["X-Maxx-Project-ID"] = strconv.FormatUint(manualProjectID, 10)
 			proxyRequest("/v1/chat/completions", manualProjectID, 0)
+		})
+	}
+}
+
+func TestProxyPlaceholderTokenDoesNotBindProjectWithoutExplicitSession(t *testing.T) {
+	for _, header := range []string{"Authorization", "x-api-key", "x-goog-api-key"} {
+		t.Run(header, func(t *testing.T) {
+			upstream := newMockOpenAIUpstream(t, &capturedRequest{})
+			defer upstream.Close()
+			env := NewProxyTestEnv(t)
+			providerID := createProvider(t, env, "openai", upstream.URL, []string{"openai"})
+			createRoute(t, env, "openai", providerID)
+			resp := env.AdminPost("/api/admin/projects", map[string]any{
+				"name": "selected-project", "slug": "selected-project",
+			})
+			AssertStatus(t, resp, http.StatusCreated)
+			var project domain.Project
+			DecodeJSON(t, resp, &project)
+
+			value := "arbitrary-placeholder"
+			if header == "Authorization" {
+				value = "Bearer " + value
+			}
+			headers := map[string]string{header: value}
+			requestRepo := sqlite.NewProxyRequestRepository(env.DB)
+			proxyRequest := func(path string, wantProjectID uint64) string {
+				t.Helper()
+				resp := env.ProxyPost(path, openaiRequest("gpt-4o"), headers)
+				AssertStatus(t, resp, http.StatusOK)
+				resp.Body.Close()
+				requests, err := requestRepo.List(domain.DefaultTenantID, 1, 0)
+				if err != nil || len(requests) != 1 {
+					t.Fatalf("latest request: requests=%v err=%v", requests, err)
+				}
+				request := requests[0]
+				if request.ProjectID != wantProjectID || request.APITokenID != 0 {
+					t.Fatalf("request project=%d token=%d, want project=%d token=0", request.ProjectID, request.APITokenID, wantProjectID)
+				}
+				return request.SessionID
+			}
+
+			projectSessionID := proxyRequest("/project/selected-project/v1/chat/completions", project.ID)
+			globalSessionID := proxyRequest("/v1/chat/completions", 0)
+			if projectSessionID == globalSessionID {
+				t.Fatal("a placeholder token must not create a shared persistent session")
+			}
+
+			// A manually assigned fallback session must not bind future requests
+			// that happen to carry the same placeholder token either.
+			resp = env.AdminPut("/api/admin/sessions/"+globalSessionID+"/project", map[string]any{"projectID": project.ID})
+			AssertStatus(t, resp, http.StatusOK)
+			resp.Body.Close()
+			proxyRequest("/v1/chat/completions", 0)
+
+			// A real client session still supports project binding even when
+			// the API key is an arbitrary placeholder.
+			headers["X-Session-Id"] = "explicit-placeholder-session"
+			explicitSessionID := proxyRequest("/project/selected-project/v1/chat/completions", project.ID)
+			if got := proxyRequest("/v1/chat/completions", project.ID); got != explicitSessionID {
+				t.Fatalf("explicit session changed: got %q, want %q", got, explicitSessionID)
+			}
 		})
 	}
 }
