@@ -72,10 +72,10 @@ func TestRollingUpdateDoesNotKillRunningInstanceRequests(t *testing.T) {
 	}
 }
 
-// A 优雅退出后,A 留下的 in-progress 请求超过 60s grace 才会被 B 的 sweep 清掉。
+// A 优雅退出后,A 留下的 in-progress 请求超过 60s grace 才会被 B 的 sweep 终结。
 // 测试两个时间点:
 //   - A unregister 时立即 sweep:start_time = 30s ago → 仍然 IN_PROGRESS(grace 未过)
-//   - 同样的请求 start_time = 90s ago → 被标记 FAILED(grace 已过)
+//   - 同样的请求 start_time = 90s ago → 被标记 CANCELLED(grace 已过,但不算 provider/route 失败)
 func TestDeadInstanceOrphansClearedOnlyAfterGrace(t *testing.T) {
 	c := newCluster(t)
 	a := c.newInstance(t, "inst-A")
@@ -99,26 +99,33 @@ func TestDeadInstanceOrphansClearedOnlyAfterGrace(t *testing.T) {
 	if s := b.requestStatus(t, freshReq.ID); s != "IN_PROGRESS" {
 		t.Fatalf("fresh request within grace should not be reaped, status=%s", s)
 	}
-	if s := b.requestStatus(t, staleReq.ID); s != "FAILED" {
-		t.Fatalf("stale request past grace should be reaped, status=%s", s)
+	if s := b.requestStatus(t, staleReq.ID); s != "CANCELLED" {
+		t.Fatalf("stale dead-instance request should be cancelled, status=%s", s)
+	}
+	got, err := b.Comp.ProxyRequest.GetByID(domain.DefaultTenantID, staleReq.ID)
+	if err != nil {
+		t.Fatalf("read stale request: %v", err)
+	}
+	if got.Error != "Server restarted" {
+		t.Fatalf("dead-instance error = %q, want Server restarted", got.Error)
 	}
 }
 
-// MarkStaleAsFailed 的安全门:当 coordinator 异常导致 alive list 为空时,
+// MarkStaleAsFailed 的安全门:当 coordinator 异常导致 alive list 为 nil 时,
 // 不应该把 in-progress 都误杀。
-func TestEmptyAliveListSkipsSweep(t *testing.T) {
+func TestNilAliveListSkipsSweep(t *testing.T) {
 	c := newCluster(t)
 	a := c.newInstance(t, "inst-A")
 
 	req := a.seedInProgressRequest(t, "fragile", time.Now().Add(-2*time.Hour))
 
-	// 空 alive list 模拟"coord 异常"
+	// nil alive list 模拟"coord 异常"
 	count, err := a.Comp.ProxyRequest.MarkStaleAsFailed(nil)
 	if err != nil {
 		t.Fatalf("MarkStaleAsFailed: %v", err)
 	}
 	if count != 0 {
-		t.Fatalf("empty alive list should sweep 0 rows, got %d", count)
+		t.Fatalf("nil alive list should sweep 0 rows, got %d", count)
 	}
 
 	if s := a.requestStatus(t, req.ID); s != "IN_PROGRESS" {
