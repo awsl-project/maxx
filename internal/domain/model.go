@@ -1,9 +1,14 @@
 package domain
 
 import (
+	"errors"
 	"strings"
 	"time"
 )
+
+var ErrActiveRequestStoppedByAdmin = errors.New("active request stopped by admin")
+
+const ActiveRequestStoppedByAdminMessage = "Stopped by admin"
 
 // 各种请求的客户端
 type ClientType string
