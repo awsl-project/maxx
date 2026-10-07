@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -340,6 +342,14 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
+	if apiToken == nil {
+		// Keep unauthenticated sessions separate from sessions that may carry a
+		// token's project binding. Scope explicit client IDs as well as generated
+		// IDs so toggling token auth cannot reuse the other mode's project.
+		// Hashing keeps the scoped ID within the session column's size limit.
+		sessionHash := sha256.Sum256([]byte(sessionID))
+		sessionID = "noauth-" + hex.EncodeToString(sessionHash[:])
+	}
 	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
 	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非
 	// state.requestBody。因此别名共享即可,无需再 bytes.Clone 出一整份副本(每个请求
