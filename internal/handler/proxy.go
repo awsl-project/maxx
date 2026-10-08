@@ -2,8 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -343,19 +341,15 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	var sessionID string
-	sessionMode := "auth:"
 	if apiToken != nil {
 		sessionID = h.clientAdapter.ExtractSessionID(r, body, clientType)
 	} else {
-		sessionMode = "noauth:"
+		// Unverified credentials must not group requests into a bound session.
 		sessionID = h.clientAdapter.ExtractExplicitSessionID(r, body, clientType)
 		if sessionID == "" {
 			sessionID = uuid.NewString()
 		}
 	}
-	// Encode both modes so client-supplied IDs cannot select another mode's binding.
-	sessionHash := sha256.Sum256([]byte(sessionMode + sessionID))
-	sessionID = "session-" + hex.EncodeToString(sessionHash[:])
 	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
 	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非
 	// state.requestBody。因此别名共享即可,无需再 bytes.Clone 出一整份副本(每个请求
@@ -388,10 +382,12 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	}
 	c.Set(flow.KeyProjectID, projectID)
 
-	// Determine tenantID from API token or use default.
-	tenantID := domain.DefaultTenantID
+	// Determine tenantID from API token or use default
+	var tenantID uint64
 	if apiToken != nil && apiToken.TenantID > 0 {
 		tenantID = apiToken.TenantID
+	} else {
+		tenantID = domain.DefaultTenantID
 	}
 	ctx = maxxctx.WithTenantID(ctx, tenantID)
 

@@ -122,9 +122,9 @@ func (a *Adapter) ExtractExplicitSessionID(req *http.Request, body []byte, clien
 	return a.extractClientSessionID(req, body, clientType, false)
 }
 
-// extractClientSessionID keeps the legacy bare-user-ID fallback and its priority
-// available to authenticated requests without treating it as an explicit session.
-func (a *Adapter) extractClientSessionID(req *http.Request, body []byte, clientType domain.ClientType, allowBareUserID bool) string {
+// extractClientSessionID preserves authenticated fallbacks without treating
+// user identities or cache grouping keys as explicit session identities.
+func (a *Adapter) extractClientSessionID(req *http.Request, body []byte, clientType domain.ClientType, allowLegacyFallbacks bool) string {
 	// 1. For Codex client, try Session_id header first
 	if clientType == domain.ClientTypeCodex {
 		if sid := req.Header.Get("Session_id"); sid != "" {
@@ -141,7 +141,7 @@ func (a *Adapter) extractClientSessionID(req *http.Request, body []byte, clientT
 		}
 		// A cache grouping key is not a conversation identity. Keep this
 		// fallback only for compatibility with authenticated clients.
-		if allowBareUserID {
+		if allowLegacyFallbacks {
 			if cacheKey := jsonStringField(body, "prompt_cache_key"); cacheKey != "" {
 				return cacheKey
 			}
@@ -155,10 +155,10 @@ func (a *Adapter) extractClientSessionID(req *http.Request, body []byte, clientT
 		const sessionMarker = "_session_"
 		if idx := strings.LastIndex(userID, sessionMarker); idx != -1 {
 			sid := userID[idx+len(sessionMarker):]
-			if sid != "" || allowBareUserID {
+			if sid != "" || allowLegacyFallbacks {
 				return sid
 			}
-		} else if allowBareUserID {
+		} else if allowLegacyFallbacks {
 			return userID
 		}
 	}
