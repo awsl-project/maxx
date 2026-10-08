@@ -2,8 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,7 +22,6 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
-	"github.com/google/uuid"
 )
 
 const proxyRequestsDisabledMessage = "proxy requests are temporarily disabled by admin"
@@ -342,22 +339,12 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
-	var sessionID string
-	if apiToken != nil {
-		sessionID = h.clientAdapter.ExtractSessionID(r, body, clientType)
-	} else {
-		clientSessionID := h.clientAdapter.ExtractExplicitSessionID(r, body, clientType)
-		if clientSessionID == "" {
-			// Arbitrary API keys are placeholders when auth is disabled. They
-			// must not group unrelated requests into a project-bound session.
-			sessionID = "noauth-" + uuid.NewString()
-		} else {
-			// Explicit sessions retain manual binding within this auth mode.
-			// Hashing separates them from authenticated sessions and bounds the ID.
-			sessionHash := sha256.Sum256([]byte(clientSessionID))
-			sessionID = "noauth-" + hex.EncodeToString(sessionHash[:])
-		}
+	// The ownership scope comes only from authentication, never raw headers.
+	tenantID := domain.DefaultTenantID
+	if apiToken != nil && apiToken.TenantID > 0 {
+		tenantID = apiToken.TenantID
 	}
+	sessionID := h.resolveProxySessionID(r, body, clientType, tenantID, apiTokenID)
 	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
 	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非
 	// state.requestBody。因此别名共享即可,无需再 bytes.Clone 出一整份副本(每个请求
@@ -390,13 +377,6 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	}
 	c.Set(flow.KeyProjectID, projectID)
 
-	// Determine tenantID from API token or use default
-	var tenantID uint64
-	if apiToken != nil && apiToken.TenantID > 0 {
-		tenantID = apiToken.TenantID
-	} else {
-		tenantID = domain.DefaultTenantID
-	}
 	ctx = maxxctx.WithTenantID(ctx, tenantID)
 
 	now := time.Now()

@@ -108,7 +108,7 @@ func (a *Adapter) extractModel(req *http.Request, clientType domain.ClientType, 
 }
 
 func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientType, body []byte) string {
-	if sid := a.ExtractExplicitSessionID(req, body, clientType); sid != "" {
+	if sid := a.extractClientSessionID(req, body, clientType, true); sid != "" {
 		return sid
 	}
 	return a.generateSessionID(req, body)
@@ -116,8 +116,15 @@ func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientTy
 
 // ExtractExplicitSessionID returns a client-provided session identity without
 // deriving one from authentication headers, User-Agent, or the remote address.
+// A metadata.user_id only identifies a session when it has a _session_ suffix.
 // An empty result means the client did not provide a session identity.
 func (a *Adapter) ExtractExplicitSessionID(req *http.Request, body []byte, clientType domain.ClientType) string {
+	return a.extractClientSessionID(req, body, clientType, false)
+}
+
+// extractClientSessionID keeps the legacy bare-user-ID fallback and its priority
+// available to authenticated requests without treating it as an explicit session.
+func (a *Adapter) extractClientSessionID(req *http.Request, body []byte, clientType domain.ClientType, allowBareUserID bool) string {
 	// 1. For Codex client, try Session_id header first
 	if clientType == domain.ClientTypeCodex {
 		if sid := req.Header.Get("Session_id"); sid != "" {
@@ -132,8 +139,12 @@ func (a *Adapter) ExtractExplicitSessionID(req *http.Request, body []byte, clien
 		if prevID := jsonStringField(body, "previous_response_id"); prevID != "" {
 			return prevID
 		}
-		if cacheKey := jsonStringField(body, "prompt_cache_key"); cacheKey != "" {
-			return cacheKey
+		// A cache grouping key is not a conversation identity. Keep this
+		// fallback only for compatibility with authenticated clients.
+		if allowBareUserID {
+			if cacheKey := jsonStringField(body, "prompt_cache_key"); cacheKey != "" {
+				return cacheKey
+			}
 		}
 	}
 
@@ -143,9 +154,13 @@ func (a *Adapter) ExtractExplicitSessionID(req *http.Request, body []byte, clien
 	if userID := jsonStringField(body, "metadata.user_id"); userID != "" {
 		const sessionMarker = "_session_"
 		if idx := strings.LastIndex(userID, sessionMarker); idx != -1 {
-			return userID[idx+len(sessionMarker):]
+			sid := userID[idx+len(sessionMarker):]
+			if sid != "" || allowBareUserID {
+				return sid
+			}
+		} else if allowBareUserID {
+			return userID
 		}
-		return userID
 	}
 
 	// 4. Try Header X-Session-Id

@@ -19,6 +19,10 @@ func TestProxyTokenProjectBindingIsolatedWhenAuthDisabled(t *testing.T) {
 			upstream := newMockOpenAIUpstream(t, &capturedRequest{})
 			defer upstream.Close()
 			env := NewProxyTestEnv(t)
+			// Reproduce the default single-tenant, unauthenticated configuration.
+			resp := env.AdminPut("/api/admin/settings/ui_multitenant_enabled", map[string]any{"value": "false"})
+			AssertStatus(t, resp, http.StatusOK)
+			resp.Body.Close()
 			providerID := createProvider(t, env, "openai", upstream.URL, []string{"openai"})
 			createRoute(t, env, "openai", providerID)
 
@@ -32,7 +36,7 @@ func TestProxyTokenProjectBindingIsolatedWhenAuthDisabled(t *testing.T) {
 			}
 			tokenProjectID := createProject("token-project")
 			manualProjectID := createProject("manual-project")
-			resp := env.AdminPost("/api/admin/api-tokens", map[string]any{
+			resp = env.AdminPost("/api/admin/api-tokens", map[string]any{
 				"name": "project-token", "projectID": tokenProjectID,
 			})
 			AssertStatus(t, resp, http.StatusCreated)
@@ -92,6 +96,13 @@ func TestProxyTokenProjectBindingIsolatedWhenAuthDisabled(t *testing.T) {
 			if got := proxyRequest("/v1/chat/completions", tokenProjectID, token.APIToken.ID); got != authSessionID {
 				t.Fatalf("authenticated session changed: got %q, want %q", got, authSessionID)
 			}
+			if explicitSessionID {
+				// A client-selected authenticated ID must not select a record
+				// from the server's unauthenticated session namespace.
+				headers["X-Session-Id"] = noAuthSessionID
+				proxyRequest("/v1/chat/completions", tokenProjectID, token.APIToken.ID)
+				headers["X-Session-Id"] = "same-client-session"
+			}
 			setAuth("false")
 			proxyRequest("/v1/chat/completions", wantNoAuthProjectID, 0)
 
@@ -106,8 +117,21 @@ func TestProxyTokenProjectBindingIsolatedWhenAuthDisabled(t *testing.T) {
 }
 
 func TestProxyPlaceholderTokenDoesNotBindProjectWithoutExplicitSession(t *testing.T) {
-	for _, header := range []string{"Authorization", "x-api-key", "x-goog-api-key"} {
-		t.Run(header, func(t *testing.T) {
+	cases := []struct {
+		header string
+		userID string
+	}{
+		{header: "Authorization"},
+		{header: "x-api-key"},
+		{header: "x-goog-api-key"},
+		{header: "Authorization", userID: "shared-user"},
+	}
+	for _, tc := range cases {
+		name := tc.header
+		if tc.userID != "" {
+			name += "/bare metadata user ID"
+		}
+		t.Run(name, func(t *testing.T) {
 			upstream := newMockOpenAIUpstream(t, &capturedRequest{})
 			defer upstream.Close()
 			env := NewProxyTestEnv(t)
@@ -121,14 +145,18 @@ func TestProxyPlaceholderTokenDoesNotBindProjectWithoutExplicitSession(t *testin
 			DecodeJSON(t, resp, &project)
 
 			value := "arbitrary-placeholder"
-			if header == "Authorization" {
+			if tc.header == "Authorization" {
 				value = "Bearer " + value
 			}
-			headers := map[string]string{header: value}
+			headers := map[string]string{tc.header: value}
+			body := openaiRequest("gpt-4o")
+			if tc.userID != "" {
+				body["metadata"] = map[string]any{"user_id": tc.userID}
+			}
 			requestRepo := sqlite.NewProxyRequestRepository(env.DB)
 			proxyRequest := func(path string, wantProjectID uint64) string {
 				t.Helper()
-				resp := env.ProxyPost(path, openaiRequest("gpt-4o"), headers)
+				resp := env.ProxyPost(path, body, headers)
 				AssertStatus(t, resp, http.StatusOK)
 				resp.Body.Close()
 				requests, err := requestRepo.List(domain.DefaultTenantID, 1, 0)
