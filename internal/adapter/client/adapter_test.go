@@ -224,53 +224,6 @@ func TestExtractSessionIDFromJSONFields(t *testing.T) {
 	}
 }
 
-func TestExtractExplicitSessionIDSeparatesUserAndSessionIdentity(t *testing.T) {
-	tests := []struct {
-		name         string
-		userID       string
-		header       string
-		wantExplicit string
-		wantLegacy   string
-	}{
-		{name: "bare user ID", userID: "shared-user", wantLegacy: "shared-user"},
-		{name: "bare user ID with session header", userID: "shared-user", header: "real-session", wantExplicit: "real-session", wantLegacy: "shared-user"},
-		{name: "session suffix", userID: "user_account_session_uuid-123", header: "ignored", wantExplicit: "uuid-123", wantLegacy: "uuid-123"},
-		{name: "empty session suffix with header", userID: "user_account_session_", header: "real-session", wantExplicit: "real-session"},
-	}
-	adapter := NewAdapter()
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			body := []byte(`{"metadata":{"user_id":"` + tt.userID + `"}}`)
-			req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
-			req.Header.Set("X-Session-Id", tt.header)
-			if got := adapter.ExtractExplicitSessionID(req, body, domain.ClientTypeClaude); got != tt.wantExplicit {
-				t.Fatalf("explicit session ID = %q, want %q", got, tt.wantExplicit)
-			}
-			if tt.wantLegacy != "" {
-				if got := adapter.ExtractSessionID(req, body, domain.ClientTypeClaude); got != tt.wantLegacy {
-					t.Fatalf("legacy session ID = %q, want %q", got, tt.wantLegacy)
-				}
-			}
-		})
-	}
-}
-
-func TestExplicitSessionIDDoesNotUsePromptCacheKey(t *testing.T) {
-	adapter := NewAdapter()
-	req := httptest.NewRequest("POST", "/v1/responses", nil)
-	body := []byte(`{"prompt_cache_key":"shared-cache"}`)
-	if got := adapter.ExtractExplicitSessionID(req, body, domain.ClientTypeCodex); got != "" {
-		t.Fatalf("cache key must not identify an anonymous session: %q", got)
-	}
-	if got := adapter.ExtractSessionID(req, body, domain.ClientTypeCodex); got != "shared-cache" {
-		t.Fatalf("authenticated extraction lost its legacy fallback: %q", got)
-	}
-	req.Header.Set("X-Session-Id", "real-session")
-	if got := adapter.ExtractExplicitSessionID(req, body, domain.ClientTypeCodex); got != "real-session" {
-		t.Fatalf("explicit session header was masked by cache key: %q", got)
-	}
-}
-
 func TestIsStreamRequestReadsBooleanOnly(t *testing.T) {
 	adapter := NewAdapter()
 	req := httptest.NewRequest("POST", "/v1/responses", nil)

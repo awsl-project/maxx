@@ -9,178 +9,86 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
-func TestProxyTokenProjectBindingIgnoredWithoutExplicitSession(t *testing.T) {
-	upstream := newMockOpenAIUpstream(t, &capturedRequest{})
-	defer upstream.Close()
-	env := NewProxyTestEnv(t)
-	// Reproduce the default single-tenant, unauthenticated configuration.
-	resp := env.AdminPut("/api/admin/settings/ui_multitenant_enabled", map[string]any{"value": "false"})
-	AssertStatus(t, resp, http.StatusOK)
-	resp.Body.Close()
-	providerID := createProvider(t, env, "openai", upstream.URL, []string{"openai"})
-	createRoute(t, env, "openai", providerID)
-
-	createProject := func(slug string) uint64 {
-		t.Helper()
-		resp := env.AdminPost("/api/admin/projects", map[string]any{"name": slug, "slug": slug})
-		AssertStatus(t, resp, http.StatusCreated)
-		var project domain.Project
-		DecodeJSON(t, resp, &project)
-		return project.ID
-	}
-	tokenProjectID := createProject("token-project")
-	manualProjectID := createProject("manual-project")
-	resp = env.AdminPost("/api/admin/api-tokens", map[string]any{
-		"name": "project-token", "projectID": tokenProjectID,
-	})
-	AssertStatus(t, resp, http.StatusCreated)
-	var token domain.APITokenCreateResult
-	DecodeJSON(t, resp, &token)
-	headers := map[string]string{"Authorization": "Bearer " + token.Token}
-	setAuth := func(value string) {
-		t.Helper()
-		resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": value})
-		AssertStatus(t, resp, http.StatusOK)
-		resp.Body.Close()
-	}
-	requestRepo := sqlite.NewProxyRequestRepository(env.DB)
-	proxyRequest := func(path string, wantProjectID, wantTokenID uint64) string {
-		t.Helper()
-		resp := env.ProxyPost(path, openaiRequest("gpt-4o"), headers)
-		AssertStatus(t, resp, http.StatusOK)
-		resp.Body.Close()
-		requests, err := requestRepo.List(domain.DefaultTenantID, 1, 0)
-		if err != nil || len(requests) != 1 {
-			t.Fatalf("latest request: requests=%v err=%v", requests, err)
-		}
-		request := requests[0]
-		if request.ProjectID != wantProjectID || request.APITokenID != wantTokenID {
-			t.Fatalf("request project=%d token=%d, want project=%d token=%d", request.ProjectID, request.APITokenID, wantProjectID, wantTokenID)
-		}
-		return request.SessionID
-	}
-
-	setAuth("true")
-	authSessionID := proxyRequest("/v1/chat/completions", tokenProjectID, token.APIToken.ID)
-	setAuth("false")
-	noAuthSessionID := proxyRequest("/v1/chat/completions", 0, 0)
-	if noAuthSessionID == authSessionID {
-		t.Fatal("authenticated and unauthenticated requests must use separate sessions")
-	}
-
-	// Binding a one-off session must not affect later token-only requests.
-	resp = env.AdminPut("/api/admin/sessions/"+noAuthSessionID+"/project", map[string]any{"projectID": manualProjectID})
-	AssertStatus(t, resp, http.StatusOK)
-	resp.Body.Close()
-	got := proxyRequest("/v1/chat/completions", 0, 0)
-	if got == noAuthSessionID {
-		t.Fatal("requests without explicit session IDs must not reuse a project-bound fallback session")
-	}
-	setAuth("true")
-	if got := proxyRequest("/v1/chat/completions", tokenProjectID, token.APIToken.ID); got != authSessionID {
-		t.Fatalf("authenticated session changed: got %q, want %q", got, authSessionID)
-	}
-	setAuth("false")
-	proxyRequest("/v1/chat/completions", 0, 0)
-
-	// Explicit project selection still works for new unauthenticated sessions.
-	headers["X-Session-Id"] = "project-url-session"
-	proxyRequest("/project/manual-project/v1/chat/completions", manualProjectID, 0)
-	headers["X-Session-Id"] = "project-header-session"
-	headers["X-Maxx-Project-ID"] = strconv.FormatUint(manualProjectID, 10)
-	proxyRequest("/v1/chat/completions", manualProjectID, 0)
-
-	// Existing authenticated session IDs and manual bindings stay valid.
-	const legacySessionID = "existing-client-session"
-	err := sqlite.NewSessionRepository(env.DB).Create(&domain.Session{
-		TenantID: domain.DefaultTenantID, SessionID: legacySessionID,
-		ClientType: domain.ClientTypeOpenAI, ProjectID: manualProjectID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	delete(headers, "X-Maxx-Project-ID")
-	headers["X-Session-Id"] = legacySessionID
-	setAuth("true")
-	if got := proxyRequest("/v1/chat/completions", manualProjectID, token.APIToken.ID); got != legacySessionID {
-		t.Fatalf("existing session ID was rewritten: got %q, want %q", got, legacySessionID)
-	}
-}
-
-func TestProxyPlaceholderTokenDoesNotBindProjectWithoutExplicitSession(t *testing.T) {
+func TestProjectURLDoesNotAutomaticallyBindAnonymousSession(t *testing.T) {
 	cases := []struct {
-		header string
-		userID string
+		name, header, userID, sessionID string
 	}{
-		{header: "Authorization"},
-		{header: "x-api-key"},
-		{header: "x-goog-api-key"},
-		{header: "Authorization", userID: "shared-user"},
+		{name: "bearer placeholder", header: "Authorization"},
+		{name: "api key placeholder", header: "x-api-key"},
+		{name: "google key placeholder", header: "x-goog-api-key"},
+		{name: "user identity", header: "Authorization", userID: "shared-user"},
+		{name: "explicit session", header: "Authorization", sessionID: "client-session"},
 	}
 	for _, tc := range cases {
-		name := tc.header
-		if tc.userID != "" {
-			name += "/bare metadata user ID"
-		}
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			upstream := newMockOpenAIUpstream(t, &capturedRequest{})
 			defer upstream.Close()
 			env := NewProxyTestEnv(t)
-			providerID := createProvider(t, env, "openai", upstream.URL, []string{"openai"})
+			providerID := createProvider(t, env, "upstream", upstream.URL, []string{"openai"})
 			createRoute(t, env, "openai", providerID)
-			resp := env.AdminPost("/api/admin/projects", map[string]any{
-				"name": "selected-project", "slug": "selected-project",
-			})
-			AssertStatus(t, resp, http.StatusCreated)
-			var project domain.Project
-			DecodeJSON(t, resp, &project)
-
-			value := "arbitrary-placeholder"
-			if tc.header == "Authorization" {
-				value = "Bearer " + value
+			createProject := func(slug string) uint64 {
+				t.Helper()
+				resp := env.AdminPost("/api/admin/projects", map[string]any{"name": slug, "slug": slug})
+				AssertStatus(t, resp, http.StatusCreated)
+				var project domain.Project
+				DecodeJSON(t, resp, &project)
+				return project.ID
 			}
-			headers := map[string]string{tc.header: value}
+			a, b := createProject("project-a"), createProject("project-b")
+			headers := map[string]string{tc.header: "arbitrary-placeholder"}
+			if tc.header == "Authorization" {
+				headers[tc.header] = "Bearer arbitrary-placeholder"
+			}
+			if tc.sessionID != "" {
+				headers["X-Session-Id"] = tc.sessionID
+			}
 			body := openaiRequest("gpt-4o")
 			if tc.userID != "" {
 				body["metadata"] = map[string]any{"user_id": tc.userID}
 			}
 			requestRepo := sqlite.NewProxyRequestRepository(env.DB)
-			proxyRequest := func(path string, wantProjectID uint64) string {
+			request := func(path string, wantProject uint64) string {
 				t.Helper()
 				resp := env.ProxyPost(path, body, headers)
 				AssertStatus(t, resp, http.StatusOK)
 				resp.Body.Close()
 				requests, err := requestRepo.List(domain.DefaultTenantID, 1, 0)
 				if err != nil || len(requests) != 1 {
-					t.Fatalf("latest request: requests=%v err=%v", requests, err)
+					t.Fatalf("latest request: %v, %v", requests, err)
 				}
-				request := requests[0]
-				if request.ProjectID != wantProjectID || request.APITokenID != 0 {
-					t.Fatalf("request project=%d token=%d, want project=%d token=0", request.ProjectID, request.APITokenID, wantProjectID)
+				if requests[0].ProjectID != wantProject || requests[0].APITokenID != 0 {
+					t.Fatalf("request project=%d token=%d, want project=%d token=0", requests[0].ProjectID, requests[0].APITokenID, wantProject)
 				}
-				return request.SessionID
+				return requests[0].SessionID
+			}
+			assertBinding := func(sessionID string, wantProject uint64) {
+				t.Helper()
+				session, err := sqlite.NewSessionRepository(env.DB).GetBySessionID(domain.DefaultTenantID, sessionID)
+				if err != nil || session == nil || session.ProjectID != wantProject {
+					t.Fatalf("session=%+v err=%v, want binding=%d", session, err, wantProject)
+				}
 			}
 
-			projectSessionID := proxyRequest("/project/selected-project/v1/chat/completions", project.ID)
-			globalSessionID := proxyRequest("/v1/chat/completions", 0)
-			if projectSessionID == globalSessionID {
-				t.Fatal("a placeholder token must not create a shared persistent session")
+			// A project URL routes this request without creating a persistent binding.
+			sid := request("/project/project-a/v1/chat/completions", a)
+			assertBinding(sid, 0)
+			if got := request("/project/project-b/v1/chat/completions", b); got != sid {
+				t.Fatal("project selection unexpectedly changed session identity")
 			}
+			assertBinding(sid, 0)
+			request("/v1/chat/completions", 0)
+			headers["X-Maxx-Project-ID"] = strconv.FormatUint(b, 10)
+			request("/v1/chat/completions", b)
+			assertBinding(sid, 0)
+			delete(headers, "X-Maxx-Project-ID")
 
-			// A manually assigned fallback session must not bind future requests
-			// that happen to carry the same placeholder token either.
-			resp = env.AdminPut("/api/admin/sessions/"+globalSessionID+"/project", map[string]any{"projectID": project.ID})
+			// Existing bindings remain usable, but cannot override a project URL.
+			resp := env.AdminPut("/api/admin/sessions/"+sid+"/project", map[string]any{"projectID": a})
 			AssertStatus(t, resp, http.StatusOK)
 			resp.Body.Close()
-			proxyRequest("/v1/chat/completions", 0)
-
-			// A real client session still supports project binding even when
-			// the API key is an arbitrary placeholder.
-			headers["X-Session-Id"] = "explicit-placeholder-session"
-			explicitSessionID := proxyRequest("/project/selected-project/v1/chat/completions", project.ID)
-			if got := proxyRequest("/v1/chat/completions", project.ID); got != explicitSessionID {
-				t.Fatalf("explicit session changed: got %q, want %q", got, explicitSessionID)
-			}
+			request("/v1/chat/completions", a)
+			request("/project/project-b/v1/chat/completions", b)
+			assertBinding(sid, a)
 		})
 	}
 }

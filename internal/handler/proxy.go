@@ -22,7 +22,6 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
-	"github.com/google/uuid"
 )
 
 const proxyRequestsDisabledMessage = "proxy requests are temporarily disabled by admin"
@@ -340,16 +339,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
-	var sessionID string
-	if apiToken != nil {
-		sessionID = h.clientAdapter.ExtractSessionID(r, body, clientType)
-	} else {
-		// Unverified credentials must not group requests into a bound session.
-		sessionID = h.clientAdapter.ExtractExplicitSessionID(r, body, clientType)
-		if sessionID == "" {
-			sessionID = uuid.NewString()
-		}
-	}
+	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
 	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
 	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非
 	// state.requestBody。因此别名共享即可,无需再 bytes.Clone 出一整份副本(每个请求
@@ -398,7 +388,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		log.Printf("[Proxy] Failed to load session %s: %v", sessionID, sessionErr)
 	}
 	if session != nil {
-		if !isUserPanelAPIToken(apiToken) && session.ProjectID > 0 {
+		if !isUserPanelAPIToken(apiToken) && session.ProjectID > 0 && (apiToken != nil || projectID == 0) {
 			projectID = session.ProjectID
 			log.Printf("[Proxy] Using project ID from session binding: %d", projectID)
 		} else if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
@@ -417,7 +407,11 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			TenantID:   tenantID,
 			SessionID:  sessionID,
 			ClientType: clientType,
-			ProjectID:  projectID,
+		}
+		// Without authentication, project URLs select this request only.
+		// Persistent session binding remains an explicit admin operation.
+		if apiToken != nil {
+			session.ProjectID = projectID
 		}
 		_ = h.sessionRepo.Create(session)
 	}
