@@ -27,16 +27,33 @@ jobs:
       - name: Resolve version (manual or auto-increment)
         id: resolve-version
         shell: bash
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
-          INPUT_VERSION="$RELEASE_VERSION"
-          if [[ -z "${INPUT_VERSION//[[:space:]]/}" ]]; then
+          INPUT_VERSION="${{ inputs.version }}"
+          INPUT_VERSION="${INPUT_VERSION//[[:space:]]/}"
+
+          if [[ -n "$INPUT_VERSION" ]]; then
+            RESOLVED_VERSION="$INPUT_VERSION"
+            echo "Using manual version: $RESOLVED_VERSION"
+          else
             git fetch --tags --force
+            LAST_TAG=$(
+              git tag --list --sort=-version:refname |
+              awk '/^v[0-9]+[.][0-9]+[.][0-9]+$/ && !found { print; found=1 }'
+            )
+
+            if [[ -z "$LAST_TAG" ]]; then
+              RESOLVED_VERSION="v0.0.1"
+              echo "No existing semantic version tag found, defaulting to $RESOLVED_VERSION"
+            else
+              VERSION_PART="${LAST_TAG#v}"
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_PART"
+              PATCH=$((PATCH + 1))
+              RESOLVED_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+              echo "Auto increment from $LAST_TAG to $RESOLVED_VERSION"
+            fi
           fi
-          RESOLVED_VERSION=$(python3 scripts/resolve-release-version.py "$INPUT_VERSION")
 
           echo "Resolved version: $RESOLVED_VERSION"
           echo "version=$RESOLVED_VERSION" >> "$GITHUB_OUTPUT"
