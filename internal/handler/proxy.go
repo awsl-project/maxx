@@ -388,7 +388,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		log.Printf("[Proxy] Failed to load session %s: %v", sessionID, sessionErr)
 	}
 	if session != nil {
-		if !isUserPanelAPIToken(apiToken) && session.ProjectID > 0 {
+		if !isUserPanelAPIToken(apiToken) && session.ProjectID > 0 && (apiToken != nil || projectID == 0) {
 			projectID = session.ProjectID
 			log.Printf("[Proxy] Using project ID from session binding: %d", projectID)
 		} else if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
@@ -407,7 +407,11 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			TenantID:   tenantID,
 			SessionID:  sessionID,
 			ClientType: clientType,
-			ProjectID:  projectID,
+		}
+		// Without authentication, project URLs select this request only.
+		// Persistent session binding remains an explicit admin operation.
+		if apiToken != nil {
+			session.ProjectID = projectID
 		}
 		_ = h.sessionRepo.Create(session)
 	}
