@@ -11,8 +11,8 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 )
 
 type fakeGrokExecutor struct {

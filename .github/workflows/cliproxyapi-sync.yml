@@ -13,6 +13,10 @@ permissions:
   contents: write
   pull-requests: write
 
+env:
+  CPA_MODULE: github.com/router-for-me/CLIProxyAPI/v8
+  CPA_FORK_MODULE: github.com/awsl-project/CLIProxyAPI/v8
+
 concurrency:
   group: cliproxyapi-sync-and-replace-${{ github.ref }}
   cancel-in-progress: false
@@ -24,6 +28,7 @@ jobs:
     outputs:
       fork_changed: ${{ steps.sync.outputs.fork_changed }}
       sync_conflict: ${{ steps.sync.outputs.sync_conflict }}
+      fork_sha: ${{ steps.sync.outputs.fork_sha }}
     steps:
       - name: Checkout awsl-project/CLIProxyAPI
         uses: actions/checkout@v4
@@ -65,7 +70,14 @@ jobs:
             exit 0
           fi
 
+          UPSTREAM_MODULE=$(awk '$1 == "module" { print $2 }' go.mod)
+          if [ "$UPSTREAM_MODULE" != "$CPA_MODULE" ]; then
+            echo "::error::CLIProxyAPI now uses $UPSTREAM_MODULE; migrate maxx imports and SDK wrappers before updating $CPA_MODULE."
+            exit 1
+          fi
+
           AFTER_SHA=$(git rev-parse HEAD)
+          echo "fork_sha=$AFTER_SHA" >> "$GITHUB_OUTPUT"
           if [ "$AFTER_SHA" = "$BEFORE_ORIGIN" ]; then
             echo "Result is identical to current origin/$TARGET_BRANCH"
             echo "fork_changed=false" >> "$GITHUB_OUTPUT"
@@ -83,6 +95,8 @@ jobs:
     steps:
       - name: Checkout maxx
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -92,9 +106,10 @@ jobs:
       - name: Create PR with gh
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          FORK_SHA: ${{ needs.sync-cliproxyapi-fork.outputs.fork_sha }}
         run: |
           BASE_BRANCH="main"
-          BRANCH="chore/cliproxyapi-replace-update"
+          BRANCH="chore/cliproxyapi-v8-update"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -102,8 +117,10 @@ jobs:
           git fetch origin "$BASE_BRANCH"
           git checkout -B "$BRANCH" "origin/$BASE_BRANCH"
 
-          go mod edit -replace=github.com/router-for-me/CLIProxyAPI/v7=github.com/awsl-project/CLIProxyAPI/v7@latest
+          go mod edit -replace="$CPA_MODULE=$CPA_FORK_MODULE@$FORK_SHA"
           go mod tidy
+          go test ./internal/adapter/provider/cliproxyapi_codex ./internal/adapter/provider/cliproxyapi_antigravity ./internal/adapter/provider/cliproxyapi_grok
+          go test -run '^TestCPAExecutorsAgainstLocalUpstream$' ./tests/e2e
 
           git add go.mod go.sum
 
@@ -112,7 +129,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "chore: update CLIProxyAPI v7 replace"
+          git commit -m "chore: update CLIProxyAPI v8 replace"
           git push -f origin "$BRANCH"
 
           PR_NUMBER=$(gh pr list \
@@ -130,8 +147,8 @@ jobs:
           if ! gh pr create \
             --base "$BASE_BRANCH" \
             --head "$BRANCH" \
-            --title "chore: update CLIProxyAPI v7 replace" \
-            --body "Automated CLIProxyAPI v7 dependency update by CLIProxyAPI Sync workflow."; then
+            --title "chore: update CLIProxyAPI v8 replace" \
+            --body "Automated CLIProxyAPI v8 dependency update by CLIProxyAPI Sync workflow. Adapter and protocol tests passed before publishing."; then
             {
               echo "### PR creation skipped"
               echo "- Branch pushed: $BRANCH"
