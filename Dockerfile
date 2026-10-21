@@ -4,7 +4,7 @@
 FROM node:24-alpine AS frontend-builder
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app/web
 
