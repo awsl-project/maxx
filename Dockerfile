@@ -1,18 +1,18 @@
 # Multi-stage build for maxx
 
 # Stage 1: Build frontend
-FROM node:22-alpine AS frontend-builder
+FROM node:24.22.0-alpine3.24 AS frontend-builder
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
 
 WORKDIR /app/web
 
 # Copy frontend package files
-COPY web/package.json ./
+COPY web/package.json web/pnpm-lock.yaml ./
 
 # Install frontend dependencies
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Copy frontend source
 COPY web/ ./
@@ -55,7 +55,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o maxx cmd/maxx/main.go
 
 # Stage 3: Final runtime image
-FROM alpine:latest
+FROM alpine:3.24.2
 
 # Install runtime dependencies (tzdata for timezone support)
 RUN apk add --no-cache ca-certificates tzdata tar

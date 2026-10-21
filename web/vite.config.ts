@@ -23,11 +23,11 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
-			"@": path.resolve(__dirname, "./src"),
+			"@": path.resolve(import.meta.dirname, "./src"),
 		},
 	},
 	build: {
-		rollupOptions: {
+		rolldownOptions: {
 			external: [
 				"@wailsio/runtime",
 				// Wails 生成的绑定只在桌面模式下存在，Docker 构建时需要排除

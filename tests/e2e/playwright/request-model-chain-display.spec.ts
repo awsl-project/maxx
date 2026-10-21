@@ -152,7 +152,7 @@ async function openRequestsPage(page: Page) {
   await expect(requestsHeading).toBeVisible({ timeout: 30_000 });
 }
 
-test("requests list displays request model to mapped model without response label", async ({
+test("requests display mapped models and detail panels resize across desktop and mobile", async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
@@ -272,6 +272,45 @@ test("requests list displays request model to mapped model without response labe
       path: REQUESTS_SCREENSHOT,
       contentType: "image/png",
     });
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await firstRow.click();
+    await expect(page).toHaveURL(/\/requests\/\d+$/);
+    const group = page.locator('[data-slot="resizable-panel-group"]');
+    const sidebar = group.locator('[data-slot="resizable-panel"]').first();
+    const separator = group.getByRole("separator");
+    const sidebarPercent = () => sidebar.evaluate((panel) =>
+      panel.getBoundingClientRect().width / panel.parentElement!.getBoundingClientRect().width * 100,
+    );
+    await expect(separator).toBeVisible();
+    await expect.poll(sidebarPercent).toBeCloseTo(20, 0);
+    await page.screenshot({ path: testInfo.outputPath("request-detail-default.png"), animations: "disabled" });
+
+    // Numeric sizes changed from percentages to pixels in react-resizable-panels v4.
+    // Exercise actual geometry and input rather than only checking the props.
+    const handle = await separator.boundingBox();
+    const bounds = await group.boundingBox();
+    expect(handle).not.toBeNull();
+    expect(bounds).not.toBeNull();
+    await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(bounds!.x + bounds!.width * 0.35, handle!.y + handle!.height / 2, { steps: 10 });
+    await page.mouse.up();
+    await expect.poll(sidebarPercent).toBeGreaterThan(30);
+    await expect.poll(sidebarPercent).toBeLessThan(40);
+    await page.screenshot({ path: testInfo.outputPath("request-detail-resized.png"), animations: "disabled" });
+
+    await separator.focus();
+    await page.keyboard.press("Home");
+    await expect.poll(sidebarPercent).toBeCloseTo(20, 0);
+    await page.keyboard.press("End");
+    await expect.poll(sidebarPercent).toBeCloseTo(50, 0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(group).toHaveCount(0);
+    await page.getByRole("tab", { name: "Detail", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Request", exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("request-detail-mobile.png"), animations: "disabled" });
 
     const mockPage = await page.context().newPage();
     await mockPage.goto(`http://127.0.0.1:${mock.port}/__mock-log`);
