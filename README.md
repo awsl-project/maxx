@@ -136,7 +136,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
 
-**Frontend requirements:** Node.js 24.15.0+ within the 24.x line (24.22.0 pinned in `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
+**Frontend requirements:** Node.js 24.x (see `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
 
 ### Headless admin CLI (`maxx-cli`)
 
