@@ -94,7 +94,7 @@ require (
 	github.com/refraction-networking/utls v1.8.2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/router-for-me/CLIProxyAPI/v7 v7.0.0-20260714064441-ef2c05d9c99e
+	github.com/router-for-me/CLIProxyAPI/v8 v8.0.34
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 // indirect
@@ -113,9 +113,9 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.57.0
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.47.0
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
@@ -125,6 +125,4 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-replace github.com/router-for-me/CLIProxyAPI/v7 => github.com/awsl-project/CLIProxyAPI/v7 v7.0.0-20260901085119-7d0a4bdae0f4
-
-replace github.com/router-for-me/CLIProxyAPI/v6 => github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260507052548-159217ed39b2
+replace github.com/router-for-me/CLIProxyAPI/v8 => github.com/awsl-project/CLIProxyAPI/v8 v8.0.0-20261019145732-9adb32ec1b69

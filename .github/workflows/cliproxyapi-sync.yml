@@ -79,10 +79,12 @@ jobs:
     name: Update maxx CLIProxyAPI replace
     runs-on: ubuntu-latest
     needs: sync-cliproxyapi-fork
-    if: ${{ needs.sync-cliproxyapi-fork.outputs.fork_changed == 'true' }}
+    if: ${{ needs.sync-cliproxyapi-fork.outputs.sync_conflict == 'false' }}
     steps:
       - name: Checkout maxx
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -94,15 +96,16 @@ jobs:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           BASE_BRANCH="main"
-          BRANCH="chore/cliproxyapi-replace-update"
+          BRANCH="chore/cliproxyapi-v8-update"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          gh auth setup-git
           git fetch origin "$BASE_BRANCH"
           git checkout -B "$BRANCH" "origin/$BASE_BRANCH"
 
-          go mod edit -replace=github.com/router-for-me/CLIProxyAPI/v7=github.com/awsl-project/CLIProxyAPI/v7@latest
+          go mod edit -replace=github.com/router-for-me/CLIProxyAPI/v8=github.com/awsl-project/CLIProxyAPI/v8@main
           go mod tidy
 
           git add go.mod go.sum
@@ -112,7 +115,12 @@ jobs:
             exit 0
           fi
 
-          git commit -m "chore: update CLIProxyAPI v7 replace"
+          if git fetch origin "$BRANCH" && git diff --cached --quiet FETCH_HEAD; then
+            echo "Dependency update branch already has these changes"
+            exit 0
+          fi
+
+          git commit -m "chore: update CLIProxyAPI v8 replace"
           git push -f origin "$BRANCH"
 
           PR_NUMBER=$(gh pr list \
@@ -130,8 +138,8 @@ jobs:
           if ! gh pr create \
             --base "$BASE_BRANCH" \
             --head "$BRANCH" \
-            --title "chore: update CLIProxyAPI v7 replace" \
-            --body "Automated CLIProxyAPI v7 dependency update by CLIProxyAPI Sync workflow."; then
+            --title "chore: update CLIProxyAPI v8 replace" \
+            --body "Automated CLIProxyAPI v8 dependency update by CLIProxyAPI Sync workflow. Adapter and protocol tests run in PR CI."; then
             {
               echo "### PR creation skipped"
               echo "- Branch pushed: $BRANCH"
