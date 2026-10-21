@@ -9,10 +9,10 @@ RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
 WORKDIR /app/web
 
 # Copy frontend package files
-COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/package.json ./
 
 # Install frontend dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 # Copy frontend source
 COPY web/ ./
