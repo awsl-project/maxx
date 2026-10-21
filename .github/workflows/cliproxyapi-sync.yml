@@ -115,6 +115,11 @@ jobs:
             exit 0
           fi
 
+          if git fetch origin "$BRANCH" && git diff --cached --quiet FETCH_HEAD; then
+            echo "Dependency update branch already has these changes"
+            exit 0
+          fi
+
           git commit -m "chore: update CLIProxyAPI v8 replace"
           git push -f origin "$BRANCH"
 
