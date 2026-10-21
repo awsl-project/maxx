@@ -240,7 +240,7 @@ export function ProviderModelMappings({
         undefined,
         t('modelInput.currentProviderModels'),
       ),
-    [runtimeModels, t],
+    [runtimeModels?.available, runtimeModels?.models, t],
   );
   const sanitizedCheckIterations = Math.max(10, Math.min(500, checkIterations || 10));
   const sanitizedCheckSuccessThreshold = Math.max(

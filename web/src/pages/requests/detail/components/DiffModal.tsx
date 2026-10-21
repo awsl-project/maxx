@@ -97,8 +97,8 @@ export function DiffModal({ isOpen, onClose, title, leftContent, rightContent }:
               });
 
               return lines.map((line, lineIndex) => {
-                let bgColor: string;
-                let textColor: string;
+                let bgColor = '';
+                let textColor = 'text-foreground';
                 let prefix = ' ';
                 let borderColor = 'border-border/30';
 

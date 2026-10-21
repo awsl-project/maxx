@@ -310,8 +310,8 @@ export function RequestDetailPage() {
             </TabsContent>
           </Tabs>
         ) : (
-          <ResizablePanelGroup orientation="horizontal" id="request-detail-layout">
-            <ResizablePanel defaultSize="20%" minSize="20%" maxSize="50%">
+          <ResizablePanelGroup direction="horizontal" id="request-detail-layout">
+            <ResizablePanel defaultSize={20} minSize={20} maxSize={50}>
               <RequestSidebar
                 request={request}
                 attempts={attempts}
@@ -323,7 +323,7 @@ export function RequestDetailPage() {
               />
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize="80%" minSize="50%">
+            <ResizablePanel defaultSize={80} minSize={50}>
               <RequestDetailPanel
                 request={request}
                 selection={selection}

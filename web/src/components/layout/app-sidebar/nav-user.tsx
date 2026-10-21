@@ -7,7 +7,7 @@ import {
   Laptop,
   Sparkles,
   Gem,
-  CodeXml,
+  Github,
   Settings2,
   RefreshCw,
   LogOut,
@@ -511,7 +511,7 @@ export function NavUser() {
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 title="GitHub"
               >
-                <CodeXml className="h-4 w-4" />
+                <Github className="h-4 w-4" />
               </a>
 
               <button
@@ -558,7 +558,7 @@ export function NavUser() {
                     'text-sidebar-foreground/80 hover:text-sidebar-accent-foreground',
                   )}
                 >
-                  <CodeXml className="h-4 w-4" />
+                  <Github className="h-4 w-4" />
                 </a>
 
                 <button
