@@ -239,3 +239,44 @@ func newTestCustomAdapter() *CustomAdapter {
 		}},
 	}}
 }
+
+type terminalWriteErrorRecorder struct {
+	*httptest.ResponseRecorder
+	afterDone bool
+	sawDone   bool
+	err       error
+}
+
+func (w *terminalWriteErrorRecorder) Write(p []byte) (int, error) {
+	isDone := strings.TrimSpace(string(p)) == "data: [DONE]"
+	if w.sawDone || (isDone && !w.afterDone) {
+		return 0, w.err
+	}
+	w.sawDone = isDone
+	return w.ResponseRecorder.Write(p)
+}
+
+func TestCustomAdapterStreamPreservesTerminalWriteErrors(t *testing.T) {
+	for _, afterDone := range []bool{false, true} {
+		name := "done_line"
+		if afterDone {
+			name = "event_delimiter"
+		}
+		t.Run(name, func(t *testing.T) {
+			writeErr := errors.New("write tcp: broken pipe")
+			writer := &terminalWriteErrorRecorder{ResponseRecorder: httptest.NewRecorder(), afterDone: afterDone, err: writeErr}
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			c := flow.NewCtx(writer, req)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       io.NopCloser(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")),
+			}
+			err := newTestCustomAdapter().handleStreamResponse(c, resp, domain.ClientTypeOpenAI, false)
+			var proxyErr *domain.ProxyError
+			if !errors.As(err, &proxyErr) || !errors.Is(proxyErr.Err, writeErr) || proxyErr.Scope != domain.ScopeRequest {
+				t.Fatalf("terminal write failure was not preserved: %v", err)
+			}
+		})
+	}
+}

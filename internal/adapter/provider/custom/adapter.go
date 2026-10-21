@@ -932,6 +932,12 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 				if lineErr := processStreamLine(line); lineErr != nil {
 					return lineErr
 				}
+				// A fully forwarded [DONE] event ends the SSE stream; the
+				// upstream HTTP response may stay open after this point.
+				if sawTerminalSSEEvent && strings.TrimSpace(line) == "" {
+					sendFinalEvents()
+					return sseError
+				}
 			}
 		}
 
