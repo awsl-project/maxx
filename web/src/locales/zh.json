@@ -900,6 +900,8 @@
     "projectInfo": "项目信息",
     "slug": "标识符",
     "slugPlaceholder": "project-slug",
+    "blockSecrets": "拦截消息中的凭据",
+    "blockSecretsDesc": "发送到上游前，拒绝包含已识别的 API 密钥、令牌或密码的消息和工具结果。不影响认证请求头。仅检查文本，不涵盖所有个人信息。",
     "information": "项目信息",
     "proxyConfig": "代理配置",
     "name": "名称",

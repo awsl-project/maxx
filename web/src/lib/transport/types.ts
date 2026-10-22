@@ -355,6 +355,7 @@ export interface Project {
   name: string;
   slug: string;
   enabledCustomRoutes: ClientType[];
+  blockSecrets?: boolean;
   lastRequestAt?: string;
   lastSuccessfulRequestAt?: string;
   requestCount30d?: number;

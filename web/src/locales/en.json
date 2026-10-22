@@ -903,6 +903,8 @@
     "projectInfo": "Project Information",
     "slug": "Slug",
     "slugPlaceholder": "project-slug",
+    "blockSecrets": "Block credentials in messages",
+    "blockSecretsDesc": "Reject messages and tool results containing recognized API keys, tokens or passwords before sending upstream. Authentication headers are unaffected. Text only; not full personal-data protection.",
     "information": "Project Information",
     "proxyConfig": "Proxy Configuration",
     "name": "Name",

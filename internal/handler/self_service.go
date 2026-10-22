@@ -759,7 +759,7 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		var project domain.Project
+		project := domain.Project{BlockSecrets: existing.BlockSecrets}
 		if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return

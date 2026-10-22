@@ -126,6 +126,7 @@ func (r *ProjectRepository) toModel(p *domain.Project) *Project {
 		Name:                p.Name,
 		Slug:                p.Slug,
 		EnabledCustomRoutes: LongText(toJSON(p.EnabledCustomRoutes)),
+		BlockSecrets:        p.BlockSecrets,
 	}
 }
 
@@ -139,6 +140,7 @@ func (r *ProjectRepository) toDomain(m *Project) *domain.Project {
 		Name:                m.Name,
 		Slug:                m.Slug,
 		EnabledCustomRoutes: fromJSON[[]domain.ClientType](string(m.EnabledCustomRoutes)),
+		BlockSecrets:        m.BlockSecrets,
 	}
 }
 

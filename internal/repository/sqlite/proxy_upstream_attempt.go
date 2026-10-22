@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"gorm.io/gorm"
 )
 
@@ -390,7 +391,7 @@ func (r *ProxyUpstreamAttemptRepository) toModelMeta(a *domain.ProxyUpstreamAtte
 		DurationMs:            a.Duration.Milliseconds(),
 		TTFTMs:                a.TTFT.Milliseconds(),
 		Status:                a.Status,
-		Error:                 LongText(a.Error),
+		Error:                 LongText(privacy.ScrubText(a.Error)),
 		ProxyRequestID:        a.ProxyRequestID,
 		IsStream:              boolToInt(a.IsStream),
 		RequestModel:          a.RequestModel,

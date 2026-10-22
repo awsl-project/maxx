@@ -152,6 +152,9 @@ func (e *Executor) ingress(c *flow.Ctx) {
 		state.ctx = ctx
 	}
 
+	if !e.enforceRequestPrivacy(c, state) {
+		return
+	}
 	c.Next()
 }
 

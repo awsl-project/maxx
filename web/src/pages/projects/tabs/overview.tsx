@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, Input, Button } from '@/components/ui';
+import { Card, CardContent, CardHeader, CardTitle, Input, Button, Switch } from '@/components/ui';
 import { useUpdateProject, projectKeys } from '@/hooks/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Project } from '@/lib/transport';
@@ -16,15 +16,19 @@ export function OverviewTab({ project }: OverviewTabProps) {
   const updateProject = useUpdateProject();
   const [name, setName] = useState(project.name);
   const [slug, setSlug] = useState(project.slug);
+  const [blockSecrets, setBlockSecrets] = useState(project.blockSecrets ?? false);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const hasChanges = name !== project.name || slug !== project.slug;
+  const hasChanges =
+    name !== project.name ||
+    slug !== project.slug ||
+    blockSecrets !== (project.blockSecrets ?? false);
 
   const handleSave = () => {
     updateProject.mutate(
       {
         id: project.id,
-        data: { name, slug, enabledCustomRoutes: project.enabledCustomRoutes },
+        data: { name, slug, enabledCustomRoutes: project.enabledCustomRoutes, blockSecrets },
       },
       {
         onSuccess: () => {
@@ -96,6 +100,23 @@ export function OverviewTab({ project }: OverviewTabProps) {
                 {new Date(project.updatedAt).toLocaleString()}
               </span>
             </div>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+            <div className="space-y-1">
+              <label htmlFor="block-secrets" className="text-sm font-medium text-text-primary">
+                {t('projects.blockSecrets')}
+              </label>
+              <p id="block-secrets-description" className="text-xs text-text-muted">
+                {t('projects.blockSecretsDesc')}
+              </p>
+            </div>
+            <Switch
+              id="block-secrets"
+              aria-describedby="block-secrets-description"
+              checked={blockSecrets}
+              onCheckedChange={setBlockSecrets}
+            />
           </div>
 
           {hasChanges && (
