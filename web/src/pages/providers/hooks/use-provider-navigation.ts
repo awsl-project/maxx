@@ -12,6 +12,7 @@ export const PROVIDER_CREATE_PATHS: Record<ProviderTypeKey, string> = {
   zai: '/providers/create/zai',
   newapi: '/providers/create/newapi',
   ollama: '/providers/create/ollama',
+  'workbuddy-ai': '/providers/create/workbuddy-ai',
   grok: '/providers/create/grok',
   fal: '/providers/create/fal',
 };

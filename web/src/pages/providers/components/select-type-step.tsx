@@ -75,6 +75,19 @@ export function SelectTypeStep() {
             </h3>
             <div className={`grid grid-cols-1 ${gridCols} gap-4 items-start`}>
               <Button
+                onClick={() => handleSelectType('workbuddy-ai')}
+                variant="ghost"
+                className="h-auto w-full rounded-xl border border-border bg-card p-5 text-left hover:bg-muted"
+              >
+                <Bot className="mr-4 size-6 shrink-0 text-provider-workbuddy-ai" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold">{t('addProvider.workbuddyAI.name')}</h3>
+                  <p className="text-sm text-muted-foreground whitespace-normal">
+                    {t('addProvider.workbuddyAI.description')}
+                  </p>
+                </div>
+              </Button>
+              <Button
                 onClick={() => handleSelectType('antigravity')}
                 variant="ghost"
                 className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${

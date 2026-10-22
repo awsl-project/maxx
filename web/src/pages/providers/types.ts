@@ -37,6 +37,7 @@ export type ProviderTypeKey =
   | 'claude'
   | 'openrouter'
   | 'zai'
+  | 'workbuddy-ai'
   | 'grok'
   | 'newapi'
   | 'ollama'
@@ -116,6 +117,14 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('zai'),
     isAccountBased: false,
     getDisplayInfo: () => 'z.ai · GLM',
+  },
+  'workbuddy-ai': {
+    key: 'workbuddy-ai',
+    label: 'WorkBuddy AI',
+    icon: Bot,
+    color: getProviderColorVar('workbuddy-ai'),
+    isAccountBased: true,
+    getDisplayInfo: (p) => p.config?.workbuddyAI?.uid || 'WorkBuddy AI',
   },
   grok: {
     key: 'grok',
@@ -365,6 +374,7 @@ export type ProviderFormData = {
     | 'claude'
     | 'openrouter'
     | 'zai'
+    | 'workbuddy-ai'
     | 'grok'
     | 'newapi'
     | 'ollama'

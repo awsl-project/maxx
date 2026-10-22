@@ -93,6 +93,11 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 			components.SelfServiceHandler,
 		)
 	}
+	if s.config.AuthMiddleware != nil {
+		handler.RegisterWorkBuddyAIRoutes(mux, s.config.AuthMiddleware.Wrap, handler.NewWorkBuddyAIHandler().SetAdminService(components.AdminService))
+	} else {
+		handler.RegisterWorkBuddyAIRoutes(mux, handler.NoAuthMiddleware, handler.NewWorkBuddyAIHandler().SetAdminService(components.AdminService))
+	}
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
 	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))

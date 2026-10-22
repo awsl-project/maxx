@@ -1,0 +1,216 @@
+import { useRef, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/layout/page-header';
+import { useCreateProvider, useUpdateProvider } from '@/hooks/queries';
+import { getTransport } from '@/lib/transport';
+import type { Provider, CreateProviderData } from '@/lib/transport';
+import type { WorkBuddyAIConfig, WorkBuddyAIAuthStartResult } from '@/lib/transport/types';
+
+export function safeWorkBuddyLoginURL(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveWorkBuddyConfig(
+  existing: WorkBuddyAIConfig | undefined,
+  current: WorkBuddyAIConfig,
+  replaced: boolean,
+): WorkBuddyAIConfig {
+  return replaced ? { ...current } : { ...existing, ...current };
+}
+
+export function WorkBuddyAIForm({
+  provider,
+  onClose,
+}: {
+  provider?: Provider;
+  onClose?: () => void;
+}) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const create = useCreateProvider();
+  const update = useUpdateProvider();
+  const [name, setName] = useState(provider?.name || 'WorkBuddy AI');
+  // Existing secrets are write-only: omit unchanged credentials on update.
+  const [config, setConfig] = useState<WorkBuddyAIConfig>({});
+  const [replaced, setReplaced] = useState(false);
+  const effectiveConfig = resolveWorkBuddyConfig(provider?.config?.workbuddyAI, config, replaced);
+  const [session, setSession] = useState<WorkBuddyAIAuthStartResult | null>(null);
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  const close = () => (onClose ? onClose() : navigate('/providers'));
+  const key = (s: string) => t('addProvider.workbuddyAI.' + s);
+  const start = async () => {
+    setBusy(true);
+    setStatus('');
+    setSession(null);
+    try {
+      const result = await getTransport().startWorkBuddyAIAuth();
+      const url = safeWorkBuddyLoginURL(result.url);
+      if (!url) throw new Error('invalid URL');
+      if (active.current) {
+        setSession({ ...result, url });
+        setStatus('pending');
+      }
+    } catch {
+      if (active.current) setStatus('error');
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  };
+  const poll = async () => {
+    if (!session) return;
+    setBusy(true);
+    try {
+      const result = await getTransport().pollWorkBuddyAIAuth(session.state);
+      if (!active.current) return;
+      if (result.status === 'authorized' && result.config) {
+        setConfig(result.config);
+        setReplaced(true);
+        setSession(null);
+        setStatus('authorized');
+      } else {
+        setStatus(result.status === 'authorized' ? 'error' : result.status);
+        if (result.status !== 'pending') setSession(null);
+      }
+    } catch {
+      if (active.current) setStatus('error');
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  };
+  const discover = async () => {
+    setBusy(true);
+    try {
+      const result = await getTransport().getWorkBuddyAIModels({
+        ...effectiveConfig,
+        providerID: !config.accessToken ? provider?.id : undefined,
+      });
+      if (!active.current) return;
+      setModels(result.models);
+      if ('config' in result && result.config) setConfig(result.config as WorkBuddyAIConfig);
+    } catch {
+      if (active.current) setStatus('error');
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  };
+  const save = async () => {
+    setBusy(true);
+    try {
+      const data: CreateProviderData = {
+        ...provider,
+        type: 'workbuddy-ai',
+        name: name.trim(),
+        config: {
+          ...provider?.config,
+          workbuddyAI: effectiveConfig,
+        },
+      };
+      if (provider) await update.mutateAsync({ id: provider.id, data });
+      else await create.mutateAsync(data);
+      close();
+    } catch {
+      setStatus('error');
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  };
+  return (
+    <div className="flex h-full flex-col">
+      <PageHeader title={key('name')} description={key('description')}>
+        <Button variant="secondary" onClick={close}>
+          {t('common.cancel')}
+        </Button>
+        <Button
+          onClick={save}
+          disabled={
+            busy || !name.trim() || (!provider && !config.accessToken && !config.refreshToken)
+          }
+        >
+          {t('common.save')}
+        </Button>
+      </PageHeader>
+      <div className="mx-auto w-full max-w-3xl space-y-6 overflow-y-auto p-6">
+        <div className="space-y-2">
+          <label htmlFor="workbuddy-name">{t('provider.name')}</label>
+          <Input id="workbuddy-name" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="space-y-3 rounded-xl border border-border p-4">
+          <Button onClick={start} disabled={busy}>
+            {key('login')}
+          </Button>
+          {session && (
+            <div className="space-y-3">
+              <a
+                className="block break-all text-primary underline"
+                href={session.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {key('openLogin')}
+              </a>
+              <Button onClick={poll} disabled={busy}>
+                {key('check')}
+              </Button>
+            </div>
+          )}
+          {status && <p role="status">{key(status)}</p>}
+        </div>
+        <div className="space-y-2">
+          <Button onClick={discover} disabled={busy || (!provider && !config.accessToken)}>
+            {key('discoverModels')}
+          </Button>
+          {models.length > 0 && <p role="status">{models.join(', ')}</p>}
+        </div>
+        <p className="text-sm text-muted-foreground">{key('secretHint')}</p>
+        {(
+          ['accessToken', 'refreshToken', 'domain', 'uid', 'enterpriseId', 'tokenType'] as const
+        ).map((field) => (
+          <div className="space-y-2" key={field}>
+            <label htmlFor={'workbuddy-' + field}>{key(field)}</label>
+            <Input
+              id={'workbuddy-' + field}
+              type={field.endsWith('Token') ? 'password' : 'text'}
+              autoComplete="off"
+              value={config[field] ?? (field.endsWith('Token') ? '' : effectiveConfig[field] || '')}
+              onChange={(e) => setConfig({ ...config, [field]: e.target.value || undefined })}
+            />
+          </div>
+        ))}
+        {(['expiresAt', 'refreshExpiresAt'] as const).map((field) => (
+          <div className="space-y-2" key={field}>
+            <label htmlFor={'workbuddy-' + field}>{key(field)}</label>
+            <Input
+              id={'workbuddy-' + field}
+              type="number"
+              min="0"
+              value={effectiveConfig[field] ?? ''}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  [field]: e.target.value ? Number(e.target.value) : undefined,
+                })
+              }
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

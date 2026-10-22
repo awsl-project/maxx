@@ -2312,6 +2312,28 @@
       "email": "邮箱",
       "baseURL": "Base URL",
       "secretWriteOnlyHint": "OAuth token 在这里按只写处理。表单提交空 token 字段时，后端会保留已保存的 access/refresh/id token。"
+    },
+    "workbuddyAI": {
+      "name": "WorkBuddy AI（国际版）",
+      "description": "通过浏览器登录连接 WorkBuddy 国际版账号。",
+      "login": "开始浏览器登录",
+      "openLogin": "打开登录页面",
+      "check": "检查授权",
+      "pending": "等待授权，请完成登录后再次检查。",
+      "authorized": "授权成功，保存以连接账号。",
+      "expired": "登录已过期，请重新开始。",
+      "denied": "授权被拒绝，请重新开始。",
+      "error": "请求未完成，请重试。",
+      "secretHint": "编辑时留空凭据可保留原有值。",
+      "accessToken": "访问令牌",
+      "refreshToken": "刷新令牌",
+      "expiresAt": "访问令牌过期时间（Unix 毫秒）",
+      "refreshExpiresAt": "刷新令牌过期时间（Unix 毫秒）",
+      "domain": "域名",
+      "uid": "用户 ID",
+      "enterpriseId": "企业 ID",
+      "tokenType": "令牌类型",
+      "discoverModels": "获取可用模型"
     }
   },
   "modelMapping": {

@@ -17,6 +17,7 @@ import (
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/grok"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/newapi"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/ollama"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/workbuddyai"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/coordinator"
