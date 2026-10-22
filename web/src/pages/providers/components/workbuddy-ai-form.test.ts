@@ -1,10 +1,27 @@
 import { describe, it, expect, vi } from 'vitest';
-import { safeWorkBuddyLoginURL } from './workbuddy-ai-form';
+import { resolveWorkBuddyConfig, safeWorkBuddyLoginURL } from './workbuddy-ai-form';
 import { HttpTransport } from '@/lib/transport/http-transport';
 import { getProviderCreatePath } from '../hooks/use-provider-navigation';
 import { getKnownProviderTypeKey } from '../types';
 
 describe('WorkBuddy international', () => {
+  it('replaces enterprise metadata with the complete new personal authorization', () => {
+    const old = {
+      accessToken: 'old',
+      refreshToken: 'old-refresh',
+      enterpriseId: 'old-team',
+      domain: 'old-domain',
+      tokenType: 'old-type',
+      refreshExpiresAt: 1,
+    };
+    const current = { accessToken: 'new', uid: 'personal' };
+    expect(resolveWorkBuddyConfig(old, current, true)).toEqual(current);
+    expect(resolveWorkBuddyConfig(old, {}, false)).toEqual(old);
+    expect(resolveWorkBuddyConfig(old, { uid: 'edited' }, false)).toEqual({
+      ...old,
+      uid: 'edited',
+    });
+  });
   it('uses a first-class provider creation path', () => {
     expect(getKnownProviderTypeKey('workbuddy-ai')).toBe('workbuddy-ai');
     expect(getProviderCreatePath('workbuddy-ai')).toBe('/providers/create/workbuddy-ai');

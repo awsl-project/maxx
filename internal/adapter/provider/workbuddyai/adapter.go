@@ -69,9 +69,8 @@ func (a *Adapter) Execute(c *flow.Ctx, p *domain.Provider) error {
 	if err != nil {
 		return err
 	}
-	cfg := p.Config.WorkBuddyAI
 	// Authentication refresh/persistence is shared with the login client.
-	cfg, err = a.freshCredentials(c.Request.Context(), p)
+	cfg, err := a.freshCredentials(c.Request.Context(), p)
 	if err != nil {
 		return upstreamError(err.Error(), 401)
 	}

@@ -42,7 +42,10 @@ func NewWorkBuddyAIHandler(clients ...*workbuddyai.Client) *WorkBuddyAIHandler {
 func (h *WorkBuddyAIHandler) SetAdminService(s interface {
 	GetProvider(uint64, uint64) (*domain.Provider, error)
 	UpdateProvider(uint64, *domain.Provider) error
-}) *WorkBuddyAIHandler { h.admin = s; return h }
+}) *WorkBuddyAIHandler {
+	h.admin = s
+	return h
+}
 func RegisterWorkBuddyAIRoutes(mux *http.ServeMux, wrap func(http.Handler) http.Handler, h *WorkBuddyAIHandler) {
 	mux.Handle("/api/admin/workbuddy-ai/", wrap(h))
 }
@@ -192,7 +195,11 @@ func (h *WorkBuddyAIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, model := range models {
 			ids = append(ids, model.ID)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"models": ids, "config": a})
+		response := map[string]any{"models": ids}
+		if saved == nil || (!saved.BlackBox && !saved.ExcludeFromExport) {
+			response["config"] = a
+		}
+		json.NewEncoder(w).Encode(response)
 	default:
 		http.NotFound(w, r)
 	}

@@ -6,7 +6,7 @@ Use **Discover available models** to query the account’s `/v3/config` CLI mode
 
 The upstream is `https://www.workbuddy.ai/v2/chat/completions` and always receives `stream: true`. maxx forwards streaming replies and aggregates text/tool deltas for non-streaming callers. Other client protocols use maxx’s existing executor conversion. Only chat completions are supported natively; images/audio/Responses endpoints are not native capabilities.
 
-Refresh is demand-driven with concurrent renewal sharing, short-lived old-token result reuse, and copy-on-write persistence through the router provider-update callback. There is no check-in or points scheduler.
+Refresh is demand-driven with concurrent renewal sharing, short-lived old-token result reuse, and copy-on-write persistence through the router provider-update callback. There is no check-in or points scheduler. Login sessions and refresh sharing are process-local: pin browser login start/poll to one instance and keep each WorkBuddy account on a single credential-refresh owner. Concurrent rotation of shared credentials across independent instances is not coordinated by a distributed lock and is not supported.
 
 User/system content and tool history are preserved. The adapter does not rewrite identities or move system prompts to bypass upstream channel restrictions. Upstream `unapproved channel`, policy, authentication, and quota errors remain failures; the adapter does not repeatedly retry restricted accounts.
 

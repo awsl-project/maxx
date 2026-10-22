@@ -18,6 +18,14 @@ export function safeWorkBuddyLoginURL(value: string): string | null {
   }
 }
 
+export function resolveWorkBuddyConfig(
+  existing: WorkBuddyAIConfig | undefined,
+  current: WorkBuddyAIConfig,
+  replaced: boolean,
+): WorkBuddyAIConfig {
+  return replaced ? { ...current } : { ...existing, ...current };
+}
+
 export function WorkBuddyAIForm({
   provider,
   onClose,
@@ -32,6 +40,8 @@ export function WorkBuddyAIForm({
   const [name, setName] = useState(provider?.name || 'WorkBuddy AI');
   // Existing secrets are write-only: omit unchanged credentials on update.
   const [config, setConfig] = useState<WorkBuddyAIConfig>({});
+  const [replaced, setReplaced] = useState(false);
+  const effectiveConfig = resolveWorkBuddyConfig(provider?.config?.workbuddyAI, config, replaced);
   const [session, setSession] = useState<WorkBuddyAIAuthStartResult | null>(null);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -71,6 +81,7 @@ export function WorkBuddyAIForm({
       if (!active.current) return;
       if (result.status === 'authorized' && result.config) {
         setConfig(result.config);
+        setReplaced(true);
         setSession(null);
         setStatus('authorized');
       } else {
@@ -87,8 +98,7 @@ export function WorkBuddyAIForm({
     setBusy(true);
     try {
       const result = await getTransport().getWorkBuddyAIModels({
-        ...provider?.config?.workbuddyAI,
-        ...config,
+        ...effectiveConfig,
         providerID: !config.accessToken ? provider?.id : undefined,
       });
       if (!active.current) return;
@@ -109,7 +119,7 @@ export function WorkBuddyAIForm({
         name: name.trim(),
         config: {
           ...provider?.config,
-          workbuddyAI: { ...provider?.config?.workbuddyAI, ...config },
+          workbuddyAI: effectiveConfig,
         },
       };
       if (provider) await update.mutateAsync({ id: provider.id, data });
@@ -178,10 +188,7 @@ export function WorkBuddyAIForm({
               id={'workbuddy-' + field}
               type={field.endsWith('Token') ? 'password' : 'text'}
               autoComplete="off"
-              value={
-                config[field] ??
-                (field.endsWith('Token') ? '' : provider?.config?.workbuddyAI?.[field] || '')
-              }
+              value={config[field] ?? (field.endsWith('Token') ? '' : effectiveConfig[field] || '')}
               onChange={(e) => setConfig({ ...config, [field]: e.target.value || undefined })}
             />
           </div>
@@ -193,7 +200,7 @@ export function WorkBuddyAIForm({
               id={'workbuddy-' + field}
               type="number"
               min="0"
-              value={config[field] ?? provider?.config?.workbuddyAI?.[field] ?? ''}
+              value={effectiveConfig[field] ?? ''}
               onChange={(e) =>
                 setConfig({
                   ...config,
