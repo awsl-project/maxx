@@ -81,6 +81,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 		Name:                "Project One",
 		Slug:                "project-one",
 		EnabledCustomRoutes: []domain.ClientType{domain.ClientTypeOpenAI},
+		BlockSecrets:        true,
 	}
 	if err := projectRepo.Create(project); err != nil {
 		t.Fatalf("seed project: %v", err)
@@ -219,6 +220,10 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	if len(roundtrip.Data.APITokens) != 1 {
 		t.Fatalf("apiTokens count = %d, want 1", len(roundtrip.Data.APITokens))
 	}
+	if !roundtrip.Data.Projects[0].BlockSecrets {
+		t.Fatal("project privacy policy lost during backup roundtrip")
+	}
+
 	if roundtrip.Data.APITokens[0].Token != "maxx_test_token_abc" {
 		t.Fatalf("api token not restored, got %q", roundtrip.Data.APITokens[0].Token)
 	}

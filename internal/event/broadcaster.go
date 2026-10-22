@@ -1,6 +1,9 @@
 package event
 
-import "github.com/awsl-project/maxx/internal/domain"
+import (
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
+)
 
 const UserPanelConsumptionLeaderboardDirtyEvent = "user_panel_consumption_leaderboard_dirty"
 
@@ -32,10 +35,11 @@ func SanitizeProxyRequestForBroadcast(req *domain.ProxyRequest) *domain.ProxyReq
 		return nil
 	}
 	// 已经是瘦身后的对象，避免重复拷贝（高频场景会产生额外 GC 压力）
-	if req.RequestInfo == nil && req.ResponseInfo == nil {
+	if req.RequestInfo == nil && req.ResponseInfo == nil && privacy.Detect(req.Error) == "" {
 		return req
 	}
 	copied := *req
+	copied.Error = privacy.ScrubText(req.Error)
 	copied.RequestInfo = nil
 	copied.ResponseInfo = nil
 	return &copied
@@ -47,10 +51,11 @@ func SanitizeProxyUpstreamAttemptForBroadcast(attempt *domain.ProxyUpstreamAttem
 		return nil
 	}
 	// 已经是瘦身后的对象，避免重复拷贝（高频场景会产生额外 GC 压力）
-	if attempt.RequestInfo == nil && attempt.ResponseInfo == nil {
+	if attempt.RequestInfo == nil && attempt.ResponseInfo == nil && privacy.Detect(attempt.Error) == "" {
 		return attempt
 	}
 	copied := *attempt
+	copied.Error = privacy.ScrubText(attempt.Error)
 	copied.RequestInfo = nil
 	copied.ResponseInfo = nil
 	return &copied

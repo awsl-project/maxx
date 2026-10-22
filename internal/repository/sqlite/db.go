@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -224,6 +225,7 @@ func requestInfoJSON(info *domain.RequestInfo) string {
 	}
 	redacted := *info
 	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
+	redacted.Body = privacy.ScrubBody(info.Body)
 	return toJSON(&redacted)
 }
 
@@ -234,5 +236,6 @@ func responseInfoJSON(info *domain.ResponseInfo) string {
 	}
 	redacted := *info
 	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
+	redacted.Body = privacy.ScrubBody(info.Body)
 	return toJSON(&redacted)
 }

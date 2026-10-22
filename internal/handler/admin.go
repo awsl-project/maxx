@@ -842,7 +842,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
 		}
-		var project domain.Project
+		project := domain.Project{BlockSecrets: existing.BlockSecrets}
 		if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return

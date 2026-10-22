@@ -50,6 +50,7 @@ type BackupProject struct {
 	Name                string       `json:"name"`
 	Slug                string       `json:"slug"`
 	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes,omitempty"`
+	BlockSecrets        bool         `json:"blockSecrets,omitempty"`
 }
 
 // BackupRetryConfig represents a retry config for backup
