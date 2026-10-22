@@ -224,7 +224,7 @@ export function NewApiProviderView({ provider, onDelete, onClose }: NewApiProvid
                         ? t('provider.keyPoolPlaceholderWriteOnly')
                         : t('provider.openAIKeyPoolPlaceholder')
                     }
-                    className="w-full resize-none overflow-y-auto pr-10 font-mono text-xs"
+                    className={`w-full resize-none overflow-y-auto pr-10 font-mono text-xs ${showApiKey && !secretsAreWriteOnly ? '[-webkit-text-security:none]' : '[-webkit-text-security:disc]'}`}
                     style={{ minHeight: '2.25rem', maxHeight: '4.125rem' }}
                   />
                   {!secretsAreWriteOnly && (

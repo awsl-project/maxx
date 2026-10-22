@@ -347,7 +347,7 @@ export function CustomConfigStep() {
                           ? t('provider.keyPlaceholderOptional')
                           : t('provider.openAIKeyPoolPlaceholder')
                       }
-                      className="w-full resize-none overflow-y-auto pr-10 font-mono text-xs"
+                      className={`w-full resize-none overflow-y-auto pr-10 font-mono text-xs ${showApiKey ? '[-webkit-text-security:none]' : '[-webkit-text-security:disc]'}`}
                       style={{ minHeight: '2.25rem', maxHeight: '4.125rem' }}
                     />
                     <button
