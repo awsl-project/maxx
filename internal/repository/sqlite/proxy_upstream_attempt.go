@@ -149,16 +149,21 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 	return nil
 }
 
-// MarkStaleAttemptsFailed marks all IN_PROGRESS/PENDING attempts belonging to stale requests as FAILED
-// This should be called after MarkStaleAsFailed on proxy_requests to clean up orphaned attempts
-// Sets proper end_time and duration_ms for complete failure handling
+// MarkStaleAttemptsFailed finalizes IN_PROGRESS/PENDING attempts belonging to
+// stale requests after MarkStaleAsFailed. Attempts inherit the parent terminal
+// status so dead-instance orphans are CANCELLED while hard-stuck live-instance
+// attempts remain FAILED.
 func (r *ProxyUpstreamAttemptRepository) MarkStaleAttemptsFailed() (int64, error) {
 	now := time.Now().UnixMilli()
 
-	// Update attempts that belong to FAILED requests but are still in progress
+	// Update attempts that belong to terminal stale requests but are still in progress.
 	result := r.db.gorm.Exec(`
 		UPDATE proxy_upstream_attempts
-		SET status = 'FAILED',
+		SET status = (
+		        SELECT proxy_requests.status
+		        FROM proxy_requests
+		        WHERE proxy_requests.id = proxy_upstream_attempts.proxy_request_id
+		    ),
 		    end_time = ?,
 		    duration_ms = CASE
 		        WHEN start_time > 0 THEN ? - start_time
@@ -167,7 +172,7 @@ func (r *ProxyUpstreamAttemptRepository) MarkStaleAttemptsFailed() (int64, error
 		    updated_at = ?
 		WHERE status IN ('PENDING', 'IN_PROGRESS')
 		  AND proxy_request_id IN (
-		      SELECT id FROM proxy_requests WHERE status = 'FAILED'
+		      SELECT id FROM proxy_requests WHERE status IN ('FAILED', 'CANCELLED')
 		  )`,
 		now, now, now,
 	)
