@@ -678,6 +678,20 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 				incoming.Config.Fal.APIKey = existing.Config.Fal.APIKey
 			}
 		}
+	case "workbuddy-ai":
+		if existing.Config.WorkBuddyAI != nil {
+			if incoming.Config.WorkBuddyAI == nil {
+				wb := *existing.Config.WorkBuddyAI
+				incoming.Config.WorkBuddyAI = &wb
+			} else {
+				if incoming.Config.WorkBuddyAI.AccessToken == "" {
+					incoming.Config.WorkBuddyAI.AccessToken = existing.Config.WorkBuddyAI.AccessToken
+				}
+				if incoming.Config.WorkBuddyAI.RefreshToken == "" && incoming.Config.WorkBuddyAI.AccessToken == existing.Config.WorkBuddyAI.AccessToken {
+					incoming.Config.WorkBuddyAI.RefreshToken = existing.Config.WorkBuddyAI.RefreshToken
+				}
+			}
+		}
 	case "grok":
 		if existing.Config.Grok != nil {
 			if incoming.Config.Grok == nil {

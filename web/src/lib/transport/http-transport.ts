@@ -1034,6 +1034,20 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async startWorkBuddyAIAuth(): Promise<import('./types').WorkBuddyAIAuthStartResult> {
+    const { data } = await this.adminClient.post('/workbuddy-ai/auth/start');
+    return data;
+  }
+  async pollWorkBuddyAIAuth(state: string): Promise<import('./types').WorkBuddyAIAuthPollResult> {
+    const { data } = await this.adminClient.post('/workbuddy-ai/auth/poll', { state });
+    return data;
+  }
+  async getWorkBuddyAIModels(
+    config: import('./types').WorkBuddyAIConfig & { providerID?: number },
+  ): Promise<{ models: string[] }> {
+    const { data } = await this.adminClient.post('/workbuddy-ai/models', config);
+    return data;
+  }
   // ===== Grok API =====
 
   async startGrokOAuth(): Promise<import('./types').GrokOAuthStartResult> {

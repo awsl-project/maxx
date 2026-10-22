@@ -98,6 +98,7 @@ input[type='password']::-webkit-credentials-auto-fill-button {
   --provider-claude: oklch(0.65 0.15 28); /* Anthropic 橙色/珊瑚色 */
   --provider-openrouter: oklch(0.58 0.19 277); /* #6366F1 靛蓝色 */
   --provider-zai: oklch(0.6 0.16 250); /* z.ai / 智谱 GLM 蓝色 */
+  --provider-workbuddy-ai: oklch(0.65 0.15 210);
   --provider-grok: oklch(0.62 0.18 285); /* xAI/Grok 紫色 */
   --provider-newapi: oklch(0.62 0.17 230); /* new-api/one-api 蓝色 */
   --provider-ollama: oklch(0.55 0.02 260); /* Ollama 石墨灰 */
@@ -389,6 +390,7 @@ input[type='password']::-webkit-credentials-auto-fill-button {
   --color-provider-claude: var(--provider-claude);
   --color-provider-openrouter: var(--provider-openrouter);
   --color-provider-zai: var(--provider-zai);
+  --color-provider-workbuddy-ai: var(--provider-workbuddy-ai);
   --color-provider-grok: var(--provider-grok);
   --color-provider-newapi: var(--provider-newapi);
   --color-provider-ollama: var(--provider-ollama);

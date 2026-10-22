@@ -2395,6 +2395,12 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		zai.APIKey = ""
 		config.Zai = &zai
 	}
+	if config.WorkBuddyAI != nil {
+		wb := *config.WorkBuddyAI
+		wb.AccessToken = ""
+		wb.RefreshToken = ""
+		config.WorkBuddyAI = &wb
+	}
 	if config.Grok != nil {
 		grok := *config.Grok
 		grok.AccessToken = ""

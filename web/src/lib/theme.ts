@@ -23,6 +23,7 @@ export type ProviderType =
   | 'claude'
   | 'openrouter'
   | 'zai'
+  | 'workbuddy-ai'
   | 'grok'
   | 'newapi'
   | 'ollama'

@@ -4,6 +4,7 @@ import { SelectTypeStep } from './components/select-type-step';
 import { AntigravityTokenImport } from './components/antigravity-token-import';
 import { KiroTokenImport } from './components/kiro-token-import';
 import { CodexTokenImport } from './components/codex-token-import';
+import { WorkBuddyAIForm } from './components/workbuddy-ai-form';
 import { GrokTokenImport } from './components/grok-token-import';
 import { ClaudeTokenImport } from './components/claude-token-import';
 import { CustomConfigStep } from './components/custom-config-step';
@@ -29,6 +30,7 @@ export function ProviderCreateLayout() {
         <Route path="antigravity" element={<AntigravityTokenImport />} />
         <Route path="kiro" element={<KiroTokenImport />} />
         <Route path="codex" element={<CodexTokenImport />} />
+        <Route path="workbuddy-ai" element={<WorkBuddyAIForm />} />
         <Route path="grok" element={<GrokTokenImport />} />
         <Route path="claude" element={<ClaudeTokenImport />} />
       </Routes>

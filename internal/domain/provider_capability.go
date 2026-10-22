@@ -33,7 +33,7 @@ func CanonicalSupportedClientTypes(providerType string, configured []ClientType)
 			return []ClientType{ClientTypeClaude, ClientTypeOpenAI, ClientTypeCodex}
 		}
 
-	case "grok":
+	case "grok", "workbuddy-ai":
 		return []ClientType{ClientTypeOpenAI}
 
 	case "fal":

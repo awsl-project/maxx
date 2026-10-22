@@ -144,6 +144,25 @@ export interface ProviderConfigFal {
   apiKey: string;
 }
 
+export interface WorkBuddyAIConfig {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  refreshExpiresAt?: number;
+  domain?: string;
+  uid?: string;
+  enterpriseId?: string;
+  tokenType?: string;
+}
+export interface WorkBuddyAIAuthStartResult {
+  state: string;
+  url: string;
+  expiresAt: number;
+}
+export interface WorkBuddyAIAuthPollResult {
+  status: 'pending' | 'authorized' | 'expired' | 'denied' | 'error';
+  config?: WorkBuddyAIConfig;
+}
 export interface ProviderConfigGrok {
   type?: 'xai';
   authKind?: 'oauth';
@@ -293,6 +312,7 @@ export interface ProviderConfig {
   openrouter?: ProviderConfigOpenRouter;
   zai?: ProviderConfigZai;
   fal?: ProviderConfigFal;
+  workbuddyAI?: WorkBuddyAIConfig;
   grok?: ProviderConfigGrok;
 }
 

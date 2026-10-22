@@ -51,6 +51,7 @@ import { ZaiProviderView } from './zai-provider-view';
 import { FalProviderView } from './fal-provider-view';
 import { NewApiProviderView } from './newapi-provider-view';
 import { OllamaProviderView } from './ollama-provider-view';
+import { WorkBuddyAIForm } from './workbuddy-ai-form';
 import { GrokProviderView } from './grok-provider-view';
 import { ProviderModelMappings } from './provider-model-mappings';
 import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
@@ -1122,6 +1123,9 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       </>
     );
   }
+
+  if (provider.type === 'workbuddy-ai')
+    return <WorkBuddyAIForm provider={provider} onClose={onClose} />;
 
   // Grok provider
   if (provider.type === 'grok') {

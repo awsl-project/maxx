@@ -299,6 +299,11 @@ export interface Transport {
   exchangeClaudeOAuthCallback(code: string, state: string): Promise<ClaudeOAuthResult>;
   refreshClaudeProviderInfo(providerId: number): Promise<ClaudeTokenValidationResult>;
 
+  startWorkBuddyAIAuth(): Promise<import('./types').WorkBuddyAIAuthStartResult>;
+  pollWorkBuddyAIAuth(state: string): Promise<import('./types').WorkBuddyAIAuthPollResult>;
+  getWorkBuddyAIModels(
+    config: import('./types').WorkBuddyAIConfig & { providerID?: number },
+  ): Promise<{ models: string[] }>;
   // ===== Grok API =====
   startGrokOAuth(): Promise<GrokOAuthStartResult>;
   pollGrokOAuth(sessionID: string): Promise<GrokOAuthPollResult>;

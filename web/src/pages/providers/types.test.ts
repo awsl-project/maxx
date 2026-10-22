@@ -17,6 +17,7 @@ describe('provider type helpers', () => {
       'bedrock',
       'openrouter',
       'zai',
+      'workbuddy-ai',
       'grok',
       'newapi',
       'ollama',
