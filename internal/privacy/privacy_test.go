@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"mime/multipart"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestCredentialRules(t *testing.T) {
 	jwt := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256"}`)) + "." +
 		base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"test"}`)) + "." + strings.Repeat("test", 4)
 
-	for _, secret := range []string{testKey, "ghp_abcdefghijklmnopqrstuvwxyz123456", "github_pat_abcdefghijklmnopqrstuvwxyz123456", "AKIAIOSFODNN7EXAMPLE", jwt, "-----BEGIN PRIVATE KEY-----\nprivate material\n-----END PRIVATE KEY-----", "API_KEY=example_example_example", "postgres://user:secret123@db.local/db"} {
+	for _, secret := range []string{testKey, "ghp_abcdefghijklmnopqrstuvwxyz123456", "github_pat_" + strings.Repeat("test", 10), "AKIAIOSFODNN7EXAMPLE", jwt, "-----BEGIN PRIVATE KEY-----\nprivate material\n-----END PRIVATE KEY-----", "API_KEY=example_example_example", "postgres://user:secret123@db.local/db"} {
 		t.Run(secret[:8], func(t *testing.T) {
 			if Detect(secret) == "" {
 				t.Fatal("credential missed")
@@ -197,5 +198,166 @@ func TestCodeReferenceDoesNotHideALaterCredential(t *testing.T) {
 	}
 	if got := ScrubText(text); !strings.Contains(got, `password=os.getenv("X")`) || strings.Contains(got, "example_example_example") {
 		t.Fatalf("wrong replacement: %s", got)
+	}
+}
+
+func TestPasswordPunctuation(t *testing.T) {
+	for _, text := range []string{
+		`password="abc;Example456"`, `password=Abcd$efg123`, `password="tiny"`, `password="abc;Example456`,
+		`password="ab'cd;Example456"`, `password="abc\";Example456"`,
+		`password='abc;Example456'`,
+	} {
+		if Detect(text) == "" {
+			t.Errorf("credential missed: %s", text)
+		}
+		if got := ScrubText(text); strings.Contains(got, "tiny") {
+			t.Errorf("short quoted password left behind: %s", got)
+		}
+		if got := ScrubText(text); strings.Contains(got, "Example456") || strings.Contains(got, "Abcd$efg123") {
+			t.Errorf("credential left behind: %s", got)
+		}
+		body, _ := json.Marshal(map[string]any{"input": text})
+		if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+			t.Errorf("credential forwarded: %s %v", kind, err)
+		}
+		if got := ScrubBody(string(body)); strings.Contains(got, "Example456") || strings.Contains(got, "Abcd$efg123") {
+			t.Errorf("archive contains credential: %s", got)
+		}
+	}
+}
+
+func TestAdditionalCredentialFormats(t *testing.T) {
+	for _, secret := range []string{
+		"xoxb-" + strings.Repeat("test", 8),
+		"sk_live_" + strings.Repeat("test", 8),
+		"hf_" + strings.Repeat("test", 8),
+		"gsk_" + strings.Repeat("test", 10),
+		"xai-" + strings.Repeat("test", 10),
+		"npm_" + strings.Repeat("test", 9),
+		"pypi-" + strings.Repeat("test", 13),
+		"dop_v1_" + strings.Repeat("abcd", 16),
+		"SG." + strings.Repeat("a", 22) + "." + strings.Repeat("b", 43),
+		"AWS_SECRET_ACCESS_KEY=example_example_example",
+		"AZURE_OPENAI_API_KEY=example_example_example",
+	} {
+		if Detect(secret) == "" || ScrubText(secret) == secret {
+			t.Errorf("credential format missed: %s", secret)
+		}
+	}
+	for _, field := range []string{"aws_secret_access_key", "awsSessionToken", "db_password", "token", "AZURE_OPENAI_API_KEY"} {
+		body, _ := json.Marshal(map[string]any{"input": map[string]any{field: "tiny"}})
+		if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+			t.Errorf("credential field missed: %s", field)
+		}
+		if strings.Contains(ScrubBody(string(body)), "tiny") {
+			t.Errorf("credential field not scrubbed: %s", field)
+		}
+	}
+}
+
+func TestArchiveURLAndHeaderCredentials(t *testing.T) {
+	for _, raw := range []string{
+		"https://alice:tiny@example.com/v1?api_key=tiny&safe=hello",
+		"/v1/chat/completions?key=tiny&key=other&max_tokens=123&safe=hello",
+		"/v1?access_token=%74%69%6e%79&safe=hello",
+		"/v1?debug=" + testKey + "&safe=hello",
+	} {
+		cleaned := ScrubURL(raw)
+		if _, err := url.Parse(cleaned); err != nil {
+			t.Errorf("invalid archived URL: %s", cleaned)
+		}
+		if got := ScrubURL(cleaned); got != cleaned {
+			t.Errorf("URL scrubbing not idempotent: %s", got)
+		}
+		if strings.Contains(cleaned, "tiny") || strings.Contains(cleaned, "other") || strings.Contains(cleaned, testKey) || !strings.Contains(cleaned, "safe=hello") {
+			t.Errorf("unsafe/unusable URL: %s", cleaned)
+		}
+	}
+	safe := "/v1?b=a%20b&a=1&max_tokens=123"
+	if ScrubURL(safe) != safe || ScrubURL("") != "" {
+		t.Fatal("credential-free URL changed")
+	}
+	for _, raw := range []string{"http://[broken", "/v1?api_key=tiny;unsafe"} {
+		if ScrubURL(raw) != Redacted {
+			t.Fatal("malformed credential URL retained")
+		}
+	}
+	for _, name := range []string{"X-Service-Secret", "X-Session-Token", "X-Database-Password", "X-Service-Api-Key", "Authorization", "Cookie"} {
+		if got := ScrubHeader(name, "tiny"); got != Redacted {
+			t.Errorf("header credential not scrubbed: %s", name)
+		}
+	}
+	if got := ScrubHeader("X-Debug", testKey); got != Redacted {
+		t.Fatal("credential in ordinary header missed")
+	}
+	if got := ScrubHeader("Content-Type", "application/json"); got != "application/json" {
+		t.Fatal("ordinary header changed")
+	}
+}
+
+func TestArchivePreservesOpaqueMediaAndScrubsSurroundingText(t *testing.T) {
+	media := "data:image/png;base64," + "AKIAIOSFODNN7EXAMPLE"
+	body, _ := json.Marshal(map[string]any{"messages": []any{map[string]any{"content": []any{
+		map[string]any{"type": "image_url", "image_url": map[string]any{"url": media}},
+		map[string]any{"type": "text", "text": testKey},
+	}}}})
+	got := ScrubBody(string(body))
+	if !strings.Contains(got, media) || strings.Contains(got, testKey) {
+		t.Fatalf("media corrupted or text not scrubbed: %s", got)
+	}
+	text, _ := json.Marshal(map[string]any{"content": "data:image/png;base64,not-base64 " + testKey})
+	if strings.Contains(ScrubBody(string(text)), testKey) {
+		t.Fatal("data URL prefix hid ordinary secret text")
+	}
+}
+
+func TestMultipartStructuredTextIsInspected(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("prompt", `{"password":"tiny"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if kind, err := InspectRequest(body.Bytes(), writer.FormDataContentType()); kind == "" || err != nil {
+		t.Fatalf("structured prompt forwarded: %s %v", kind, err)
+	}
+}
+
+func TestTruncatedJSONDoesNotExposeShortPasswords(t *testing.T) {
+	body := `{"password":"tiny","more":"` + strings.Repeat("x", 100) + `...<body truncated>`
+	if got := ScrubBody(body); strings.Contains(got, "tiny") {
+		t.Fatal("truncated archive leaked a short credential")
+	}
+}
+
+func TestPGPPrivateKeyBlock(t *testing.T) {
+	label := "PGP PRIVATE KEY BLOCK"
+	text := "-----BEGIN " + label + "-----\nexample\n-----END " + label + "-----"
+	if Detect(text) == "" || ScrubText(text) != Redacted {
+		t.Fatal("PGP private key not protected")
+	}
+}
+
+func TestAlreadyRedactedToolResultsRemainUsable(t *testing.T) {
+	for _, text := range []string{`API_KEY=[REDACTED]`, `password="[REDACTED]"`, `{"access_token":"[REDACTED]"}`} {
+		if kind := Detect(text); kind != "" {
+			t.Errorf("redacted value detected as %s", kind)
+		}
+		body, _ := json.Marshal(map[string]any{"messages": []any{map[string]any{"role": "tool", "content": text}}})
+		if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+			t.Errorf("redacted tool output blocked: %s %v", kind, err)
+		}
+		if cleaned := ScrubText(text); cleaned != text {
+			t.Errorf("redacted text changed: %s", cleaned)
+		}
+	}
+	body := []byte(`{"input":{"access_token":"[REDACTED]"}}`)
+	if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+		t.Errorf("structured redacted output blocked: %s %v", kind, err)
+	}
+	if kind := Detect(`API_KEY=[REDACTED]; password=example_example_example`); kind == "" {
+		t.Fatal("redacted marker hid a later credential")
 	}
 }

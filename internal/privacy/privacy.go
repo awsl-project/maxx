@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -24,11 +25,20 @@ type rule struct {
 	accept func(string) bool
 }
 
+// Assignment names are deliberately narrower than arbitrary words like "key".
+const credentialNames = `api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret[_-]?key|(?:aws[_-]?)?secret[_-]?access[_-]?key|aws[_-]?(?:access[_-]?key[_-]?id|session[_-]?token)|(?:db|database)[_-]?password`
+const credentialAssignment = `(?i)\b(?:[A-Za-z0-9]+[_-])*(?:` + credentialNames + `)\b["']?\s*[:=]\s*`
+
+var credentialFieldName = regexp.MustCompile(`(?i)(?:^|[_-])(?:` + credentialNames + `)$`)
+
 var rules = []rule{
-	{"private_key", regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----.*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----|$)`), 0, nil},
-	{"api_key", regexp.MustCompile(`\b(?:sk-(?:proj-|ant-[A-Za-z0-9]+-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{35}|(?:AKIA|ASIA)[A-Z0-9]{16}|maxx_[A-Za-z0-9_-]{20,})\b`), 0, nil},
+	{"private_key", regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----|$)`), 0, nil},
+	{"api_key", regexp.MustCompile(`\b(?:sk-(?:proj-|ant-[A-Za-z0-9]+-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{35}|(?:AKIA|ASIA)[A-Z0-9]{16}|maxx_[A-Za-z0-9_-]{20,})\b`), 0, nil},
+	{"api_key", regexp.MustCompile(`\b(?:xox[abposr]-[0-9A-Za-z-]{10,}|(?:sk|rk)_live_[0-9A-Za-z]{20,}|hf_[A-Za-z0-9]{30,}|gsk_[A-Za-z0-9]{40,}|xai-[A-Za-z0-9]{40,}|npm_[A-Za-z0-9]{36}|pypi-[A-Za-z0-9_-]{50,}|dop_v1_[a-f0-9]{64}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`), 0, nil},
 	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`), 0, nil},
-	{"credential", regexp.MustCompile(`(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret[_-]?key)\b["']?\s*[:=]\s*["']?([^\s"'` + "`" + `,;<>\\}]{8,})`), 1, credentialValue},
+	{"credential", regexp.MustCompile(credentialAssignment + `"((?:\\.|[^"\\])+)(?:"|$)`), 1, nil},
+	{"credential", regexp.MustCompile(credentialAssignment + `'((?:\\.|[^'\\])+)(?:'|$)`), 1, nil},
+	{"credential", regexp.MustCompile(credentialAssignment + `([^\s"'` + "`" + `,;<>\\}]{8,})`), 1, credentialValue},
 	{"authorization", regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9_+/.=~-]{16,})`), 1, nil},
 	{"authorization", regexp.MustCompile(`(?i)\bbasic\s+([A-Za-z0-9_+/.=~-]{16,})`), 1, basicAuthValue},
 	{"connection_password", regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`), 1, nil},
@@ -63,22 +73,22 @@ func ScrubText(text string) string {
 }
 
 // The same value checks apply to detection and redaction, including combined
-// stream deltas. Quoted assignment values are literals, not code references.
+// stream deltas. Quoted literals have separate rules without a code filter.
 func (r rule) accepts(text string, loc []int) bool {
+	if r.kind == "credential" && text[loc[2*r.group]:loc[2*r.group+1]] == Redacted {
+		return false
+	}
 	if r.accept == nil {
 		return true
 	}
 	start, end := loc[2*r.group], loc[2*r.group+1]
-	if r.kind == "credential" && start > 0 && (text[start-1] == '\'' || text[start-1] == '"') {
-		return true
-	}
 	return r.accept(text[start:end])
 }
 
-var codeReference = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+var codeReference = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+|\$[A-Za-z_][A-Za-z0-9_]*)$`)
 
 func credentialValue(value string) bool {
-	return !strings.ContainsAny(value, "()${}") && !codeReference.MatchString(value)
+	return !strings.ContainsAny(value, "(){}") && !codeReference.MatchString(value)
 }
 
 func basicAuthValue(value string) bool {
@@ -90,9 +100,12 @@ func basicAuthValue(value string) bool {
 }
 
 func sensitiveKey(key string) bool {
-	key = strings.ToLower(strings.NewReplacer("_", "", "-", "").Replace(key))
+	if credentialFieldName.MatchString(key) {
+		return true
+	}
+	key = strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "_", ""), "-", ""))
 	switch key {
-	case "password", "passwd", "apikey", "apitoken", "secret", "privatekey", "accesstoken", "refreshtoken", "authtoken", "clientsecret", "secretkey", "authorization", "proxyauthorization", "cookie", "setcookie", "xapikey", "xgoogapikey":
+	case "password", "passwd", "apikey", "apitoken", "secret", "privatekey", "accesstoken", "refreshtoken", "authtoken", "clientsecret", "secretkey", "authorization", "proxyauthorization", "cookie", "setcookie", "xapikey", "xgoogapikey", "awsaccesskeyid", "awssecretaccesskey", "awssessiontoken", "secretaccesskey", "dbpassword", "databasepassword", "credential", "credentials", "token":
 		return true
 	}
 	return false
@@ -111,6 +124,8 @@ func decode(body string) (any, error) {
 	return value, nil
 }
 
+var mediaDataURL = regexp.MustCompile(`(?i)^data:(?:image|audio|video)/[A-Za-z0-9.+_-]+(?:;[A-Za-z0-9._=+-]+)*;base64,[A-Za-z0-9+/]*={0,2}$`)
+
 func scrub(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
@@ -128,6 +143,10 @@ func scrub(value any) any {
 			v[i] = scrub(v[i])
 		}
 	case string:
+		// Keep opaque media data usable in archived multimodal messages.
+		if mediaDataURL.MatchString(v) {
+			return v
+		}
 		// Tool outputs frequently contain JSON encoded inside a JSON string.
 		if nested, err := decode(v); err == nil {
 			cleaned, _ := json.Marshal(scrub(nested))
@@ -219,7 +238,7 @@ func InspectRequest(body []byte, contentType string) (string, error) {
 			if err != nil {
 				return "", errors.New("invalid multipart field")
 			}
-			if kind := Detect(string(text)); kind != "" {
+			if kind := inspect(string(text), false); kind != "" {
 				return kind, nil
 			}
 		}
@@ -247,7 +266,7 @@ func inspect(value any, protocol bool) string {
 	switch v := value.(type) {
 	case map[string]any:
 		for k, child := range v {
-			if sensitiveKey(k) && child != nil && child != "" {
+			if sensitiveKey(k) && child != nil && child != "" && child != Redacted {
 				return "credential_field"
 			}
 			if protocol {
@@ -281,4 +300,69 @@ func inspect(value any, protocol bool) string {
 		}
 	}
 	return ""
+}
+
+// ScrubHeader protects archived headers, including custom credential headers.
+// Callers must use the result on a copy, never on the outgoing request.
+func ScrubHeader(name, value string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	scheme := strings.ToLower(strings.TrimSpace(value))
+	if sensitiveKey(lower) || strings.HasSuffix(lower, "-token") || strings.HasSuffix(lower, "-secret") || strings.HasSuffix(lower, "-password") || strings.HasSuffix(lower, "-api-key") || strings.HasPrefix(scheme, "bearer ") || strings.HasPrefix(scheme, "basic ") {
+		return Redacted
+	}
+	return ScrubText(value)
+}
+
+// ScrubURL removes URL credentials from archived snapshots. Query names supply
+// context even for short values or percent-encoded credentials. Malformed URLs
+// are omitted rather than risk retaining credentials in a partially parsed URL.
+func ScrubURL(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return Redacted
+	}
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return Redacted
+	}
+	changed := false
+	if u.User != nil {
+		username := ScrubText(u.User.Username())
+		if _, hasPassword := u.User.Password(); hasPassword {
+			u.User = url.UserPassword(username, Redacted)
+			changed = true
+		} else if username != u.User.Username() {
+			u.User = url.User(username)
+			changed = true
+		}
+	}
+	if path := ScrubText(u.Path); path != u.Path {
+		u.Path = path
+		u.RawPath = ""
+		changed = true
+	}
+	if fragment := ScrubText(u.Fragment); fragment != u.Fragment {
+		u.Fragment = fragment
+		changed = true
+	}
+	for name, values := range query {
+		for i, value := range values {
+			cleaned := ScrubText(value)
+			if sensitiveKey(name) || strings.EqualFold(name, "key") {
+				cleaned = Redacted
+			}
+			if cleaned != value {
+				values[i] = cleaned
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return raw
+	}
+	u.RawQuery = query.Encode()
+	return u.String()
 }

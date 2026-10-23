@@ -224,7 +224,8 @@ func requestInfoJSON(info *domain.RequestInfo) string {
 		return ""
 	}
 	redacted := *info
-	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
+	redacted.URL = privacy.ScrubURL(info.URL)
+	redacted.Headers = snapshotHeaders(info.Headers)
 	redacted.Body = privacy.ScrubBody(info.Body)
 	return toJSON(&redacted)
 }
@@ -235,7 +236,15 @@ func responseInfoJSON(info *domain.ResponseInfo) string {
 		return ""
 	}
 	redacted := *info
-	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
+	redacted.Headers = snapshotHeaders(info.Headers)
 	redacted.Body = privacy.ScrubBody(info.Body)
 	return toJSON(&redacted)
+}
+
+func snapshotHeaders(headers map[string]string) map[string]string {
+	redacted := domain.RedactSensitiveHeaders(headers)
+	for name, value := range redacted {
+		redacted[name] = privacy.ScrubHeader(name, value)
+	}
+	return redacted
 }

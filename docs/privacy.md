@@ -8,15 +8,18 @@ service, local AI model, reversible placeholder map, or shared secret cache.
 
 New request and upstream-attempt snapshots are scrubbed before database writes:
 
-- Existing sensitive-header redaction remains in place.
+- Sensitive headers, including custom `*-token` / `*-secret` headers, are
+  scrubbed. URL passwords and credential query parameters are scrubbed too,
+  including percent-encoded values. Malformed URLs are omitted from the archive.
 - JSON credential fields (such as `password`, `api_key`, and `access_token`) are
   replaced with `[REDACTED]`. Recognized key formats, JWTs, PEM private keys,
-  credential assignments, and connection-string passwords are also scrubbed
+  quoted/unquoted credential assignments, and connection-string passwords are also scrubbed
   from textual bodies and error records.
   Unquoted code references and function calls (such as `api_key = config.api_key`)
   are excluded from assignment matching; quoted literal credentials remain protected.
+  Existing `[REDACTED]` values are safe to reuse in tool results without triggering a new block.
 - JSON embedded in tool-result strings is inspected too. JSON numbers retain
-  their precision.
+  their precision, and base64 image/audio/video data URLs remain opaque.
 - SSE and JSONL/WebSocket archives are checked across text deltas. If a
   credential is detected in their combined text, the stored body is omitted
   with a redaction notice. Usage, status, timing and billing metadata remain.
@@ -64,3 +67,17 @@ boundary. Rules can miss unknown formats or obfuscated secrets and can flag
 examples that resemble credentials. Names, addresses, email, IP addresses,
 passwords without recognizable context, encoded attachments and OCR are outside
 this first version. No content is sent to a separate detection service.
+
+## Magpie comparison
+
+This iteration was checked against Magpie
+[`a2189463`](https://github.com/yetone/magpie/tree/a21894634152f1852c805d25d8fd6b5608f72b63),
+particularly its credential rules and irreversible archive scrubber.
+
+| Area | Maxx in this PR |
+| --- | --- |
+| Recognized formats | OpenAI/Anthropic, GitHub/GitLab, Google/AWS, Slack/Stripe, Hugging Face/Groq/xAI, npm/PyPI, DigitalOcean/SendGrid, Maxx tokens, JWT and PEM/PGP private keys. |
+| Password context | Quoted values retain punctuation and escapes; unquoted code references and variable expansions are excluded. AWS and database credential fields are recognized. |
+| Archive protection | JSON, nested tool JSON, SSE/JSONL fragments, URL credentials, headers and error records are irreversibly scrubbed. No credential values are cached. |
+| Upstream behavior | Project-level blocking. Magpie's reversible masking and response restoration are outside this PR. |
+| Personal data / custom rules | Magpie supports additional options; this PR covers credential protection only. |
