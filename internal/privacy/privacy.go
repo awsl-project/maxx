@@ -4,6 +4,7 @@ package privacy
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,23 +20,27 @@ type rule struct {
 	kind string
 	re   *regexp.Regexp
 	// group is the credential capture to replace; zero replaces the whole match.
-	group int
+	group  int
+	accept func(string) bool
 }
 
 var rules = []rule{
-	{"private_key", regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----.*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----|$)`), 0},
-	{"api_key", regexp.MustCompile(`\b(?:sk-(?:proj-|ant-[A-Za-z0-9]+-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{35}|(?:AKIA|ASIA)[A-Z0-9]{16}|maxx_[A-Za-z0-9_-]{20,})\b`), 0},
-	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`), 0},
-	{"credential", regexp.MustCompile(`(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret[_-]?key)\b["']?\s*[:=]\s*["']?([^\s"'` + "`" + `,;<>\\}]{8,})`), 1},
-	{"authorization", regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+([A-Za-z0-9_+/.=~-]{16,})`), 1},
-	{"connection_password", regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`), 1},
+	{"private_key", regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----.*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----|$)`), 0, nil},
+	{"api_key", regexp.MustCompile(`\b(?:sk-(?:proj-|ant-[A-Za-z0-9]+-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{35}|(?:AKIA|ASIA)[A-Z0-9]{16}|maxx_[A-Za-z0-9_-]{20,})\b`), 0, nil},
+	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`), 0, nil},
+	{"credential", regexp.MustCompile(`(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret[_-]?key)\b["']?\s*[:=]\s*["']?([^\s"'` + "`" + `,;<>\\}]{8,})`), 1, credentialValue},
+	{"authorization", regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9_+/.=~-]{16,})`), 1, nil},
+	{"authorization", regexp.MustCompile(`(?i)\bbasic\s+([A-Za-z0-9_+/.=~-]{16,})`), 1, basicAuthValue},
+	{"connection_password", regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`), 1, nil},
 }
 
 // Detect returns only a rule name, never the matched credential.
 func Detect(text string) string {
 	for _, r := range rules {
-		if r.re.MatchString(text) {
-			return r.kind
+		for _, loc := range r.re.FindAllStringSubmatchIndex(text, -1) {
+			if r.accepts(text, loc) {
+				return r.kind
+			}
 		}
 	}
 	return ""
@@ -43,16 +48,45 @@ func Detect(text string) string {
 
 func ScrubText(text string) string {
 	for _, r := range rules {
-		if r.group == 0 {
-			text = r.re.ReplaceAllString(text, Redacted)
-			continue
-		}
 		text = r.re.ReplaceAllStringFunc(text, func(match string) string {
 			loc := r.re.FindStringSubmatchIndex(match)
+			if !r.accepts(match, loc) {
+				return match
+			}
+			if r.group == 0 {
+				return Redacted
+			}
 			return match[:loc[2*r.group]] + Redacted + match[loc[2*r.group+1]:]
 		})
 	}
 	return text
+}
+
+// The same value checks apply to detection and redaction, including combined
+// stream deltas. Quoted assignment values are literals, not code references.
+func (r rule) accepts(text string, loc []int) bool {
+	if r.accept == nil {
+		return true
+	}
+	start, end := loc[2*r.group], loc[2*r.group+1]
+	if r.kind == "credential" && start > 0 && (text[start-1] == '\'' || text[start-1] == '"') {
+		return true
+	}
+	return r.accept(text[start:end])
+}
+
+var codeReference = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+
+func credentialValue(value string) bool {
+	return !strings.ContainsAny(value, "()${}") && !codeReference.MatchString(value)
+}
+
+func basicAuthValue(value string) bool {
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		decoded, err = base64.RawStdEncoding.DecodeString(value)
+	}
+	return err == nil && bytes.ContainsRune(decoded, ':')
 }
 
 func sensitiveKey(key string) bool {
@@ -218,6 +252,12 @@ func inspect(value any, protocol bool) string {
 			}
 			if protocol {
 				switch k {
+				case "input", "args", "arguments", "response", "output":
+					// Tool data uses arbitrary keys, including protocol-like names.
+					if kind := inspect(child, false); kind != "" {
+						return kind
+					}
+					continue
 				case "id", "call_id", "tool_call_id", "type", "role", "name", "signature", "thoughtSignature", "encrypted_content", "image_url", "image", "audio", "inlineData", "inline_data", "file_data", "file_id", "file_url", "file_data_url", "data":
 					continue
 				}

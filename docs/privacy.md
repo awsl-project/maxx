@@ -13,6 +13,8 @@ New request and upstream-attempt snapshots are scrubbed before database writes:
   replaced with `[REDACTED]`. Recognized key formats, JWTs, PEM private keys,
   credential assignments, and connection-string passwords are also scrubbed
   from textual bodies and error records.
+  Unquoted code references and function calls (such as `api_key = config.api_key`)
+  are excluded from assignment matching; quoted literal credentials remain protected.
 - JSON embedded in tool-result strings is inspected too. JSON numbers retain
   their precision.
 - SSE and JSONL/WebSocket archives are checked across text deltas. If a
