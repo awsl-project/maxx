@@ -232,7 +232,7 @@ func (w *WebSocketLogWriter) Write(p []byte) (n int, err error) {
 	originalLen := len(p)
 	p = []byte(privacy.ScrubText(string(p)))
 	// Write to stdout first
-	n, err = w.stdout.Write(p)
+	_, err = w.stdout.Write(p)
 	if err != nil {
 		return 0, err
 	}

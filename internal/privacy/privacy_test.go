@@ -129,3 +129,73 @@ func TestInspectMultipartTextOnly(t *testing.T) {
 		t.Fatal("missing boundary accepted")
 	}
 }
+
+func TestOrdinaryTextAndCodeAreNotCredentials(t *testing.T) {
+	for _, text := range []string{
+		"Explain basic internationalization", "basic responsibilities",
+		`password = os.getenv("X")`, `api_key = config.api_key`, `api_key = ${CONFIG_API_KEY}`,
+	} {
+		t.Run(text, func(t *testing.T) {
+			if kind := Detect(text); kind != "" {
+				t.Errorf("ordinary text detected as %s", kind)
+			}
+			if got := ScrubText(text); got != text {
+				t.Errorf("ordinary text scrubbed: %s", got)
+			}
+
+			first, _ := json.Marshal(map[string]any{"delta": text[:len(text)/2]})
+			second, _ := json.Marshal(map[string]any{"delta": text[len(text)/2:]})
+			stream := "data: " + string(first) + "\n\ndata: " + string(second) + "\n\n"
+			if got := ScrubBody(stream); got != stream {
+				t.Error("ordinary fragmented stream scrubbed")
+			}
+			body, _ := json.Marshal(map[string]any{"messages": []any{map[string]any{"role": "user", "content": text}}})
+			if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+				t.Errorf("ordinary request blocked: %s %v", kind, err)
+			}
+			var stored struct {
+				Messages []struct {
+					Content string `json:"content"`
+				} `json:"messages"`
+			}
+			if err := json.Unmarshal([]byte(ScrubBody(string(body))), &stored); err != nil || stored.Messages[0].Content != text {
+				t.Error("ordinary archive changed")
+			}
+		})
+	}
+}
+
+func TestToolObjectsDoNotSkipArbitraryKeys(t *testing.T) {
+	for _, body := range []string{
+		`{"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"run","input":{"data":"` + testKey + `"}}]}]}`,
+		`{"contents":[{"parts":[{"functionCall":{"name":"run","args":{"id":"` + testKey + `"}}}]}]}`,
+		`{"contents":[{"parts":[{"functionResponse":{"name":"run","response":{"type":"` + testKey + `"}}}]}]}`,
+	} {
+		if kind, err := InspectRequest([]byte(body), "application/json"); kind == "" || err != nil {
+			t.Errorf("tool credential missed: %s %v", kind, err)
+		}
+	}
+}
+
+func TestAuthorizationAndLiteralPasswordsRemainProtected(t *testing.T) {
+	basic := "Basic " + base64.StdEncoding.EncodeToString([]byte("dummy:example-password"))
+	basicAlpha := "Basic " + base64.RawStdEncoding.EncodeToString([]byte("aaaaaaa:aaaaaaa"))
+	for _, text := range []string{basic, basicAlpha, "Bearer " + strings.Repeat("test", 8), `password = "internationalization"`, `password = "config.api_key"`, `password = "os.getenv("`} {
+		if Detect(text) == "" {
+			t.Errorf("literal credential missed: %s", text)
+		}
+		if ScrubText(text) == text {
+			t.Errorf("literal credential not scrubbed: %s", text)
+		}
+	}
+}
+
+func TestCodeReferenceDoesNotHideALaterCredential(t *testing.T) {
+	text := `password=os.getenv("X"); API_KEY=example_example_example`
+	if Detect(text) == "" {
+		t.Fatal("later credential missed")
+	}
+	if got := ScrubText(text); !strings.Contains(got, `password=os.getenv("X")`) || strings.Contains(got, "example_example_example") {
+		t.Fatalf("wrong replacement: %s", got)
+	}
+}

@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -230,5 +231,46 @@ func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 	}
 	if frames.Load() != 1 {
 		t.Fatalf("secret turn reached upstream: %d", frames.Load())
+	}
+}
+
+func TestRequestPrivacyReviewRegressions(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"chat-test","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`)
+	}))
+	defer upstream.Close()
+	env := NewProxyTestEnv(t)
+	provider := createProvider(t, env, "review-regressions", upstream.URL, []string{"openai"})
+	createRoute(t, env, "openai", provider)
+	createPrivacyProject(t, env, "review-regressions", true)
+	for _, text := range []string{"Explain basic internationalization", `password = os.getenv("X")`, `api_key = config.api_key`} {
+		body := openaiRequest("gpt-4o")
+		body["messages"] = []any{map[string]any{"role": "user", "content": text}}
+		resp := env.ProxyPost("/project/review-regressions/v1/chat/completions", body, nil)
+		AssertStatus(t, resp, http.StatusOK)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	if calls.Load() != 3 {
+		t.Fatal("ordinary messages were not forwarded")
+	}
+	for _, tc := range []struct{ path, body string }{
+		{"/v1/messages", `{"model":"claude-test","max_tokens":1024,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"run","input":{"data":"` + privacyTestKey + `"}}]}]}`},
+		{"/v1beta/models/gemini-test:generateContent", `{"contents":[{"parts":[{"functionCall":{"name":"run","args":{"id":"` + privacyTestKey + `"}}}]}]}`},
+		{"/v1beta/models/gemini-test:generateContent", `{"contents":[{"parts":[{"functionResponse":{"name":"run","response":{"type":"` + privacyTestKey + `"}}}]}]}`},
+	} {
+		resp := env.ProxyPost("/project/review-regressions"+tc.path, json.RawMessage(tc.body), nil)
+		AssertStatus(t, resp, http.StatusBadRequest)
+		result, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(string(result), "privacy_blocked") {
+			t.Fatalf("unexpected rejection: %s", result)
+		}
+	}
+	if calls.Load() != 3 {
+		t.Fatal("tool credential reached upstream")
 	}
 }
