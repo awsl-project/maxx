@@ -20,8 +20,8 @@ func TestPrivacyScrubsPersistedCopiesIncludingDevMode(t *testing.T) {
 		req := buildTestProxyRequest("FAILED", i+1)
 		req.DevMode = dev
 		req.Error = "upstream rejected " + secret
-		req.RequestInfo = &domain.RequestInfo{Body: `{"messages":[{"content":"` + secret + `"}],"password":"tiny"}`, Headers: map[string]string{"Authorization": "Bearer " + secret}}
-		req.ResponseInfo = &domain.ResponseInfo{Body: `{"error":{"message":"` + secret + `"}}`, Headers: map[string]string{"Set-Cookie": "session=secret"}}
+		req.RequestInfo = &domain.RequestInfo{URL: "https://alice:url-password@example.com/v1?api_key=url-secret&safe=hello", Body: `{"messages":[{"content":"` + secret + `"}],"password":"tiny"}`, Headers: map[string]string{"Authorization": "Bearer " + secret, "X-Service-Secret": "header-secret", "X-Debug": secret, "Content-Type": "application/json"}}
+		req.ResponseInfo = &domain.ResponseInfo{Body: `{"error":{"message":"` + secret + `"}}`, Headers: map[string]string{"Set-Cookie": "session=secret", "X-Service-Secret": "response-header-secret"}}
 		if err := requestRepo.Create(req); err != nil {
 			t.Fatal(err)
 		}
@@ -49,6 +49,23 @@ func TestPrivacyScrubsPersistedCopiesIncludingDevMode(t *testing.T) {
 		}
 		if strings.Contains(string(raw.RequestInfo), secret) || strings.Contains(string(raw.ResponseInfo), secret) || strings.Contains(string(raw.Error), secret) {
 			t.Fatal("attempt archive contains credential")
+		}
+		var requestRaw ProxyRequest
+		if err := db.gorm.First(&requestRaw, req.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range []string{string(requestRaw.RequestInfo), string(requestRaw.ResponseInfo), string(raw.RequestInfo), string(raw.ResponseInfo)} {
+			for _, credential := range []string{"url-password", "url-secret", "header-secret", "response-header-secret"} {
+				if strings.Contains(record, credential) {
+					t.Fatalf("snapshot contains credential %s", credential)
+				}
+			}
+		}
+		if stored.RequestInfo.Headers["Content-Type"] != "application/json" || !strings.Contains(stored.RequestInfo.URL, "safe=hello") {
+			t.Fatal("safe snapshot metadata changed")
+		}
+		if req.RequestInfo.Headers["X-Service-Secret"] != "header-secret" || !strings.Contains(req.RequestInfo.URL, "url-secret") || req.ResponseInfo.Headers["X-Service-Secret"] != "response-header-secret" {
+			t.Fatal("live metadata mutated")
 		}
 		if !strings.Contains(req.RequestInfo.Body, secret) || !strings.Contains(req.ResponseInfo.Body, secret) || !strings.Contains(req.Error, secret) || !strings.Contains(attempt.ResponseInfo.Body, secret) {
 			t.Fatal("live proxy objects mutated")

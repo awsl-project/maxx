@@ -246,7 +246,8 @@ func TestRequestPrivacyReviewRegressions(t *testing.T) {
 	provider := createProvider(t, env, "review-regressions", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
 	createPrivacyProject(t, env, "review-regressions", true)
-	for _, text := range []string{"Explain basic internationalization", `password = os.getenv("X")`, `api_key = config.api_key`} {
+	safeMessages := []string{"Explain basic internationalization", `password = os.getenv("X")`, `api_key = config.api_key`, `API_KEY=[REDACTED]`, `{"access_token":"[REDACTED]"}`}
+	for _, text := range safeMessages {
 		body := openaiRequest("gpt-4o")
 		body["messages"] = []any{map[string]any{"role": "user", "content": text}}
 		resp := env.ProxyPost("/project/review-regressions/v1/chat/completions", body, nil)
@@ -254,7 +255,7 @@ func TestRequestPrivacyReviewRegressions(t *testing.T) {
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
-	if calls.Load() != 3 {
+	if calls.Load() != int32(len(safeMessages)) {
 		t.Fatal("ordinary messages were not forwarded")
 	}
 	for _, tc := range []struct{ path, body string }{
@@ -270,7 +271,68 @@ func TestRequestPrivacyReviewRegressions(t *testing.T) {
 			t.Fatalf("unexpected rejection: %s", result)
 		}
 	}
-	if calls.Load() != 3 {
+	if calls.Load() != int32(len(safeMessages)) {
 		t.Fatal("tool credential reached upstream")
+	}
+}
+
+func TestRequestPrivacyMagpieCoverage(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Header.Get("X-Service-Secret") != "request-header-secret" || r.URL.Query().Get("key") != "query-secret" {
+			t.Error("transport metadata changed")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Service-Secret", "response-header-secret")
+		fmt.Fprint(w, `{"id":"chat-test","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"password=\"abc;Example456\""},"finish_reason":"stop"}]}`)
+	}))
+	defer upstream.Close()
+	env := NewProxyTestEnv(t)
+	provider := createProvider(t, env, "magpie-coverage", upstream.URL, []string{"openai"})
+	createRoute(t, env, "openai", provider)
+	createPrivacyProject(t, env, "magpie-coverage", true)
+	for _, text := range []string{`password="abc;Example456"`, `password=Abcd$efg123`, "hf_" + strings.Repeat("test", 8), `{"aws_secret_access_key":"tiny"}`} {
+		body := openaiRequest("gpt-4o")
+		body["messages"] = []any{map[string]any{"role": "user", "content": text}}
+		resp := env.ProxyPost("/project/magpie-coverage/v1/chat/completions", body, nil)
+		AssertStatus(t, resp, http.StatusBadRequest)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	if calls.Load() != 0 {
+		t.Fatal("credential reached upstream")
+	}
+	resp := env.ProxyPost("/project/magpie-coverage/v1/chat/completions?key=query-secret&safe=hello", openaiRequest("gpt-4o"), map[string]string{"Authorization": "Bearer placeholder", "X-Service-Secret": "request-header-secret"})
+	AssertStatus(t, resp, http.StatusOK)
+	result, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(result), "Example456") {
+		t.Fatal("client response changed")
+	}
+	if calls.Load() != 1 {
+		t.Fatal("safe request not forwarded")
+	}
+	var requests []sqlite.ProxyRequest
+	if err := env.DB.GormDB().Find(&requests).Error; err != nil {
+		t.Fatal(err)
+	}
+	var attempts []sqlite.ProxyUpstreamAttempt
+	if err := env.DB.GormDB().Find(&attempts).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshots := make([]string, 0, len(requests)+len(attempts))
+	for _, r := range requests {
+		snapshots = append(snapshots, string(r.RequestInfo)+string(r.ResponseInfo))
+	}
+	for _, a := range attempts {
+		snapshots = append(snapshots, string(a.RequestInfo)+string(a.ResponseInfo))
+	}
+	for _, snapshot := range snapshots {
+		for _, secret := range []string{"Example456", "Abcd$efg123", "query-secret", "request-header-secret", "response-header-secret"} {
+			if strings.Contains(snapshot, secret) {
+				t.Errorf("archive contains credential: %s", secret)
+			}
+		}
 	}
 }
