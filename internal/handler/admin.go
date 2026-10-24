@@ -789,6 +789,10 @@ func (h *AdminHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Req
 
 // Project handlers
 func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
+	if len(parts) == 4 && parts[3] == "privacy" {
+		handleProjectPrivacy(w, r, h.svc, id)
+		return
+	}
 	// Check for archive inactive endpoint: /admin/projects/archive-inactive
 	if len(parts) > 2 && parts[2] == "archive-inactive" {
 		h.handleArchiveInactiveProjects(w, r)

@@ -361,3 +361,61 @@ func TestAlreadyRedactedToolResultsRemainUsable(t *testing.T) {
 		t.Fatal("redacted marker hid a later credential")
 	}
 }
+
+func TestCamelCaseCredentialsAndBooleanFlags(t *testing.T) {
+	for _, key := range []string{"adminPassword", "smtpPassword", "clientToken", "stripeApiKey"} {
+		body, _ := json.Marshal(map[string]any{"input": map[string]any{key: "tiny"}})
+		if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+			t.Errorf("camel-case field missed: %s", key)
+		}
+		if strings.Contains(ScrubBody(string(body)), "tiny") {
+			t.Errorf("camel-case archive leaked: %s", key)
+		}
+		if text := key + "=example_example_example"; Detect(text) == "" || ScrubText(text) == text {
+			t.Errorf("camel-case assignment missed: %s", key)
+		}
+	}
+	body := []byte(`{"input":{"hasPassword":true,"hasApiKey":false,"token_count":8,"max_tokens":20}}`)
+	if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+		t.Errorf("metadata flags rejected: %s %v", kind, err)
+	}
+	if got := ScrubBody(string(body)); !strings.Contains(got, `"hasPassword":true`) || !strings.Contains(got, `"max_tokens":20`) {
+		t.Fatal("metadata flags changed")
+	}
+}
+
+func TestFixedLengthKeysEndingInHyphen(t *testing.T) {
+	for _, key := range []string{"AIza" + strings.Repeat("a", 34) + "-", "SG." + strings.Repeat("a", 22) + "." + strings.Repeat("b", 42) + "-"} {
+		for _, suffix := range []string{"", " ", `"`} {
+			text := key + suffix
+			if Detect(text) == "" {
+				t.Error("fixed-length key missed")
+			}
+			if got := ScrubText(text); got != Redacted+suffix {
+				t.Errorf("key not fully scrubbed: %s", got)
+			}
+		}
+		if Detect(key+"longer") != "" {
+			t.Error("invalid longer token mistaken for fixed-length key")
+		}
+	}
+}
+
+func TestLiteralParenthesesAndFunctionCalls(t *testing.T) {
+	text := "password=Abc(123)xyz!"
+	if Detect(text) == "" || strings.Contains(ScrubText(text), "Abc(123)xyz!") {
+		t.Fatal("literal password missed")
+	}
+	body, _ := json.Marshal(map[string]any{"input": text})
+	if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+		t.Fatal("literal password forwarded")
+	}
+	if strings.Contains(ScrubBody(string(body)), "Abc(123)xyz!") {
+		t.Fatal("literal password archived")
+	}
+	for _, code := range []string{`password=os.getenv("X")`, `password=get_password(config)`, `password=wrap(get_password())`, `api_key=config.get_key().value`, `password=$(get_password)`} {
+		if Detect(code) != "" || ScrubText(code) != code {
+			t.Errorf("code reference rejected: %s", code)
+		}
+	}
+}

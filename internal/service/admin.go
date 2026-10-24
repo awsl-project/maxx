@@ -21,6 +21,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
 	"github.com/awsl-project/maxx/internal/version"
@@ -1159,6 +1160,10 @@ func (s *AdminService) GetProjects(tenantID uint64) ([]*domain.Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	projects = append([]*domain.Project(nil), projects...)
+	for i, project := range projects {
+		projects[i] = projectUsageCopy(project)
+	}
 	if err := s.attachProjectUsage(tenantID, projects); err != nil {
 		log.Printf("warn: attach project usage summaries failed: %v", err)
 	}
@@ -1170,6 +1175,7 @@ func (s *AdminService) GetProject(tenantID uint64, id uint64) (*domain.Project, 
 	if err != nil {
 		return nil, err
 	}
+	project = projectUsageCopy(project)
 	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
 		log.Printf("warn: attach project usage summary failed for project %d: %v", id, err)
 	}
@@ -1181,10 +1187,20 @@ func (s *AdminService) GetProjectBySlug(tenantID uint64, slug string) (*domain.P
 	if err != nil {
 		return nil, err
 	}
+	project = projectUsageCopy(project)
 	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
 		log.Printf("warn: attach project usage summary failed for project slug %q: %v", slug, err)
 	}
 	return project, nil
+}
+
+// Computed usage belongs to API responses, not shared policy cache entries.
+func projectUsageCopy(project *domain.Project) *domain.Project {
+	if project == nil {
+		return nil
+	}
+	cloned := *project
+	return &cloned
 }
 
 func (s *AdminService) attachProjectUsage(tenantID uint64, projects []*domain.Project) error {
@@ -1225,6 +1241,10 @@ func (s *AdminService) attachProjectUsage(tenantID uint64, projects []*domain.Pr
 func (s *AdminService) CreateProject(tenantID uint64, project *domain.Project) error {
 	project.TenantID = tenantID
 	return s.projectRepo.Create(project)
+}
+
+func (s *AdminService) UpdateProjectPrivacy(tenantID, id uint64, enabled bool) (*domain.Project, error) {
+	return privacy.NewService(s.projectRepo).SetProjectProtection(tenantID, id, enabled)
 }
 
 func (s *AdminService) UpdateProject(tenantID uint64, project *domain.Project) error {

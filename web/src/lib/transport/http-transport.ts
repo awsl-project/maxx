@@ -452,6 +452,13 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async updateProjectPrivacy(id: number, enabled: boolean): Promise<Project> {
+    const { data } = await this.client.put<Project>(`/projects/${id}/privacy`, {
+      blockSecrets: enabled,
+    });
+    return data;
+  }
+
   async deleteProject(id: number): Promise<void> {
     await this.client.delete(`/projects/${id}`);
   }

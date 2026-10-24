@@ -69,6 +69,7 @@
     "gemini": "Gemini"
   },
   "nav": {
+    "privacy": "Privacy Protection",
     "dashboard": "Dashboard",
     "documentation": "Docs",
     "console": "Console",
@@ -875,6 +876,24 @@
       "emptySystemPrompt": "empty"
     }
   },
+  "privacy": {
+    "title": "Privacy Protection",
+    "description": "Manage credential protection for each project.",
+    "archiveTitle": "Stored details",
+    "archiveDescription": "Recognized credentials are removed from newly stored request details, URLs, headers and logs. Client responses stay unchanged.",
+    "alwaysEnabled": "Always enabled",
+    "projectTitle": "Block before sending",
+    "blockSecretsDesc": "Choose projects that reject recognized credentials in messages and tool results before sending upstream. Checks text only; changes apply immediately.",
+    "blockSecretsFor": "Block credentials for {{project}}",
+    "searchProjects": "Search project names or slugs",
+    "allProjects": "Show all projects",
+    "noProjects": "No matching projects",
+    "loadFailed": "Unable to load project privacy settings.",
+    "saveFailed": "Unable to save privacy settings. Please try again.",
+    "manage": "Manage privacy settings",
+    "projectEnabled": "Credentials in messages are blocked before sending upstream.",
+    "projectDisabled": "Message credential blocking is off for this project."
+  },
   "projects": {
     "title": "Projects",
     "description": "Manage your projects and environments",
@@ -903,8 +922,6 @@
     "projectInfo": "Project Information",
     "slug": "Slug",
     "slugPlaceholder": "project-slug",
-    "blockSecrets": "Block credentials in messages",
-    "blockSecretsDesc": "Reject messages and tool results containing recognized API keys, tokens or passwords before sending upstream. Authentication headers are unaffected. Text only; not full personal-data protection.",
     "information": "Project Information",
     "proxyConfig": "Proxy Configuration",
     "name": "Name",

@@ -14,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/requestmeta"
 	"github.com/awsl-project/maxx/internal/router"
@@ -23,6 +24,7 @@ import (
 // Executor handles request execution with retry logic
 type Executor struct {
 	router           *router.Router
+	privacy          *privacy.Service
 	proxyRequestRepo repository.ProxyRequestRepository
 	attemptRepo      repository.ProxyUpstreamAttemptRepository
 	apiTokenRepo     repository.APITokenRepository
@@ -57,9 +59,11 @@ func NewExecutor(
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
+	privacyService *privacy.Service,
 ) *Executor {
 	return &Executor{
 		router:              r,
+		privacy:             privacyService,
 		proxyRequestRepo:    prr,
 		attemptRepo:         ar,
 		apiTokenRepo:        apiTokenRepo,
