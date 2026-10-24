@@ -26,6 +26,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
@@ -388,6 +389,7 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
+		privacy.NewService(repos.CachedProjectRepo),
 	)
 
 	log.Printf("[Core] Creating client adapter")
@@ -400,7 +402,7 @@ func InitializeServerComponents(
 	adminService := service.NewAdminService(
 		repos.CachedProviderRepo,
 		repos.CachedRouteRepo,
-		repos.ProjectRepo,
+		repos.CachedProjectRepo,
 		repos.CachedSessionRepo,
 		repos.CachedRetryConfigRepo,
 		repos.CachedRoutingStrategyRepo,

@@ -33,8 +33,9 @@ for historical details and protect configuration backups separately.
 
 ## Block credentials before sending upstream
 
-Open **Projects → project → Overview**, enable **Block credentials in messages**
-(中文：**拦截消息中的凭据**), and save. The switch defaults to **off** for both new
+Open **Privacy Protection** (中文：**隐私保护**) from the sidebar and enable
+credential blocking for the projects you want to protect. Changes save immediately.
+A project’s Overview links directly to its privacy settings. The switch defaults to **off** for both new
 and existing projects, is tenant scoped, and is preserved in configuration backups.
 
 When enabled, Maxx checks message text, system instructions, prompts and tool
@@ -56,9 +57,11 @@ For example, this message is blocked with the switch on:
 {"model":"gpt-4o","messages":[{"role":"user","content":"API_KEY=example_example_example"}]}
 ```
 
-The project API accepts `blockSecrets: true` / `false` on create or update. Updates
-that omit the field preserve the current policy so an older route editor cannot
-silently turn it off.
+The privacy settings API accepts `PUT /api/projects/{id}/privacy` with
+`{"blockSecrets": true}` (or `false`). It requires an administrator in the project’s
+tenant and changes only privacy policy; names, slugs and routes come from current
+server data. The legacy project API remains compatible and preserves the policy
+when an older editor omits `blockSecrets`.
 
 ## Scope
 
@@ -81,3 +84,20 @@ particularly its credential rules and irreversible archive scrubber.
 | Archive protection | JSON, nested tool JSON, SSE/JSONL fragments, URL credentials, headers and error records are irreversibly scrubbed. No credential values are cached. |
 | Upstream behavior | Project-level blocking. Magpie's reversible masking and response restoration are outside this PR. |
 | Personal data / custom rules | Magpie supports additional options; this PR covers credential protection only. |
+
+## Module boundaries
+
+`internal/privacy` owns the feature:
+
+- `rules.go`: credential patterns and text detection/redaction.
+- `inspect.go`: request content parsing and inspection.
+- `archive.go`: irreversible body, URL, header and snapshot redaction.
+- `service.go`: tenant-scoped project policy, settings updates and request decisions.
+
+The executor receives a privacy service at startup and records rejected requests.
+The router contains no privacy policy logic. Storage and log/broadcast adapters
+call the module to scrub copies. Both CLI and desktop runtimes use the same cached
+project store for policy reads and writes.
+
+`web/src/pages/privacy` provides the standalone settings page; project pages show
+status and link to it. The page and settings API require administrator access.

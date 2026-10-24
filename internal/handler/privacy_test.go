@@ -3,13 +3,14 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/awsl-project/maxx/internal/domain"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
 )
 
 func TestLogWriterScrubsCredentialsAtAllSinks(t *testing.T) {
@@ -63,6 +64,41 @@ func TestSelfServiceProjectPrivacyUpdate(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil || project.BlockSecrets != tc.enabled {
 				t.Fatal("wrong project response")
 			}
+		}
+	}
+}
+
+func TestSelfServicePrivacyEndpointOnlyChangesPolicy(t *testing.T) {
+	repo := &selfServiceProjectRepo{projects: []*domain.Project{
+		{ID: 1, TenantID: 1, Name: "original", Slug: "original", EnabledCustomRoutes: []domain.ClientType{domain.ClientTypeOpenAI}, BlockSecrets: true},
+		{ID: 2, TenantID: 2, Name: "other", Slug: "other", BlockSecrets: true},
+	}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{projectRepo: repo})
+	for _, tc := range []struct {
+		path, method, body string
+		role               domain.UserRole
+		status             int
+		enabled            bool
+	}{
+		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":false}`, domain.UserRoleAdmin, 200, false},
+		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true}`, domain.UserRoleMember, 403, false},
+		{"/projects/1/privacy", http.MethodPut, `{}`, domain.UserRoleAdmin, 400, false},
+		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":null}`, domain.UserRoleAdmin, 400, false},
+		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true,"name":"changed"}`, domain.UserRoleAdmin, 400, false},
+		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true} {}`, domain.UserRoleAdmin, 400, false},
+		{"/projects/2/privacy", http.MethodPut, `{"blockSecrets":false}`, domain.UserRoleAdmin, 404, false},
+		{"/projects/1/privacy", http.MethodGet, ``, domain.UserRoleAdmin, 405, false},
+		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true}`, domain.UserRoleAdmin, 200, true},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+		handler.ServeHTTP(rec, withSelfServiceContext(req, tc.role))
+		if rec.Code != tc.status {
+			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+		project := repo.projects[0]
+		if project.BlockSecrets != tc.enabled || project.Name != "original" || project.Slug != "original" || len(project.EnabledCustomRoutes) != 1 || !repo.projects[1].BlockSecrets {
+			t.Fatal("privacy update changed unrelated settings or another tenant")
 		}
 	}
 }

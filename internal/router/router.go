@@ -1000,19 +1000,3 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter, p *domain.Prov
 		})
 	}
 }
-
-// ProjectBlocksSecrets resolves a project policy within its tenant. A failed
-// lookup must not silently turn off protection for a selected project.
-func (r *Router) ProjectBlocksSecrets(tenantID, projectID uint64) (bool, error) {
-	if projectID == 0 {
-		return false, nil
-	}
-	if r == nil || r.projectRepo == nil {
-		return false, domain.ErrNotFound
-	}
-	project, err := r.projectRepo.GetByID(tenantID, projectID)
-	if err != nil {
-		return false, err
-	}
-	return project.BlockSecrets, nil
-}

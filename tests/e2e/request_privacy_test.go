@@ -102,7 +102,7 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 		t.Fatal("omitted field disabled protection")
 	}
 	blocked("/project/protected/v1/chat/completions", secretBody)
-	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d", protected.ID), map[string]any{"name": "protected", "slug": "protected", "blockSecrets": false})
+	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", protected.ID), map[string]any{"blockSecrets": false})
 	AssertStatus(t, resp, http.StatusOK)
 	DecodeJSON(t, resp, &updated)
 	if updated.BlockSecrets {

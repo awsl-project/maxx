@@ -69,6 +69,7 @@
     "gemini": "Gemini"
   },
   "nav": {
+    "privacy": "隐私保护",
     "dashboard": "仪表板",
     "documentation": "文档",
     "console": "控制台",
@@ -872,6 +873,24 @@
       "emptySystemPrompt": "空"
     }
   },
+  "privacy": {
+    "title": "隐私保护",
+    "description": "集中管理各项目的凭据保护设置。",
+    "archiveTitle": "存档脱敏",
+    "archiveDescription": "新保存的请求详情、URL、请求头及日志中可识别的凭据会被脱敏，客户端收到的响应保持原样。",
+    "alwaysEnabled": "始终启用",
+    "projectTitle": "发送前拦截",
+    "blockSecretsDesc": "选择需要在发送上游前拦截消息和工具结果中已识别凭据的项目。仅检查文本，修改即时生效。",
+    "blockSecretsFor": "为「{{project}}」启用凭据拦截",
+    "searchProjects": "搜索项目名称或标识",
+    "allProjects": "显示所有项目",
+    "noProjects": "没有匹配的项目",
+    "loadFailed": "无法加载项目隐私设置。",
+    "saveFailed": "无法保存隐私设置，请重试。",
+    "manage": "管理隐私设置",
+    "projectEnabled": "已启用消息凭据拦截。",
+    "projectDisabled": "此项目尚未启用消息凭据拦截。"
+  },
   "projects": {
     "title": "项目",
     "description": "管理您的项目和环境",
@@ -900,8 +919,6 @@
     "projectInfo": "项目信息",
     "slug": "标识符",
     "slugPlaceholder": "project-slug",
-    "blockSecrets": "拦截消息中的凭据",
-    "blockSecretsDesc": "发送到上游前，拒绝包含已识别的 API 密钥、令牌或密码的消息和工具结果。不影响认证请求头。仅检查文本，不涵盖所有个人信息。",
     "information": "项目信息",
     "proxyConfig": "代理配置",
     "name": "名称",

@@ -180,6 +180,12 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.handleProjectBySlug(w, r, parts)
+		case len(parts) == 4 && parts[3] == "privacy":
+			id, ok := parseSelfServiceID(w, "project", parts[2])
+			if !ok {
+				return
+			}
+			handleProjectPrivacy(w, r, h.svc, id)
 		case len(parts) == 3:
 			id, ok := parseSelfServiceID(w, "project", parts[2])
 			if !ok {

@@ -223,28 +223,13 @@ func requestInfoJSON(info *domain.RequestInfo) string {
 	if info == nil {
 		return ""
 	}
-	redacted := *info
-	redacted.URL = privacy.ScrubURL(info.URL)
-	redacted.Headers = snapshotHeaders(info.Headers)
-	redacted.Body = privacy.ScrubBody(info.Body)
-	return toJSON(&redacted)
+	return toJSON(privacy.ScrubRequestInfo(info))
 }
 
-// responseInfoJSON 同 requestInfoJSON,针对响应头(如上游回传的 Set-Cookie)。
+// responseInfoJSON serializes a privacy-safe copy of the response snapshot.
 func responseInfoJSON(info *domain.ResponseInfo) string {
 	if info == nil {
 		return ""
 	}
-	redacted := *info
-	redacted.Headers = snapshotHeaders(info.Headers)
-	redacted.Body = privacy.ScrubBody(info.Body)
-	return toJSON(&redacted)
-}
-
-func snapshotHeaders(headers map[string]string) map[string]string {
-	redacted := domain.RedactSensitiveHeaders(headers)
-	for name, value := range redacted {
-		redacted[name] = privacy.ScrubHeader(name, value)
-	}
-	return redacted
+	return toJSON(privacy.ScrubResponseInfo(info))
 }
