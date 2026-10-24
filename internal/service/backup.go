@@ -140,6 +140,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			Name:                p.Name,
 			Slug:                p.Slug,
 			EnabledCustomRoutes: p.EnabledCustomRoutes,
+			BlockSecrets:        p.BlockSecrets,
 		})
 	}
 
@@ -594,6 +595,7 @@ func (s *BackupService) importProjects(tenantID uint64, projects []domain.Backup
 			Name:                bp.Name,
 			Slug:                bp.Slug,
 			EnabledCustomRoutes: bp.EnabledCustomRoutes,
+			BlockSecrets:        bp.BlockSecrets,
 		}
 
 		if !opts.DryRun {

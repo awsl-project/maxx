@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"gorm.io/gorm"
 )
@@ -1096,7 +1097,7 @@ func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyReque
 		Status:                      p.Status,
 		StatusCode:                  p.StatusCode,
 		UserAgent:                   proxyRequestUserAgent(p),
-		Error:                       LongText(p.Error),
+		Error:                       LongText(privacy.ScrubText(p.Error)),
 		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
 		RouteID:                     p.RouteID,

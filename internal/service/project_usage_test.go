@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
@@ -36,10 +37,14 @@ func TestAdminServiceGetProjectsAttachesUsageSummaries(t *testing.T) {
 		t.Fatalf("create request: %v", err)
 	}
 
+	projectCache := cached.NewProjectRepository(projectRepo)
+	if err := projectCache.Load(); err != nil {
+		t.Fatal(err)
+	}
 	svc := NewAdminService(
 		nil,
 		nil,
-		projectRepo,
+		projectCache,
 		nil,
 		nil,
 		nil,
@@ -76,6 +81,16 @@ func TestAdminServiceGetProjectsAttachesUsageSummaries(t *testing.T) {
 	}
 	if got.TotalRequestCount != 1 || got.RequestCount30d != 1 || got.SuccessfulRequestCount30d != 1 {
 		t.Fatalf("usage counts = total %d recent %d success %d, want 1/1/1", got.TotalRequestCount, got.RequestCount30d, got.SuccessfulRequestCount30d)
+	}
+	if detail, err := svc.GetProject(1, project.ID); err != nil || detail.TotalRequestCount != 1 {
+		t.Fatal("project detail missing usage")
+	}
+	if detail, err := svc.GetProjectBySlug(1, project.Slug); err != nil || detail.TotalRequestCount != 1 {
+		t.Fatal("project slug detail missing usage")
+	}
+	stored, err := projectCache.GetByID(1, project.ID)
+	if err != nil || stored.TotalRequestCount != 0 || stored.LastRequestAt != nil {
+		t.Fatal("usage enrichment mutated shared policy cache")
 	}
 }
 

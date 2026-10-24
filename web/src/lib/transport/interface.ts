@@ -164,6 +164,7 @@ export interface Transport {
   getProjectBySlug(slug: string): Promise<Project>;
   createProject(data: CreateProjectData): Promise<Project>;
   updateProject(id: number, data: Partial<Project>): Promise<Project>;
+  updateProjectPrivacy(id: number, enabled: boolean): Promise<Project>;
   deleteProject(id: number): Promise<void>;
   archiveInactiveProjects(thresholdDays: number): Promise<ProjectArchiveInactiveResult>;
 

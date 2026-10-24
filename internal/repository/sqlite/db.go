@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -222,17 +223,13 @@ func requestInfoJSON(info *domain.RequestInfo) string {
 	if info == nil {
 		return ""
 	}
-	redacted := *info
-	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
-	return toJSON(&redacted)
+	return toJSON(privacy.ScrubRequestInfo(info))
 }
 
-// responseInfoJSON 同 requestInfoJSON,针对响应头(如上游回传的 Set-Cookie)。
+// responseInfoJSON serializes a privacy-safe copy of the response snapshot.
 func responseInfoJSON(info *domain.ResponseInfo) string {
 	if info == nil {
 		return ""
 	}
-	redacted := *info
-	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
-	return toJSON(&redacted)
+	return toJSON(privacy.ScrubResponseInfo(info))
 }

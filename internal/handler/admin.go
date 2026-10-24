@@ -789,6 +789,10 @@ func (h *AdminHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Req
 
 // Project handlers
 func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
+	if len(parts) == 4 && parts[3] == "privacy" {
+		handleProjectPrivacy(w, r, h.svc, id)
+		return
+	}
 	// Check for archive inactive endpoint: /admin/projects/archive-inactive
 	if len(parts) > 2 && parts[2] == "archive-inactive" {
 		h.handleArchiveInactiveProjects(w, r)
@@ -842,7 +846,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
 		}
-		var project domain.Project
+		project := domain.Project{BlockSecrets: existing.BlockSecrets}
 		if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return

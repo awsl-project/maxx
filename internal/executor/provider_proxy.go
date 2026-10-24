@@ -136,6 +136,9 @@ func (e *Executor) ExecuteProviderProxyMatched(c *flow.Ctx, proxyReq *domain.Pro
 	e.applyGlobalUserAgentOverride(c, state)
 
 	c.Set(flow.KeyExecutorState, state)
+	if !e.enforceRequestPrivacy(c, state) {
+		return state.lastErr
+	}
 	e.dispatch(c)
 	return state.lastErr
 }

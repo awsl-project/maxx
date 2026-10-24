@@ -113,6 +113,7 @@ type Project struct {
 	Name                string `gorm:"size:255"`
 	Slug                string `gorm:"size:128"`
 	EnabledCustomRoutes LongText
+	BlockSecrets        bool `gorm:"default:false"`
 }
 
 func (Project) TableName() string { return "projects" }
