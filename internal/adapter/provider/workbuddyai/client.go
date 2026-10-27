@@ -3,6 +3,7 @@ package workbuddyai
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -169,7 +170,10 @@ func (c *Client) Refresh(ctx context.Context, a Config) (Config, error) {
 	if a.RefreshToken == "" || (a.RefreshExpiresAt > 0 && time.Now().UnixMilli() >= a.RefreshExpiresAt) {
 		return a, fmt.Errorf("WorkBuddy account is signed out; sign in again")
 	}
-	key := c.endpoint + "|" + a.RefreshToken
+	// A renewal is authorized for its domain, user and enterprise, not just
+	// its refresh token. Hash the tuple to avoid retaining raw tokens as keys.
+	scope, _ := json.Marshal([]string{c.endpoint, domainOf(a), a.UID, strings.TrimSpace(a.EnterpriseID), a.RefreshToken})
+	key := fmt.Sprintf("%x", sha256.Sum256(scope))
 	globalRenewals.mu.Lock()
 	r := globalRenewals.results[key]
 	if r != nil && !r.at.IsZero() && time.Since(r.at) >= time.Minute {
