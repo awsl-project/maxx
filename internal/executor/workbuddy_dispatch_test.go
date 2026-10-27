@@ -29,6 +29,9 @@ func TestWorkBuddyClaudeDispatchMockUpstream(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 					t.Error(err)
 				}
+				if b["model"] != "workbuddy-target" {
+					t.Errorf("outbound model = %v, want mapped target", b["model"])
+				}
 				if b["stream"] != true {
 					t.Error("must request stream")
 				}
@@ -54,6 +57,7 @@ func TestWorkBuddyClaudeDispatchMockUpstream(t *testing.T) {
 			state.routes[0].Provider = p
 			state.routes[0].ProviderAdapter = adapter
 			e := newOpenAIClaudeConversionTestExecutor(proxyRepo, attemptRepo)
+			e.modelMappingRepo = &staticModelMappingRepo{mappings: []*domain.ModelMapping{{Pattern: "claude-3-5-sonnet", Target: "workbuddy-target", IsEnabled: true}}}
 			e.dispatch(c)
 			if c.Err != nil {
 				t.Fatal(c.Err)

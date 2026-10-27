@@ -86,3 +86,35 @@ func TestModelMappingRepositoryCachedReadMethodsSkipDisabledMappings(t *testing.
 		t.Fatalf("ListByQuery() = %#v, want only enabled tenant mapping", byQuery)
 	}
 }
+
+func TestWorkBuddyProviderMappingScopeIsolation(t *testing.T) {
+	repo := NewModelMappingRepository(&modelMappingTestRepo{mappings: []*domain.ModelMapping{
+		{ID: 1, TenantID: 1, Scope: domain.ModelMappingScopeProvider, ProviderType: "workbuddy-ai", ProviderID: 41, Pattern: "alias", Target: "target", IsEnabled: true},
+		{ID: 2, TenantID: 1, Scope: domain.ModelMappingScopeRoute, ProviderType: "workbuddy-ai", ProviderID: 41, RouteID: 9, ClientType: domain.ClientTypeOpenAI, Pattern: "alias", Target: "route-target", IsEnabled: true},
+	}})
+	if err := repo.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		client   domain.ClientType
+		provider uint64
+		typ      string
+		route    uint64
+		count    int
+	}{
+		{"native", domain.ClientTypeOpenAI, 41, "workbuddy-ai", 8, 1},
+		{"converted", domain.ClientTypeClaude, 41, "workbuddy-ai", 8, 1},
+		{"route override", domain.ClientTypeOpenAI, 41, "workbuddy-ai", 9, 2},
+		{"route protocol isolated", domain.ClientTypeClaude, 41, "workbuddy-ai", 9, 1},
+		{"other provider", domain.ClientTypeOpenAI, 42, "workbuddy-ai", 8, 0},
+		{"other type", domain.ClientTypeOpenAI, 41, "custom", 8, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := repo.ListByQuery(1, &domain.ModelMappingQuery{ClientType: tc.client, ProviderID: tc.provider, ProviderType: tc.typ, RouteID: tc.route})
+			if err != nil || len(got) != tc.count {
+				t.Fatalf("count=%d want=%d err=%v", len(got), tc.count, err)
+			}
+		})
+	}
+}

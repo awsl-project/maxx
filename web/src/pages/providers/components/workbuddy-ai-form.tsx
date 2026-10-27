@@ -1,10 +1,13 @@
+import { ProviderSupportModels } from './provider-support-models';
+import { ProviderModelMappings } from './provider-model-mappings';
+import { ModelMappingEditor } from './model-mapping-editor';
 import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/layout/page-header';
-import { useCreateProvider, useUpdateProvider } from '@/hooks/queries';
+import { useCreateModelMapping, useCreateProvider, useUpdateProvider } from '@/hooks/queries';
 import { getTransport } from '@/lib/transport';
 import type { Provider, CreateProviderData } from '@/lib/transport';
 import type { WorkBuddyAIConfig, WorkBuddyAIAuthStartResult } from '@/lib/transport/types';
@@ -37,6 +40,10 @@ export function WorkBuddyAIForm({
   const navigate = useNavigate();
   const create = useCreateProvider();
   const update = useUpdateProvider();
+  const createMapping = useCreateModelMapping();
+  const [savedProvider, setSavedProvider] = useState(provider);
+  const [supportModels, setSupportModels] = useState<string[]>(provider?.supportModels || []);
+  const [mappings, setMappings] = useState<Record<string, string>>({});
   const [name, setName] = useState(provider?.name || 'WorkBuddy AI');
   // Existing secrets are write-only: omit unchanged credentials on update.
   const [config, setConfig] = useState<WorkBuddyAIConfig>({});
@@ -114,7 +121,8 @@ export function WorkBuddyAIForm({
     setBusy(true);
     try {
       const data: CreateProviderData = {
-        ...provider,
+        ...savedProvider,
+        supportModels,
         type: 'workbuddy-ai',
         name: name.trim(),
         config: {
@@ -122,8 +130,27 @@ export function WorkBuddyAIForm({
           workbuddyAI: effectiveConfig,
         },
       };
-      if (provider) await update.mutateAsync({ id: provider.id, data });
-      else await create.mutateAsync(data);
+      let saved = savedProvider;
+      if (saved) await update.mutateAsync({ id: saved.id, data });
+      else {
+        saved = await create.mutateAsync(data);
+        setSavedProvider(saved);
+      }
+      for (const [pattern, target] of Object.entries(mappings)) {
+        await createMapping.mutateAsync({
+          scope: 'provider',
+          providerID: saved.id,
+          providerType: 'workbuddy-ai',
+          pattern,
+          target,
+          isEnabled: true,
+        });
+        setMappings((pending) => {
+          const remaining = { ...pending };
+          delete remaining[pattern];
+          return remaining;
+        });
+      }
       close();
     } catch {
       setStatus('error');
@@ -178,6 +205,16 @@ export function WorkBuddyAIForm({
           </Button>
           {models.length > 0 && <p role="status">{models.join(', ')}</p>}
         </div>
+        <ProviderSupportModels supportModels={supportModels} onChange={setSupportModels} />
+        {savedProvider ? (
+          <ProviderModelMappings provider={{ ...savedProvider, supportModels }} />
+        ) : (
+          <section aria-labelledby="workbuddy-mappings">
+            <h4 id="workbuddy-mappings">{t('modelMappings.title')}</h4>
+            <ModelMappingEditor value={mappings} onChange={setMappings} disabled={busy} />
+          </section>
+        )}
+        <p className="text-sm text-muted-foreground">{key('modelPolicyHint')}</p>
         <p className="text-sm text-muted-foreground">{key('secretHint')}</p>
         {(
           ['accessToken', 'refreshToken', 'domain', 'uid', 'enterpriseId', 'tokenType'] as const

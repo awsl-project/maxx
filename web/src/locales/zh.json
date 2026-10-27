@@ -2314,6 +2314,7 @@
       "secretWriteOnlyHint": "OAuth token 在这里按只写处理。表单提交空 token 字段时，后端会保留已保存的 access/refresh/id token。"
     },
     "workbuddyAI": {
+      "modelPolicyHint": "动态模型目录仅供参考，不会自动修改支持模型。支持模型沿用公共严格路由设置，仅筛选原生 OpenAI 路由，不筛选跨协议转换路由。提供商级映射适用于指向此提供商的所有协议路由。",
       "name": "WorkBuddy AI（国际版）",
       "description": "通过浏览器登录连接 WorkBuddy 国际版账号。",
       "login": "开始浏览器登录",
