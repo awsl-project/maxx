@@ -206,7 +206,7 @@ export function WorkBuddyAIForm({
           {models.length > 0 && <p role="status">{models.join(', ')}</p>}
         </div>
         <ProviderSupportModels supportModels={supportModels} onChange={setSupportModels} />
-        {savedProvider ? (
+        {savedProvider && Object.keys(mappings).length === 0 ? (
           <ProviderModelMappings provider={{ ...savedProvider, supportModels }} />
         ) : (
           <section aria-labelledby="workbuddy-mappings">

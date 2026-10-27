@@ -40,8 +40,23 @@ vi.mock('./provider-support-models', () => ({
     ),
 }));
 vi.mock('./model-mapping-editor', () => ({
-  ModelMappingEditor: ({ onChange }: { onChange: (v: Record<string, string>) => void }) =>
-    createElement('button', { onClick: () => onChange({ alias: 'target' }) }, 'add mapping'),
+  ModelMappingEditor: ({
+    value,
+    onChange,
+  }: {
+    value: Record<string, string>;
+    onChange: (v: Record<string, string>) => void;
+  }) =>
+    createElement(
+      'div',
+      { 'data-testid': 'pending' },
+      JSON.stringify(value),
+      createElement(
+        'button',
+        { onClick: () => onChange({ alias: 'target', second: 'second-target' }) },
+        'add mapping',
+      ),
+    ),
 }));
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => vi.clearAllMocks());
@@ -92,7 +107,10 @@ describe('WorkBuddy model policy persistence', () => {
   });
   it('creates scoped mappings only after obtaining provider ID and retries without duplicate providers', async () => {
     mocks.create.mockResolvedValue({ id: 42, name: 'WorkBuddy AI', type: 'workbuddy-ai' });
-    mocks.mapping.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({});
+    mocks.mapping
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({});
     mocks.update.mockResolvedValue({});
     const ui = await render();
     const input = ui.host.querySelector('#workbuddy-accessToken') as HTMLInputElement;
@@ -106,7 +124,20 @@ describe('WorkBuddy model policy persistence', () => {
     await ui.click('add mapping');
     await ui.click('common.save');
     expect(ui.close).not.toHaveBeenCalled();
+    expect(ui.host.querySelector('[data-testid=pending]')?.textContent).toContain('second-target');
+    expect(ui.host.querySelector('[data-testid=pending]')?.textContent).not.toContain('alias');
+    expect(ui.host.querySelector('[data-testid=saved-mappings]')).toBeNull();
     await ui.click('common.save');
+    expect(mocks.mapping.mock.calls.map(([input]) => input.pattern)).toEqual([
+      'alias',
+      'second',
+      'second',
+    ]);
+    expect(mocks.mapping.mock.calls[2][0]).toMatchObject({
+      scope: 'provider',
+      providerID: 42,
+      providerType: 'workbuddy-ai',
+    });
     expect(mocks.create).toHaveBeenCalledOnce();
     expect(mocks.mapping.mock.calls[0][0]).toEqual({
       scope: 'provider',
