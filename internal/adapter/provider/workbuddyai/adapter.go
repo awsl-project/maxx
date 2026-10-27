@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +63,14 @@ func (a *Adapter) Execute(c *flow.Ctx, p *domain.Provider) error {
 	}
 	stream := string(body["stream"]) == "true"
 	body["stream"] = json.RawMessage("true")
+	// WorkBuddy accepts max_tokens, not OpenAI's newer spelling. Preserve an
+	// explicit legacy cap when both are present, matching upstream precedence.
+	if cap, ok := body["max_completion_tokens"]; ok {
+		if _, exists := body["max_tokens"]; !exists {
+			body["max_tokens"] = cap
+		}
+		delete(body, "max_completion_tokens")
+	}
 	if model := flow.GetMappedModel(c); model != "" {
 		body["model"], _ = json.Marshal(model)
 	}
@@ -206,25 +215,23 @@ func upstreamError(message string, status int) *domain.ProxyError {
 func readUpstreamError(r io.Reader, status int) error {
 	b, _ := io.ReadAll(io.LimitReader(r, 64<<10))
 	var v struct {
-		Code    json.RawMessage `json:"code"`
-		Msg     string          `json:"msg"`
-		Message string          `json:"message"`
-		Error   struct {
-			Message string `json:"message"`
-		} `json:"error"`
+		Code json.RawMessage `json:"code"`
 	}
 	_ = json.Unmarshal(b, &v)
-	msg := v.Msg
-	if msg == "" {
-		msg = v.Message
+	// Upstream messages can echo request credentials. Keep the structured code
+	// and HTTP status, but never expose arbitrary upstream text to logs/clients.
+	var code int
+	if json.Unmarshal(v.Code, &code) != nil {
+		var quoted string
+		if json.Unmarshal(v.Code, &quoted) == nil {
+			code, _ = strconv.Atoi(quoted)
+		}
 	}
-	if msg == "" {
-		msg = v.Error.Message
+	category := http.StatusText(status)
+	if code == 10085 {
+		category = "unapproved channel"
 	}
-	if msg == "" {
-		msg = http.StatusText(status)
-	}
-	return upstreamError(fmt.Sprintf("WorkBuddy AI upstream HTTP %d, code %s: %s", status, string(v.Code), msg), status)
+	return upstreamError(fmt.Sprintf("WorkBuddy AI upstream HTTP %d, code %d: %s", status, code, category), status)
 }
 
 var conversationSalt = randomID()
