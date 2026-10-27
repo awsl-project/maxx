@@ -137,14 +137,33 @@ export function WorkBuddyAIForm({
         setSavedProvider(saved);
       }
       for (const [pattern, target] of Object.entries(mappings)) {
-        await createMapping.mutateAsync({
-          scope: 'provider',
+        // Re-read persisted rules on every attempt: a failed response may have
+        // committed the previous create. Match the complete scope, not just pattern.
+        const existing = (await getTransport().getModelMappings()).find(
+          (rule) =>
+            rule.scope === 'provider' &&
+            rule.providerID === saved.id &&
+            rule.providerType === 'workbuddy-ai' &&
+            !rule.clientType &&
+            !rule.projectID &&
+            !rule.routeID &&
+            !rule.apiTokenID &&
+            rule.pattern === pattern,
+        );
+        const input = {
+          scope: 'provider' as const,
           providerID: saved.id,
           providerType: 'workbuddy-ai',
           pattern,
           target,
           isEnabled: true,
-        });
+        };
+        if (existing) {
+          await getTransport().updateModelMapping(existing.id, {
+            ...input,
+            priority: existing.priority,
+          });
+        } else await createMapping.mutateAsync(input);
         setMappings((pending) => {
           const remaining = { ...pending };
           delete remaining[pattern];

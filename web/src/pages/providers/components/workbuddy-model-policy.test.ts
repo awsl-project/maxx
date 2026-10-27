@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   mapping: vi.fn(),
   discover: vi.fn(),
+  listMappings: vi.fn().mockResolvedValue([]),
+  updateMapping: vi.fn().mockResolvedValue({}),
 }));
 vi.mock('@/components/layout/page-header', () => ({
   PageHeader: ({ children }: { children: import('react').ReactNode }) =>
@@ -20,7 +22,11 @@ vi.mock('@/hooks/queries', () => ({
   useCreateModelMapping: () => ({ mutateAsync: mocks.mapping }),
 }));
 vi.mock('@/lib/transport', () => ({
-  getTransport: () => ({ getWorkBuddyAIModels: mocks.discover }),
+  getTransport: () => ({
+    getWorkBuddyAIModels: mocks.discover,
+    getModelMappings: mocks.listMappings,
+    updateModelMapping: mocks.updateMapping,
+  }),
 }));
 vi.mock('./provider-model-mappings', () => ({
   ProviderModelMappings: () => createElement('div', { 'data-testid': 'saved-mappings' }),
@@ -83,6 +89,44 @@ async function render(provider?: Record<string, unknown>) {
   };
 }
 describe('WorkBuddy model policy persistence', () => {
+  it('reconciles a committed mapping after response loss without duplicating it', async () => {
+    mocks.create.mockResolvedValue({ id: 42, name: 'WorkBuddy AI', type: 'workbuddy-ai' });
+    const persisted: Record<string, unknown>[] = [];
+    mocks.listMappings.mockImplementation(async () => persisted);
+    mocks.mapping
+      .mockImplementationOnce(async (input) => {
+        persisted.push({ ...input, id: 99, priority: 1000 });
+        throw new Error('response lost');
+      })
+      .mockResolvedValue({});
+    const ui = await render();
+    const input = ui.host.querySelector('#workbuddy-accessToken') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'dummy',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await ui.click('add mapping');
+    await ui.click('common.save');
+    expect(ui.close).not.toHaveBeenCalled();
+    await ui.click('common.save');
+    expect(mocks.mapping.mock.calls.map(([value]) => value.pattern)).toEqual(['alias', 'second']);
+    expect(mocks.updateMapping).toHaveBeenCalledWith(
+      99,
+      expect.objectContaining({
+        pattern: 'alias',
+        target: 'target',
+        providerID: 42,
+        priority: 1000,
+      }),
+    );
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(ui.close).toHaveBeenCalledOnce();
+    mocks.listMappings.mockResolvedValue([]);
+    await ui.cleanup();
+  });
   it('loads existing support models, never imports discovered catalog, and saves explicit clearing', async () => {
     mocks.discover.mockResolvedValue({ models: ['catalog-only'] });
     mocks.update.mockResolvedValue({});
