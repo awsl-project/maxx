@@ -37,6 +37,11 @@ func gram(s string, i int) uint32 {
 // user's own words are left to Options.Words, which match them anywhere
 // already, and are only as long as two letters.
 func (scopeState *State) addKnown(p, v string) {
+	if stored, ok := scopeState.values[p]; ok {
+		v = stored
+	} else {
+		v = strings.Clone(v)
+	}
 	kind := scopeState.kindOf(p)
 	if kind == "TERM" || len(v) < minKnown {
 		return
@@ -165,7 +170,10 @@ func (scopeState *State) noteScores(s string, found []span) {
 			sc = f.score
 		}
 		if old, ok := scopeState.scores[v]; !ok || sc > old {
-			scopeState.scores[v] = sc
+			if len(scopeState.scores) >= capacity {
+				scopeState.scores = map[string]float64{}
+			}
+			scopeState.scores[strings.Clone(v)] = sc
 		}
 	}
 }

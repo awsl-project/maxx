@@ -119,7 +119,7 @@ func (e *Exchange) FinishRecord(req *domain.ProxyRequest) {
 		if action == "" {
 			action = "mask"
 		}
-		record.Values = append(record.Values, Value{Placeholder: h.Placeholder, Kind: h.Kind, By: h.By, Hint: h.Head, Length: h.Len, Count: 1, Action: action, Restored: e.restored[h.Placeholder]})
+		record.Values = append(record.Values, Value{Placeholder: h.Placeholder, Kind: h.Kind, By: h.By, Hint: strings.Clone(h.Head), Length: h.Len, Count: 1, Action: action, Restored: e.restored[h.Placeholder]})
 	}
 	originals := make(map[string]string, len(e.pairs))
 	size := len(e.Body)

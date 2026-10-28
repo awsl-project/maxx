@@ -90,7 +90,8 @@ func (s *State) storeValue(key, value string) {
 	if removed {
 		s.reindexKnown()
 	}
-	s.values[key] = value
+	// Clone substrings so a short secret cannot retain an entire request text.
+	s.values[key] = strings.Clone(value)
 	s.usedBytes += size
 }
 
