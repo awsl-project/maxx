@@ -614,7 +614,7 @@ type Project struct {
 	// 启用自定义路由的 ClientType 列表，空数组表示所有 ClientType 都使用全局路由
 	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes"`
 
-	// BlockSecrets rejects credentials in message content before contacting upstream.
+	// BlockSecrets opts this project into credential blocking and archive scrubbing.
 	BlockSecrets bool `json:"blockSecrets"`
 
 	// 使用统计由 proxy_requests 聚合填充，用于项目清理候选检测；不落 projects 表。
@@ -786,6 +786,9 @@ func ResolveProxyRequestProtocol(isStream bool, isWebSocket bool) string {
 
 // 追踪
 type ProxyRequest struct {
+	// PrivacyEnabled snapshots opt-in policy for this request, never client input.
+	PrivacyEnabled bool `json:"-"`
+
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -879,6 +882,9 @@ type ProxyRequestCleanupFailedResult struct {
 }
 
 type ProxyUpstreamAttempt struct {
+	// PrivacyEnabled inherits the parent request policy for archive writes.
+	PrivacyEnabled bool `json:"-"`
+
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

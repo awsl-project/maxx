@@ -51,6 +51,15 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 	protected := createPrivacyProject(t, env, "protected", true)
 	createPrivacyProject(t, env, "unprotected", false)
 	requestRepo := sqlite.NewProxyRequestRepository(env.DB)
+	disabledRequests := map[uint64]bool{}
+	markDisabled := func() {
+		t.Helper()
+		rows, err := requestRepo.List(domain.DefaultTenantID, 1, 0)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("request missing: %v", err)
+		}
+		disabledRequests[rows[0].ID] = true
+	}
 	blocked := func(path string, body any) {
 		t.Helper()
 		before := calls.Load()
@@ -93,6 +102,8 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
+	markDisabled()
+
 	// Existing route editors omit this field. Such saves must not disable it.
 	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d", protected.ID), map[string]any{"name": "protected", "slug": "protected", "enabledCustomRoutes": []string{}})
 	AssertStatus(t, resp, http.StatusOK)
@@ -113,13 +124,15 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
-	// Both rejected and forwarded requests, and all attempts, are scrubbed in DB.
+	markDisabled()
+
+	// New privacy processing applies only to requests that opted in at ingress.
 	var records []sqlite.ProxyRequest
 	if err := env.DB.GormDB().Find(&records).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, record := range records {
-		if strings.Contains(string(record.RequestInfo), privacyTestKey) || strings.Contains(string(record.RequestInfo), "tiny") {
+		if strings.Contains(string(record.RequestInfo), privacyTestKey) != disabledRequests[record.ID] || strings.Contains(string(record.RequestInfo), "tiny") {
 			t.Fatalf("request archive leaked: %s", record.RequestInfo)
 		}
 	}
@@ -128,7 +141,7 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, attempt := range attempts {
-		if strings.Contains(string(attempt.RequestInfo), privacyTestKey) {
+		if strings.Contains(string(attempt.RequestInfo), privacyTestKey) != disabledRequests[attempt.ProxyRequestID] {
 			t.Fatal("attempt archive leaked")
 		}
 	}
@@ -190,6 +203,7 @@ func TestRequestPrivacyStreamArchive(t *testing.T) {
 
 func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 	var frames atomic.Int32
+	var receivedSecret atomic.Bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Upgrade(w, r, nil, 4096, 4096)
 		if err != nil {
@@ -198,8 +212,12 @@ func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 		}
 		defer conn.Close()
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, body, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+			if strings.Contains(string(body), privacyTestKey) {
+				receivedSecret.Store(true)
 			}
 			frames.Add(1)
 			conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"resp_private","model":"gpt-test","output":[]}}`))
@@ -207,7 +225,7 @@ func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 	}))
 	defer upstream.Close()
 	env := NewProxyTestEnv(t)
-	createPrivacyProject(t, env, "ws-protected", true)
+	project := createPrivacyProject(t, env, "ws-protected", true)
 	resp := env.AdminPost("/api/admin/providers", map[string]any{"name": "privacy-ws", "type": "custom", "config": map[string]any{"custom": map[string]any{"baseURL": upstream.URL + "/v1", "apiKey": "sk-mock-test-key", "responsesWebSocket": true}}, "supportedClientTypes": []string{"codex"}})
 	AssertStatus(t, resp, http.StatusCreated)
 	var provider domain.Provider
@@ -231,6 +249,38 @@ func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 	}
 	if frames.Load() != 1 {
 		t.Fatalf("secret turn reached upstream: %d", frames.Load())
+	}
+	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", project.ID), map[string]any{"blockSecrets": false})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+	offConn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(env.Server.URL, "http")+"/project/ws-protected/v1/responses", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer offConn.Close()
+	offConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	secretTurn := []byte(`{"type":"response.create","model":"gpt-test","input":[{"role":"user","content":"` + privacyTestKey + `"}]}`)
+	if err := offConn.WriteMessage(websocket.TextMessage, secretTurn); err != nil {
+		t.Fatal(err)
+	}
+	_, event, err = offConn.ReadMessage()
+	if err != nil || !strings.Contains(string(event), "response.completed") || frames.Load() != 2 || !receivedSecret.Load() {
+		t.Fatalf("disabled policy changed WebSocket turn: %s %v", event, err)
+	}
+	stored := waitPrivacyRequest(t, env)
+	if stored.RequestInfo == nil || !strings.Contains(stored.RequestInfo.Body, privacyTestKey) {
+		t.Fatal("disabled policy changed WebSocket archive")
+	}
+	// A new turn on the same connection uses the new project setting.
+	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", project.ID), map[string]any{"blockSecrets": true})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+	if err := offConn.WriteMessage(websocket.TextMessage, secretTurn); err != nil {
+		t.Fatal(err)
+	}
+	_, event, err = offConn.ReadMessage()
+	if err != nil || !strings.Contains(string(event), "privacy_blocked") || frames.Load() != 2 {
+		t.Fatalf("new WebSocket turn ignored updated policy: %s %v", event, err)
 	}
 }
 

@@ -139,6 +139,9 @@ func (e *Executor) ExecuteProviderProxyMatched(c *flow.Ctx, proxyReq *domain.Pro
 	if !e.enforceRequestPrivacy(c, state) {
 		return state.lastErr
 	}
+	if proxyReq.ID == 0 {
+		e.createProxyRequest(proxyReq)
+	}
 	e.dispatch(c)
 	return state.lastErr
 }

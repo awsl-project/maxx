@@ -235,7 +235,7 @@ func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	model := r.toModelMeta(p)
 	omit := []string{"request_info"}
 	if p.ResponseInfo != nil {
-		model.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo))
+		model.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo, p.PrivacyEnabled))
 	} else {
 		omit = append(omit, "response_info")
 	}
@@ -1064,8 +1064,8 @@ func proxyRequestUserAgent(p *domain.ProxyRequest) string {
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 	m := r.toModelMeta(p)
-	m.RequestInfo = LongText(requestInfoJSON(p.RequestInfo))
-	m.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo))
+	m.RequestInfo = LongText(requestInfoJSON(p.RequestInfo, p.PrivacyEnabled))
+	m.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo, p.PrivacyEnabled))
 	return m
 }
 
@@ -1074,6 +1074,10 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 // 在一次请求生命周期里会被调用多次),Create 走 toModel 一次性编码,Update
 // 路径据此按需决定是否编码,避免对状态/计量类更新重复序列化大 body。
 func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyRequest {
+	errorText := p.Error
+	if p.PrivacyEnabled {
+		errorText = privacy.ScrubText(errorText)
+	}
 	return &ProxyRequest{
 		BaseModel: BaseModel{
 			ID:        p.ID,
@@ -1097,7 +1101,7 @@ func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyReque
 		Status:                      p.Status,
 		StatusCode:                  p.StatusCode,
 		UserAgent:                   proxyRequestUserAgent(p),
-		Error:                       LongText(privacy.ScrubText(p.Error)),
+		Error:                       LongText(errorText),
 		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
 		RouteID:                     p.RouteID,

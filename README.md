@@ -37,7 +37,7 @@
 - **Admin UI**: Multi-language Web UI with real-time WebSocket updates
 - **Profiling**: Built-in pprof support
 - **Backup**: Import/export configuration
-- **Credential Privacy**: [Scrub stored details and optionally block credentials per project](docs/privacy.md)
+- **Credential Privacy**: [Opt-in credential blocking and archive scrubbing per project](docs/privacy.md)
 
 ## Quick Start
 

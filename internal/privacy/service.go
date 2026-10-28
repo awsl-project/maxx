@@ -24,30 +24,31 @@ type Rejection struct {
 	HTTPStatusCode int
 }
 
-// Check applies project policy before upstream execution. Nil means allowed.
+// Check returns the request-scoped policy and an optional rejection.
+// Disabled projects bypass body parsing and detection entirely.
 // Missing policy storage fails closed for selected projects.
-func (s *Service) Check(tenantID, projectID uint64, body []byte, contentType string) *Rejection {
+func (s *Service) Check(tenantID, projectID uint64, body []byte, contentType string) (bool, *Rejection) {
 	if projectID == 0 {
-		return nil
+		return false, nil
 	}
 	if s == nil || s.projects == nil {
-		return checkFailure(http.StatusServiceUnavailable)
+		return true, checkFailure(http.StatusServiceUnavailable)
 	}
 	project, err := s.projects.GetByID(tenantID, projectID)
 	if err != nil || project == nil {
-		return checkFailure(http.StatusServiceUnavailable)
+		return true, checkFailure(http.StatusServiceUnavailable)
 	}
 	if !project.BlockSecrets {
-		return nil
+		return false, nil
 	}
 	kind, err := InspectRequest(body, contentType)
 	if err != nil {
-		return checkFailure(http.StatusBadRequest)
+		return true, checkFailure(http.StatusBadRequest)
 	}
 	if kind == "" {
-		return nil
+		return true, nil
 	}
-	return &Rejection{Code: "privacy_blocked", Message: "Request blocked: credential detected in message content (" + kind + ")", HTTPStatusCode: http.StatusBadRequest}
+	return true, &Rejection{Code: "privacy_blocked", Message: "Request blocked: credential detected in message content (" + kind + ")", HTTPStatusCode: http.StatusBadRequest}
 }
 
 func checkFailure(status int) *Rejection {

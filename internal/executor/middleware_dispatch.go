@@ -254,6 +254,7 @@ routeLoop:
 				}
 			}
 			attemptRecord := &domain.ProxyUpstreamAttempt{
+				PrivacyEnabled: proxyReq.PrivacyEnabled,
 				TenantID:       proxyReq.TenantID,
 				ProxyRequestID: proxyReq.ID,
 				RouteID:        matchedRoute.Route.ID,

@@ -40,7 +40,7 @@ func (r *ProxyUpstreamAttemptRepository) Update(a *domain.ProxyUpstreamAttempt) 
 	model := r.toModelMeta(a)
 	omit := []string{"request_info"}
 	if a.ResponseInfo != nil {
-		model.ResponseInfo = LongText(responseInfoJSON(a.ResponseInfo))
+		model.ResponseInfo = LongText(responseInfoJSON(a.ResponseInfo, a.PrivacyEnabled))
 	} else {
 		omit = append(omit, "response_info")
 	}
@@ -371,14 +371,18 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 
 func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
 	m := r.toModelMeta(a)
-	m.RequestInfo = LongText(requestInfoJSON(a.RequestInfo))
-	m.ResponseInfo = LongText(responseInfoJSON(a.ResponseInfo))
+	m.RequestInfo = LongText(requestInfoJSON(a.RequestInfo, a.PrivacyEnabled))
+	m.ResponseInfo = LongText(responseInfoJSON(a.ResponseInfo, a.PrivacyEnabled))
 	return m
 }
 
 // toModelMeta 构造除 request_info/response_info 两个大字段外的所有列,供 Update
 // 路径按需编码大字段,避免重复序列化完整请求/响应体。详见 Update 注释。
 func (r *ProxyUpstreamAttemptRepository) toModelMeta(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
+	errorText := a.Error
+	if a.PrivacyEnabled {
+		errorText = privacy.ScrubText(errorText)
+	}
 	return &ProxyUpstreamAttempt{
 		BaseModel: BaseModel{
 			ID:        a.ID,
@@ -391,7 +395,7 @@ func (r *ProxyUpstreamAttemptRepository) toModelMeta(a *domain.ProxyUpstreamAtte
 		DurationMs:            a.Duration.Milliseconds(),
 		TTFTMs:                a.TTFT.Milliseconds(),
 		Status:                a.Status,
-		Error:                 LongText(privacy.ScrubText(a.Error)),
+		Error:                 LongText(errorText),
 		ProxyRequestID:        a.ProxyRequestID,
 		IsStream:              boolToInt(a.IsStream),
 		RequestModel:          a.RequestModel,

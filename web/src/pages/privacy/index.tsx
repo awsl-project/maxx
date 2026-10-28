@@ -4,16 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ShieldCheck, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Input,
-  Switch,
-} from '@/components/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, Switch } from '@/components/ui';
 import { projectKeys, useProjects } from '@/hooks/queries';
 import { getTransport, type Project } from '@/lib/transport';
 
@@ -56,7 +47,6 @@ export function PrivacyPage() {
         <Card>
           <CardHeader className="flex items-center justify-between gap-4">
             <CardTitle className="text-base">{t('privacy.archiveTitle')}</CardTitle>
-            <Badge variant="success">{t('privacy.alwaysEnabled')}</Badge>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-text-secondary">{t('privacy.archiveDescription')}</p>

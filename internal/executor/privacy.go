@@ -14,7 +14,11 @@ func (e *Executor) enforceRequestPrivacy(c *flow.Ctx, state *execState) bool {
 	if len(body) == 0 {
 		body = state.requestBody
 	}
-	rejection := e.privacy.Check(state.tenantID, state.projectID, body, state.requestHeaders.Get("Content-Type"))
+	enabled, rejection := e.privacy.Check(state.tenantID, state.projectID, body, state.requestHeaders.Get("Content-Type"))
+	state.privacyEnabled = enabled
+	if state.proxyReq != nil {
+		state.proxyReq.PrivacyEnabled = enabled
+	}
 	if rejection == nil {
 		return true
 	}
@@ -24,8 +28,8 @@ func (e *Executor) enforceRequestPrivacy(c *flow.Ctx, state *execState) bool {
 	proxyErr.HTTPStatusCode = rejection.HTTPStatusCode
 	state.lastErr, c.Err = proxyErr, proxyErr
 	req := state.proxyReq
-	isNew := req == nil
-	if isNew {
+	isNew := req == nil || req.ID == 0
+	if req == nil {
 		req = e.newProxyRequest(c, state, "REJECTED")
 		state.proxyReq = req
 	}

@@ -7,13 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
-func TestLogWriterScrubsCredentialsAtAllSinks(t *testing.T) {
+func TestLogWriterPreservesExistingBehavior(t *testing.T) {
 	hub := &WebSocketHub{broadcast: make(chan WSMessage, 1)}
 	var stdout bytes.Buffer
 	path := filepath.Join(t.TempDir(), "maxx.log")
@@ -29,9 +28,9 @@ func TestLogWriterScrubsCredentialsAtAllSinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	event := <-hub.broadcast
-	for _, sink := range []string{stdout.String(), string(file), event.Data.(string)} {
-		if strings.Contains(sink, "sk-proj-") || !strings.Contains(sink, "[REDACTED]") {
-			t.Fatalf("unsafe log: %s", sink)
+	for _, sink := range []string{stdout.String(), string(file), event.Data.(string) + "\n"} {
+		if sink != message {
+			t.Fatalf("log unexpectedly changed: %s", sink)
 		}
 	}
 }

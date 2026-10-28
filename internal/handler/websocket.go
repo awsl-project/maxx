@@ -15,7 +15,6 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
-	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/gorilla/websocket"
 )
 
@@ -229,12 +228,10 @@ func NewWebSocketLogWriter(hub *WebSocketHub, stdout io.Writer, logPath string) 
 
 // Write implements io.Writer
 func (w *WebSocketLogWriter) Write(p []byte) (n int, err error) {
-	originalLen := len(p)
-	p = []byte(privacy.ScrubText(string(p)))
 	// Write to stdout first
-	_, err = w.stdout.Write(p)
+	n, err = w.stdout.Write(p)
 	if err != nil {
-		return 0, err
+		return n, err
 	}
 
 	// Write to log file
@@ -248,7 +245,7 @@ func (w *WebSocketLogWriter) Write(p []byte) (n int, err error) {
 		w.hub.BroadcastLog(msg)
 	}
 
-	return originalLen, nil
+	return n, nil
 }
 
 // ReadLastNLines reads the last n lines from the specified log file

@@ -119,6 +119,7 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 	_ = e.proxyRequestRepo.Update(proxyReq)
 
 	attempt := &domain.ProxyUpstreamAttempt{
+		PrivacyEnabled: proxyReq.PrivacyEnabled,
 		TenantID:       proxyReq.TenantID,
 		ProxyRequestID: proxyReq.ID,
 		RouteID:        matched.Route.ID,
