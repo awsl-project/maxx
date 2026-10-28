@@ -235,7 +235,7 @@ func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	model := r.toModelMeta(p)
 	omit := []string{"request_info"}
 	if p.ResponseInfo != nil {
-		model.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo, p.PrivacyEnabled))
+		model.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo, p.PrivacyEnabled, p.PrivacyFilter))
 	} else {
 		omit = append(omit, "response_info")
 	}
@@ -1064,8 +1064,8 @@ func proxyRequestUserAgent(p *domain.ProxyRequest) string {
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 	m := r.toModelMeta(p)
-	m.RequestInfo = LongText(requestInfoJSON(p.RequestInfo, p.PrivacyEnabled))
-	m.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo, p.PrivacyEnabled))
+	m.RequestInfo = LongText(requestInfoJSON(p.RequestInfo, p.PrivacyEnabled, p.PrivacyFilter))
+	m.ResponseInfo = LongText(responseInfoJSON(p.ResponseInfo, p.PrivacyEnabled, p.PrivacyFilter))
 	return m
 }
 
@@ -1077,6 +1077,9 @@ func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyReque
 	errorText := p.Error
 	if p.PrivacyEnabled {
 		errorText = privacy.ScrubText(errorText)
+		if p.PrivacyFilter != nil {
+			errorText = p.PrivacyFilter(errorText)
+		}
 	}
 	return &ProxyRequest{
 		BaseModel: BaseModel{

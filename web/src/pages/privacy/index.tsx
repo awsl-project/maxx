@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ProjectPrivacySettings } from './settings';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -25,6 +26,7 @@ export function PrivacyPage() {
         ),
       );
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['privacy', updated.id, 'config'] }),
         queryClient.invalidateQueries({ queryKey: projectKeys.lists() }),
         queryClient.invalidateQueries({ queryKey: projectKeys.detail(updated.id) }),
       ]);
@@ -107,7 +109,14 @@ export function PrivacyPage() {
                       </Link>
                       <p className="truncate text-xs text-text-muted">{project.slug}</p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setParams({ project: String(project.id) })}
+                      >
+                        {t('privacy.configure')}
+                      </Button>
                       {update.isPending && update.variables?.id === project.id && (
                         <Loader2 aria-label={t('common.saving')} className="h-4 w-4 animate-spin" />
                       )}
@@ -125,6 +134,11 @@ export function PrivacyPage() {
             )}
           </CardContent>
         </Card>
+        {projects.find((project) => project.id === selectedProject) && (
+          <ProjectPrivacySettings
+            project={projects.find((project) => project.id === selectedProject)!}
+          />
+        )}
       </div>
     </div>
   );

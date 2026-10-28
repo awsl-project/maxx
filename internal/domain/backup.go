@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // BackupVersion current backup format version
 const BackupVersion = "1.0"
@@ -47,10 +50,11 @@ type BackupProvider struct {
 
 // BackupProject represents a project for backup (using slug as identifier)
 type BackupProject struct {
-	Name                string       `json:"name"`
-	Slug                string       `json:"slug"`
-	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes,omitempty"`
-	BlockSecrets        bool         `json:"blockSecrets,omitempty"`
+	Name                string          `json:"name"`
+	Slug                string          `json:"slug"`
+	EnabledCustomRoutes []ClientType    `json:"enabledCustomRoutes,omitempty"`
+	BlockSecrets        bool            `json:"blockSecrets,omitempty"`
+	Privacy             json.RawMessage `json:"privacy,omitempty"`
 }
 
 // BackupRetryConfig represents a retry config for backup

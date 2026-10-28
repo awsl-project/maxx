@@ -12,6 +12,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/sticky"
 	"github.com/tidwall/sjson"
 )
@@ -105,8 +106,17 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 		return
 	}
 	outboundFrame = e.applyOutboundParamPolicy(outboundFrame, domain.ClientTypeCodex, "", mappedModel, matched.Provider)
+	var privacyRejection *privacy.Rejection
+	outboundFrame, privacyRejection = state.privacyExchange.Outbound(outboundFrame)
+	if !e.rejectPrivacy(c, state, privacyRejection) {
+		return
+	}
 	turnExchange := *exchange
 	turnExchange.Frame = outboundFrame
+	privacyFrames := state.privacyExchange.WrapFrames(exchange.Sink)
+	if privacyFrames != nil {
+		turnExchange.Sink = privacyFrames
+	}
 	if e.router != nil {
 		turnExchange.TryAcquireProviderSlot = func() (func(), bool) {
 			return e.router.TryAcquireProvider(matched.Provider)
@@ -120,6 +130,7 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 
 	attempt := &domain.ProxyUpstreamAttempt{
 		PrivacyEnabled: proxyReq.PrivacyEnabled,
+		PrivacyFilter:  proxyReq.PrivacyFilter,
 		TenantID:       proxyReq.TenantID,
 		ProxyRequestID: proxyReq.ID,
 		RouteID:        matched.Route.ID,
@@ -159,6 +170,9 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 	go e.processAdapterEventsRealtime(eventChan, attempt, eventDone, clearDetail)
 
 	result, execErr := wsAdapter.ExecuteResponsesWebSocket(c, matched.Provider, &turnExchange)
+	if restoreErr := privacyFrames.Finish(); restoreErr != nil && execErr == nil {
+		execErr = privacy.ClientWriteError(restoreErr)
+	}
 	eventChan.Close()
 	<-eventDone
 

@@ -1,8 +1,8 @@
 package privacy
 
 import (
+	"context"
 	"errors"
-	"net/http"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
@@ -14,10 +14,15 @@ type Projects interface {
 }
 
 // Service owns project privacy policy and request decisions.
-type Service struct{ projects Projects }
+type Service struct {
+	projects Projects
+	runtime  *Runtime
+}
 
 // NewService uses the same tenant-scoped project store as project settings.
-func NewService(projects Projects) *Service { return &Service{projects: projects} }
+func NewService(projects Projects) *Service {
+	return &Service{projects: projects, runtime: newRuntime()}
+}
 
 // Rejection contains only safe information that can be returned to a client.
 type Rejection struct {
@@ -50,21 +55,11 @@ func (s *Service) Enabled(tenantID, projectID uint64) (bool, error) {
 // Check returns the request-scoped policy and an optional rejection.
 // Disabled projects bypass body parsing and detection entirely.
 func (s *Service) Check(tenantID, projectID uint64, body []byte, contentType string) (bool, *Rejection) {
-	enabled, err := s.Enabled(tenantID, projectID)
-	if err != nil {
-		return true, checkFailure(http.StatusServiceUnavailable)
+	exchange, rejection := s.Prepare(context.Background(), tenantID, projectID, body, body, contentType)
+	if rejection == nil {
+		rejection = exchange.ResolvePlan(nil)
 	}
-	if !enabled {
-		return false, nil
-	}
-	kind, err := InspectRequest(body, contentType)
-	if err != nil {
-		return true, checkFailure(http.StatusBadRequest)
-	}
-	if kind == "" {
-		return true, nil
-	}
-	return true, &Rejection{Code: "privacy_blocked", Message: "Request blocked: credential detected in message content (" + kind + ")", HTTPStatusCode: http.StatusBadRequest}
+	return exchange != nil, rejection
 }
 
 func checkFailure(status int) *Rejection {
@@ -86,6 +81,9 @@ func (s *Service) SetProjectProtection(tenantID, projectID uint64, enabled bool)
 	}
 	updated := *project
 	updated.BlockSecrets = enabled
+	if err := SyncLegacyProtection(&updated); err != nil {
+		return nil, err
+	}
 	if err := s.projects.Update(&updated); err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/version"
 )
@@ -136,11 +137,16 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	}
 	for _, p := range projects {
 		projectIDToSlug[p.ID] = p.Slug
+		policy, err := privacy.ExportPolicy(p, providerIDToName)
+		if err != nil {
+			return nil, fmt.Errorf("invalid project privacy policy: %w", err)
+		}
 		backup.Data.Projects = append(backup.Data.Projects, domain.BackupProject{
 			Name:                p.Name,
 			Slug:                p.Slug,
 			EnabledCustomRoutes: p.EnabledCustomRoutes,
 			BlockSecrets:        p.BlockSecrets,
+			Privacy:             policy,
 		})
 	}
 
@@ -590,12 +596,18 @@ func (s *BackupService) importProjects(tenantID uint64, projects []domain.Backup
 			}
 		}
 
+		policy, err := privacy.ImportPolicy(bp.Privacy, bp.BlockSecrets, ctx.providerNameToID)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Project %q has invalid privacy settings, skipped", bp.Slug))
+			continue
+		}
 		p := &domain.Project{
 			TenantID:            tenantID,
 			Name:                bp.Name,
 			Slug:                bp.Slug,
 			EnabledCustomRoutes: bp.EnabledCustomRoutes,
 			BlockSecrets:        bp.BlockSecrets,
+			Privacy:             policy,
 		}
 
 		if !opts.DryRun {

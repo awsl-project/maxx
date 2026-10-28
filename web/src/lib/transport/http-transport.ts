@@ -1,3 +1,13 @@
+import type {
+  PrivacyConfig,
+  PrivacyCategory,
+  PrivacyPreview,
+  PrivacyModels,
+  PrivacyModel,
+  PrivacyRecords,
+  PrivacyRecord,
+  PrivacySummary,
+} from './privacy-types';
 /**
  * HTTP Transport 实现
  * 使用 Axios 发送 HTTP 请求，WebSocket 接收实时推送
@@ -457,6 +467,78 @@ export class HttpTransport implements Transport {
       blockSecrets: enabled,
     });
     return data;
+  }
+
+  async getPrivacyConfig(id: number): Promise<PrivacyConfig> {
+    return (await this.client.get<PrivacyConfig>(`/projects/${id}/privacy`)).data;
+  }
+  async savePrivacyConfig(id: number, config: PrivacyConfig): Promise<Project> {
+    return (await this.client.put<Project>(`/projects/${id}/privacy`, { config })).data;
+  }
+  async getPrivacyCategories(id: number): Promise<PrivacyCategory[]> {
+    return (await this.client.get<PrivacyCategory[]>(`/projects/${id}/privacy/categories`)).data;
+  }
+  async previewPrivacy(
+    id: number,
+    config: PrivacyConfig,
+    text: string,
+    json: boolean,
+  ): Promise<PrivacyPreview> {
+    return (
+      await this.client.post<PrivacyPreview>(`/projects/${id}/privacy/preview`, {
+        config,
+        ...(json ? { body: text } : { text }),
+      })
+    ).data;
+  }
+  async getPrivacyModels(id: number): Promise<PrivacyModels> {
+    return (await this.client.get<PrivacyModels>(`/projects/${id}/privacy/models`)).data;
+  }
+  async privacyModelAction(id: number, model: string, action: string): Promise<PrivacyModel> {
+    return (
+      await this.client.post<PrivacyModel>(
+        `/projects/${id}/privacy/models/${encodeURIComponent(model)}/${encodeURIComponent(action)}`,
+      )
+    ).data;
+  }
+  async getPrivacyRecords(
+    id: number,
+    params: Record<string, string | number>,
+  ): Promise<PrivacyRecords> {
+    return (await this.client.get<PrivacyRecords>(`/projects/${id}/privacy/records`, { params }))
+      .data;
+  }
+  async getPrivacyRecord(id: number, record: string): Promise<PrivacyRecord> {
+    return (
+      await this.client.get<PrivacyRecord>(
+        `/projects/${id}/privacy/records/${encodeURIComponent(record)}`,
+      )
+    ).data;
+  }
+  async getPrivacySummary(id: number): Promise<PrivacySummary> {
+    return (await this.client.get<PrivacySummary>(`/projects/${id}/privacy/summary`)).data;
+  }
+  async getPrivacyOriginal(
+    id: number,
+    record: string,
+    placeholder: string,
+  ): Promise<{ value: string }> {
+    return (
+      await this.client.get<{ value: string }>(
+        `/projects/${id}/privacy/records/${encodeURIComponent(record)}/value`,
+        { params: { placeholder } },
+      )
+    ).data;
+  }
+  async getPrivacySent(id: number, record: string): Promise<{ body: string }> {
+    return (
+      await this.client.get<{ body: string }>(
+        `/projects/${id}/privacy/records/${encodeURIComponent(record)}/sent`,
+      )
+    ).data;
+  }
+  async clearPrivacyRecords(id: number): Promise<void> {
+    await this.client.delete(`/projects/${id}/privacy/records`);
   }
 
   async deleteProject(id: number): Promise<void> {

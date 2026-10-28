@@ -332,6 +332,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	}
 	proxyReq := &domain.ProxyRequest{
 		PrivacyEnabled:  privacyEnabled,
+		PrivacyFilter:   e.privacy.EarlyArchiveFilter(tenantID, projectID),
 		TenantID:        tenantID,
 		InstanceID:      e.instanceID,
 		RequestID:       generateRequestID(),

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
@@ -86,7 +87,7 @@ func TestSelfServicePrivacyEndpointOnlyChangesPolicy(t *testing.T) {
 		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true,"name":"changed"}`, domain.UserRoleAdmin, 400, false},
 		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true} {}`, domain.UserRoleAdmin, 400, false},
 		{"/projects/2/privacy", http.MethodPut, `{"blockSecrets":false}`, domain.UserRoleAdmin, 404, false},
-		{"/projects/1/privacy", http.MethodGet, ``, domain.UserRoleAdmin, 405, false},
+		{"/projects/1/privacy", http.MethodGet, ``, domain.UserRoleAdmin, 200, false},
 		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true}`, domain.UserRoleAdmin, 200, true},
 	} {
 		rec := httptest.NewRecorder()
@@ -99,5 +100,34 @@ func TestSelfServicePrivacyEndpointOnlyChangesPolicy(t *testing.T) {
 		if project.BlockSecrets != tc.enabled || project.Name != "original" || project.Slug != "original" || len(project.EnabledCustomRoutes) != 1 || !repo.projects[1].BlockSecrets {
 			t.Fatal("privacy update changed unrelated settings or another tenant")
 		}
+	}
+}
+
+func TestFullPrivacyEndpointsRequireScopedAdmin(t *testing.T) {
+	repo := &selfServiceProjectRepo{projects: []*domain.Project{{ID: 1, TenantID: 1, Name: "one", Slug: "one"}, {ID: 2, TenantID: 2, Name: "two", Slug: "two"}}}
+	h := newSelfServiceHandlerForTests(selfServiceTestDeps{projectRepo: repo})
+	for _, path := range []string{"/projects/1/privacy", "/projects/1/privacy/categories", "/projects/1/privacy/models", "/projects/1/privacy/records", "/projects/1/privacy/summary", "/projects/1/privacy/records/missing/value?placeholder=anything", "/projects/1/privacy/records/missing/sent"} {
+		for _, role := range []domain.UserRole{domain.UserRoleMember, domain.UserRoleAdmin} {
+			req := withSelfServiceContext(httptest.NewRequest(http.MethodGet, path, nil), role)
+			if role == domain.UserRoleAdmin {
+				req = req.WithContext(maxxctx.WithTenantID(req.Context(), 2))
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			want := 403
+			if role == domain.UserRoleAdmin {
+				want = 404
+			}
+			if w.Code != want {
+				t.Fatalf("%s role=%s status=%d want=%d", path, role, w.Code, want)
+			}
+		}
+	}
+	req := withSelfServiceContext(httptest.NewRequest(http.MethodPost, "/projects/2/privacy/models/astrlink-guard/remove", nil), domain.UserRoleAdmin)
+	req = req.WithContext(maxxctx.WithTenantID(req.Context(), 2))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 403 {
+		t.Fatalf("tenant admin could manage shared model: %d", w.Code)
 	}
 }

@@ -32,7 +32,11 @@ require (
 
 require github.com/DATA-DOG/go-sqlmock v1.5.2
 
-require github.com/dlclark/regexp2/v2 v2.5.1 // indirect
+require (
+	github.com/clipperhouse/stringish v0.1.1 // indirect
+	github.com/clipperhouse/uax29/v2 v2.5.0
+	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect

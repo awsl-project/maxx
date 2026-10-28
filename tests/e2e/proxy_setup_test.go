@@ -14,7 +14,6 @@ import (
 	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
@@ -177,7 +176,7 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance", privacy.NewService(cachedProjectRepo))
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance", adminService.Privacy())
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()

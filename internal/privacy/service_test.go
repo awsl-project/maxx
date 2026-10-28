@@ -96,3 +96,64 @@ func TestPolicyLookupFailureDoesNotDisableProtection(t *testing.T) {
 		}
 	}
 }
+
+func TestFullPolicySQLiteCacheAndBackupReferences(t *testing.T) {
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := sqlite.NewProjectRepository(db)
+	p := &domain.Project{TenantID: 1, Name: "full", Slug: "full"}
+	if err := repo.Create(p); err != nil {
+		t.Fatal(err)
+	}
+	cache := cached.NewProjectRepository(repo)
+	if err := cache.Load(); err != nil {
+		t.Fatal(err)
+	}
+	svc := privacy.NewService(cache)
+	old, _ := cache.GetByID(1, p.ID)
+	cfg := privacy.DefaultConfig()
+	cfg.Enabled = true
+	cfg.Personal = true
+	cfg.Words = []string{"Nightjar"}
+	cfg.BypassProviders = []uint64{7}
+	if _, err := svc.SetConfiguration(1, p.ID, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if old.BlockSecrets || len(old.Privacy) != 0 {
+		t.Fatal("configuration mutated a cached reader's snapshot")
+	}
+	fresh, err := privacy.NewService(repo).Configuration(1, p.ID)
+	if err != nil || !fresh.Enabled || !fresh.Personal || len(fresh.Words) != 1 {
+		t.Fatalf("SQL roundtrip: %+v %v", fresh, err)
+	}
+	saved, _ := repo.GetByID(1, p.ID)
+	exported, err := privacy.ExportPolicy(saved, map[uint64]string{7: "private-upstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, err := privacy.ImportPolicy(exported, true, map[string]uint64{"private-upstream": 19})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.Privacy = imported
+	if err := repo.Update(saved); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ = privacy.NewService(repo).Configuration(1, p.ID)
+	if len(fresh.BypassProviders) != 1 || fresh.BypassProviders[0] != 19 {
+		t.Fatal("backup did not remap provider names to target IDs")
+	}
+	imported, err = privacy.ImportPolicy(exported, true, map[string]uint64{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.Privacy = imported
+	repo.Update(saved)
+	fresh, _ = privacy.NewService(repo).Configuration(1, p.ID)
+	if len(fresh.BypassProviders) != 0 {
+		t.Fatal("missing provider silently reused an unrelated source ID")
+	}
+}

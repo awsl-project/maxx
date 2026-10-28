@@ -1,120 +1,155 @@
-# Credential protection
+# Project privacy protection
 
-Maxx uses stateless rules inspired by [Magpie](https://github.com/yetone/magpie)
-([MIT attribution](../internal/privacy/LICENSE.magpie)). There is no external
-service, local AI model, reversible placeholder map, or shared secret cache.
+Privacy is an independent module (`internal/privacy`) and settings page
+(`/privacy`). Projects opt in; new and existing projects default to **off**.
+When off, requests skip detection, replacement, restoration and new archive
+filters. Existing forwarding, retry, authentication, billing, detail retention,
+sensitive-header protection and global logging behavior are preserved.
 
-## Stored request details
+## Configure a project
 
-For projects with privacy protection enabled, new request and upstream-attempt
-snapshots are scrubbed before database writes:
+Open **Privacy Protection → Configure** for a project. Edit its policy, then
+**Save privacy policy**. The next HTTP request or WebSocket turn uses the new
+policy; an in-flight request keeps its original policy snapshot.
 
-- Sensitive headers, including custom `*-token` / `*-secret` headers, are
-  scrubbed. URL passwords and credential query parameters are scrubbed too,
-  including percent-encoded values. Malformed URLs are omitted from the archive.
-- JSON credential fields (such as `password`, `api_key`, and `access_token`) are
-  replaced with `[REDACTED]`. Recognized key formats, JWTs, PEM private keys,
-  quoted/unquoted credential assignments, and connection-string passwords are also scrubbed
-  from textual bodies and error records.
-  Unquoted code references and function calls (such as `api_key = config.api_key`)
-  are excluded from assignment matching; quoted literal credentials remain protected.
-  Existing `[REDACTED]` values are safe to reuse in tool results without triggering a new block.
-- JSON embedded in tool-result strings is inspected too. JSON numbers retain
-  their precision, and base64 image/audio/video data URLs remain opaque.
-- SSE and JSONL/WebSocket archives are checked across text deltas. If a
-  credential is detected in their combined text, the stored body is omitted
-  with a redaction notice. Usage, status, timing and billing metadata remain.
-- Developer mode does not bypass opt-in archive scrubbing. Request-error
-  broadcasts for protected requests also scrub recognized patterns. Global runtime
-  logs retain existing behavior; they have no reliable project context.
+- **Mask and restore:** send placeholders (or supported shape-preserving fake
+  keys/usernames) upstream, then restore values in client-facing responses.
+- **Warn:** record findings but send the original content. This intentionally
+  exposes those values to the provider.
+- **Block:** return `400 privacy_blocked`, record the request as `REJECTED`, and
+  create no upstream attempt for the rejected payload.
+- Per-kind actions override the default: e.g. `EMAIL → mask`, `API_KEY → block`.
+  A rule's uppercase kind can be used here too.
 
-This changes archived copies only. It does not change a response delivered to
-clients, provider configuration, or provider/API-token backups. Existing database
-rows and log files are not rewritten; use the existing retention/cleanup controls
-for historical details and protect configuration backups separately.
+The compact project-list switch remains compatible with the earlier
+`blockSecrets` API. A project without a saved full policy retains credential
+**blocking** when enabled through that switch. Saving the detailed form selects
+its explicit action; switching it off/on subsequently preserves those settings.
+The general project editor preserves module settings. Only authenticated project
+administrators can access the full policy, previews, records or original values.
 
-## Block credentials before sending upstream
+## Detection and custom rules
 
-Open **Privacy Protection** (中文：**隐私保护**) from the sidebar and enable
-credential blocking for the projects you want to protect. Changes save immediately.
-A project’s Overview links directly to its privacy settings. This switch controls
-both outbound blocking and new archive scrubbing. It defaults to **off** for both new
-and existing projects, is tenant scoped, and is preserved in configuration backups.
+Credential rules cover recognized provider keys, JWTs, private keys, credential
+assignments, connection passwords and explicitly named credential fields in
+native/embedded tool JSON. Optional personal-data rules cover email, phone,
+identity and payment cards, SSN, passports, IBAN, birthdays, MAC addresses and
+serial numbers. User directories, usernames/hostnames, IPs and bucket names are
+separately selectable. Semantic names/addresses require a local model.
 
-When enabled, Maxx checks message text, system instructions, prompts and tool
-results/arguments before contacting a provider. A recognized credential returns
-HTTP 400 with `privacy_blocked`; the request is recorded as `REJECTED`, without an
-upstream attempt, retry, cooldown or charge. Each WebSocket turn is checked. Early token-concurrency 429 records use the same
-project policy for URL/header/error scrubbing without reading the request body. The
-same policy applies to direct `/provider/{id}/...` requests when a project is
-selected. Requests without a project and projects with protection off bypass body inspection
-and the new archive rules. The existing sensitive-header redaction remains.
-Changing the setting affects the next HTTP request or WebSocket turn; an in-flight
-request keeps the policy captured when it entered the executor.
-
-Actual authentication headers, model names, protocol IDs, opaque signatures and
-tool definitions are outside the outbound check. Allowed request bytes are not
-rewritten. Anthropic plain-text document sources are checked too. Multipart text fields are checked, while file parts and embedded
-image/audio data are not inspected. Unsupported or malformed bodies are rejected
-only when the switch is on; unavailable or invalid policy storage returns 503.
-An authoritative tenant-scoped `ErrNotFound` means there is no project opt-in policy,
-so stale session/token references to deleted projects retain existing routing behavior.
-This feature is not a project-selection authorization boundary; requests without a
-project already use the existing global routes.
-
-For example, this message is blocked with the switch on:
+Custom keywords support case-insensitive and whole-word matching (one value per
+line, at most 200). Custom credential rules accept **one prefix or RE2 regex**:
 
 ```json
-{"model":"gpt-4o","messages":[{"role":"user","content":"API_KEY=example_example_example"}]}
+{
+  "kind": "CORPORATE",
+  "prefix": "corp_"
+}
 ```
 
-The privacy settings API accepts `PUT /api/projects/{id}/privacy` with
-`{"blockSecrets": true}` (or `false`). It requires an administrator in the project’s
-tenant and changes only privacy policy; names, slugs and routes come from current
-server data. The legacy project API remains compatible and preserves the policy
-when an older editor omits `blockSecrets`.
+```json
+{
+  "kind": "CUSTOM_TOKEN",
+  "regex": "internal_token=([A-Za-z0-9_-]{8,})"
+}
+```
 
-## Scope
+A regex's first capture group is replaced when present, otherwise its complete
+match. Matches must contain at least four characters. At most 32 rules; prefixes
+are 3–64 characters and regexes at most 300 characters. Custom credential rules
+follow **Credential detection**. Keywords also work without credential/PII rules.
+The allowlist matches complete values, case insensitive; allowed values are sent
+unchanged. Preview applies the current editor draft, without forwarding, changing
+project policy, adding history or learning new originals.
 
-This is a credential safeguard, not complete personal-data detection or a DLP
-boundary. Rules can miss unknown formats or obfuscated secrets and can flag
-examples that resemble credentials. Names, addresses, email, IP addresses,
-passwords without recognizable context, encoded attachments and OCR are outside
-this first version. No content is sent to a separate detection service.
+Protocol IDs, model/tool names, schema/grammar structure, signatures, encrypted
+reasoning and opaque media stay intact. Tool arguments/results are treated as
+user content. Text document payloads are inspected; binary file parts are not.
+Tool/schema descriptions use rules and known values without expensive model
+inference. Chinese-name and linker-symbol false-positive guards follow Magpie.
 
-## Magpie comparison
+## Reversible values and transports
 
-This iteration was checked against Magpie
-[`ee6f8866`](https://github.com/yetone/magpie/tree/ee6f8866f33165eebfd16a7e3f6948e04132096e),
-on 2026-10-28, particularly its credential rules, opt-out fast path and irreversible
-archive scrubber. New regression cases cover natural-language CJK credential
-contexts (including numeric keys versus quantities), Redis URLs without a username,
-relay API keys and SK hynix article slugs. Maxx does not adopt Magpie’s global known-secret
-cache or reversible mapping.
+Rules/replacement behavior is adapted from Magpie
+[`7621820`](https://github.com/yetone/magpie/tree/7621820), with its MIT notices
+and upstream regression tests retained. Mutable state is scoped by tenant and
+project within one Maxx runtime. Mapping caches are bounded (4,096 entries /
+8 MiB per active scope; at most 16 cached scopes). Learned values may expire
+with eviction or clearing. Key files preserve placeholder identity across
+restarts when the same data directory is retained; originals are never in them.
 
-| Area | Maxx in this PR |
-| --- | --- |
-| Recognized formats | OpenAI/Anthropic and relay keys, GitHub/GitLab, Google/AWS, Slack/Stripe, Hugging Face/Groq/xAI, npm/PyPI, DigitalOcean/SendGrid, Maxx tokens, JWT and PEM/PGP private keys. |
-| Password context | Quoted values retain punctuation and escapes; unquoted code references and variable expansions are excluded. AWS and database credential fields are recognized. Named CJK password/key contexts and Redis URLs without usernames are checked. |
-| Archive protection | JSON, nested tool JSON, SSE/JSONL fragments, URL credentials, headers and error records are irreversibly scrubbed. No credential values are cached. |
-| Upstream behavior | Project-level blocking. Magpie's reversible masking and response restoration are outside this PR. |
-| Personal data / custom rules | Magpie supports additional options; this PR covers credential protection only. |
+A response's restoration view contains **only values replaced in that request**.
+Other projects, tenants and unrelated previous requests cannot reveal originals
+by returning their placeholders. JSON/tool payloads, HTTP/SSE (including split
+placeholders) and native Responses WebSocket frames use the same restoration
+engine. Binary responses pass through. Restore/write failures remain client
+transport failures rather than provider cooldown events. Conversion/capture,
+retry, provider selection and billing keep their existing responsibilities.
 
-## Module boundaries
+Provider exceptions bypass forwarding protection only when **all possible
+providers in the resolved fallback plan** are exempt. A mixed plan is inspected.
+Archives still scrub exempt requests; model-only content is omitted when model
+inspection was bypassed. Backup references use provider names and are remapped
+on import; missing names remove exceptions rather than trusting source IDs.
 
-`internal/privacy` owns the feature:
+## Local models
 
-- `rules.go` / `named.go`: credential patterns, natural-language contexts and text detection/redaction.
-- `inspect.go`: request content parsing and inspection.
-- `archive.go`: irreversible body, URL, header and snapshot redaction.
-- `service.go`: tenant-scoped project policy, settings updates and request decisions.
+Select **AstrLink Guard** (~39 MB) or **Privacy Filter** (~1.6 GB) and explicitly
+download/load it. Downloads use pinned versions and SHA-256 checks, resume and
+can be canceled. Weights are not included in Maxx. Threshold `0` uses the model
+default; custom thresholds must be at least `0.5` and below `1`.
 
-The executor receives a privacy service at startup and records rejected requests.
-The router contains no privacy policy logic. Storage and broadcast adapters
-call the module only for protected requests to scrub copies. The executor carries
-a private request-scoped flag into requests and attempts; it is never accepted from
-JSON and adds no archive database column. Both CLI and desktop runtimes use the same cached
-project store for policy reads and writes.
+The master project switch defaults off. Maxx does not copy Magpie's automatic
+model activation/download defaults. Once a project explicitly enables model
+inspection, unavailable/failed inference returns `503 privacy_check_failed`;
+requests never silently fall back to rules alone. Weights/processes and hashed
+span caches are public shared resources; only default-tenant server
+administrators can download, cancel, load, unload or remove them. Other project
+administrators can select installed models. Unloading/removing a shared model
+can affect other opted-in projects; they fail closed until it is available again.
 
-`web/src/pages/privacy` provides the standalone settings page; project pages show
-status and link to it. The page and settings API require administrator access.
+Model cache files contain SHA-256 hashes and span positions/labels/scores, not
+request text. Model provenance/licenses are in `internal/privacy/pii/UPSTREAM.md`.
+`MAXX_PRIVACY_CACHE_DIR` overrides the model cache directory.
+
+## Archives and detection history
+
+For opted-in requests, new database snapshots and request-error broadcasts
+remove credentials, selected static personal/custom matches and values observed
+by the model (including warn-only findings). Archives never run inference in a
+DB write. SSE/JSONL text is checked across deltas; unsafe bodies may be omitted
+with a redaction notice. Archive processing copies objects and does not modify
+provider/client payloads. Existing rows and global log files are not rewritten;
+use existing retention/cleanup controls for historical data. Global runtime logs
+retain existing behavior because they lack reliable project context.
+
+The history tab provides pagination, kind/action/finder/provider/time filters,
+details, restored counts and aggregate counts. Disk retains **metadata only**
+under `<data-dir>/privacy/<tenant>/<project>/records`, for at most 30 days and
+100 MiB per project. Original values and processed sent bodies are memory-only,
+bounded to 400 recent records and 16 MiB per active project scope (at most 4 MiB
+per record); they disappear after eviction/restart/clear. Sent bodies show the
+privacy module's processed request, before adapter-specific wire preparation.
+Record clearing also forgets learned originals and fences in-flight record writes.
+Policy/configuration backups remain sensitive: custom keywords and allowlists
+are administrator-supplied settings, not detection history.
+
+## Verification
+
+The module includes upstream rule, replacement, model/cache/download/helper
+regressions plus Maxx tests for scope isolation, disabled behavior, actions,
+custom rules, allowlists, native/embedded JSON, multipart binary preservation,
+split SSE/WebSocket restoration, failures/cancellation, archived copies, memory
+bounds and backup references. End-to-end tests exercise the real Maxx pipeline
+with controlled upstreams, and Playwright checks settings/preview/history on the
+built server. Screenshots use synthetic content and are never committed.
+
+Real model downloads/inference can be verified explicitly on the host:
+
+```sh
+MAXX_PRIVACY_TEST_MODELS=astrlink-guard,privacy-filter \
+  go test -count=1 -timeout=20m ./internal/privacy/pii -run TestRealLocalModels -v
+```
+
+Ordinary CI uses deterministic local helper/tokenizer/kernel fixtures and does
+not download gigabytes of model assets.

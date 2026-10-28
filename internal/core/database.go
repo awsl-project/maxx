@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -376,6 +377,10 @@ func InitializeServerComponents(
 		return policy, nil
 	})
 
+	privacyService := privacy.NewService(repos.CachedProjectRepo)
+	if logPath != "" {
+		privacyService.SetDirectory(filepath.Join(filepath.Dir(logPath), "privacy"))
+	}
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(
 		r,
@@ -389,7 +394,7 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
-		privacy.NewService(repos.CachedProjectRepo),
+		privacyService,
 	)
 
 	log.Printf("[Core] Creating client adapter")
@@ -422,6 +427,7 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		pprofMgr, // 直接传入 pprofMgr
 	)
+	adminService.SetPrivacyService(privacyService)
 	adminService.SetRedemptionCodeRepository(repos.RedemptionCodeRepo)
 
 	log.Printf("[Core] Creating backup service")

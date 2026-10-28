@@ -406,7 +406,9 @@ func main() {
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, privacy.NewService(cachedProjectRepo))
+	privacyService := privacy.NewService(cachedProjectRepo)
+	privacyService.SetDirectory(filepath.Join(dataDirPath, "privacy"))
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, privacyService)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -436,6 +438,7 @@ func main() {
 		wsHub,
 		pprofMgr, // Pprof reloader
 	)
+	adminService.SetPrivacyService(privacyService)
 	adminService.SetRedemptionCodeRepository(redemptionCodeRepo)
 
 	// Start pprof manager (will check system settings)

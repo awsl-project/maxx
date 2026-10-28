@@ -6,6 +6,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/router"
 )
 
@@ -26,6 +27,7 @@ type execState struct {
 	isStream            bool
 	apiTokenID          uint64
 	privacyEnabled      bool
+	privacyExchange     *privacy.Exchange
 	apiTokenDevMode     bool
 	requestBody         []byte
 	originalRequestBody []byte

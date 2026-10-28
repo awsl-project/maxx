@@ -1,3 +1,5 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { execSync, spawn } from 'child_process';
 import { resolve, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -84,12 +86,19 @@ export default async function globalSetup() {
   });
   mockProcess.unref();
 
-  console.log('[Setup] Starting maxx on :' + MAXX_PORT + ' (in-memory SQLite, mock mode)');
+  const dataDir = mkdtempSync(join(tmpdir(), 'maxx-playwright-'));
+  process.env.MAXX_E2E_DATA_DIR = dataDir;
+  console.log('[Setup] Starting maxx on :' + MAXX_PORT + ' (temporary SQLite, mock mode)');
   const maxxProcess = spawn('/tmp/maxx-test', ['-addr', `:${MAXX_PORT}`], {
     stdio: 'pipe',
     detached: true,
     cwd: projectRoot,
-    env: { ...process.env, MAXX_DSN: 'sqlite://:memory:', MAXX_MOCK_MODE: '1' },
+    env: {
+      ...process.env,
+      MAXX_DATA_DIR: dataDir,
+      MAXX_DSN: `sqlite://${join(dataDir, 'maxx.db')}`,
+      MAXX_MOCK_MODE: '1',
+    },
   });
   maxxProcess.unref();
 

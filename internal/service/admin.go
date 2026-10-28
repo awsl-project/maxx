@@ -64,6 +64,8 @@ type apiTokenCacheRefresher interface {
 }
 
 type AdminService struct {
+	privacyOnce               sync.Once
+	privacyService            *privacy.Service
 	providerRepo              repository.ProviderRepository
 	routeRepo                 repository.RouteRepository
 	projectRepo               repository.ProjectRepository
@@ -1244,10 +1246,13 @@ func (s *AdminService) CreateProject(tenantID uint64, project *domain.Project) e
 }
 
 func (s *AdminService) UpdateProjectPrivacy(tenantID, id uint64, enabled bool) (*domain.Project, error) {
-	return privacy.NewService(s.projectRepo).SetProjectProtection(tenantID, id, enabled)
+	return s.Privacy().SetProjectProtection(tenantID, id, enabled)
 }
 
 func (s *AdminService) UpdateProject(tenantID uint64, project *domain.Project) error {
+	if err := privacy.SyncLegacyProtection(project); err != nil {
+		return err
+	}
 	return s.projectRepo.Update(project)
 }
 

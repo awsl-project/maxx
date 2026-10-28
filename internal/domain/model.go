@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -617,6 +618,9 @@ type Project struct {
 	// BlockSecrets opts this project into credential blocking and archive scrubbing.
 	BlockSecrets bool `json:"blockSecrets"`
 
+	// Privacy is module-owned configuration, served only by the admin privacy API.
+	Privacy json.RawMessage `json:"-"`
+
 	// 使用统计由 proxy_requests 聚合填充，用于项目清理候选检测；不落 projects 表。
 	LastRequestAt             *time.Time `json:"lastRequestAt,omitempty"`
 	LastSuccessfulRequestAt   *time.Time `json:"lastSuccessfulRequestAt,omitempty"`
@@ -787,7 +791,8 @@ func ResolveProxyRequestProtocol(isStream bool, isWebSocket bool) string {
 // 追踪
 type ProxyRequest struct {
 	// PrivacyEnabled snapshots opt-in policy for this request, never client input.
-	PrivacyEnabled bool `json:"-"`
+	PrivacyEnabled bool                `json:"-"`
+	PrivacyFilter  func(string) string `json:"-"`
 
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -883,7 +888,8 @@ type ProxyRequestCleanupFailedResult struct {
 
 type ProxyUpstreamAttempt struct {
 	// PrivacyEnabled inherits the parent request policy for archive writes.
-	PrivacyEnabled bool `json:"-"`
+	PrivacyEnabled bool                `json:"-"`
+	PrivacyFilter  func(string) string `json:"-"`
 
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`

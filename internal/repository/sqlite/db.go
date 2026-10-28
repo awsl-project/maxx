@@ -219,12 +219,12 @@ func fromJSON[T any](s string) T {
 // (executor / handler / 各 provider adapter)在 proxy_upstream_attempts.request_info
 // 与 proxy_requests.request_info 落库前的统一收口:即便某条上游路径忘了在构造时脱敏,
 // 也不会把明文凭据写进 DB。不修改入参的内存对象。
-func requestInfoJSON(info *domain.RequestInfo, enabled bool) string {
+func requestInfoJSON(info *domain.RequestInfo, enabled bool, filters ...func(string) string) string {
 	if info == nil {
 		return ""
 	}
 	if enabled {
-		return toJSON(privacy.ScrubRequestInfo(info))
+		return toJSON(privacy.ScrubRequestInfo(info, filters...))
 	}
 	redacted := *info
 	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)
@@ -232,12 +232,12 @@ func requestInfoJSON(info *domain.RequestInfo, enabled bool) string {
 }
 
 // responseInfoJSON preserves legacy header protection, adding body scrubbing only when enabled.
-func responseInfoJSON(info *domain.ResponseInfo, enabled bool) string {
+func responseInfoJSON(info *domain.ResponseInfo, enabled bool, filters ...func(string) string) string {
 	if info == nil {
 		return ""
 	}
 	if enabled {
-		return toJSON(privacy.ScrubResponseInfo(info))
+		return toJSON(privacy.ScrubResponseInfo(info, filters...))
 	}
 	redacted := *info
 	redacted.Headers = domain.RedactSensitiveHeaders(info.Headers)

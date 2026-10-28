@@ -789,7 +789,7 @@ func (h *AdminHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Req
 
 // Project handlers
 func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
-	if len(parts) == 4 && parts[3] == "privacy" {
+	if len(parts) >= 4 && parts[3] == "privacy" {
 		handleProjectPrivacy(w, r, h.svc, id)
 		return
 	}
@@ -846,7 +846,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
 		}
-		project := domain.Project{BlockSecrets: existing.BlockSecrets}
+		project := domain.Project{BlockSecrets: existing.BlockSecrets, Privacy: append(json.RawMessage(nil), existing.Privacy...)}
 		if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return

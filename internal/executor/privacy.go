@@ -5,20 +5,46 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/privacy"
 )
 
 // enforceRequestPrivacy runs once per logical request (including each WebSocket
 // turn), before creating an upstream attempt or entering the retry loop.
 func (e *Executor) enforceRequestPrivacy(c *flow.Ctx, state *execState) bool {
-	body := state.originalRequestBody
-	if len(body) == 0 {
-		body = state.requestBody
+	exchange, rejection := e.privacy.Prepare(state.ctx, state.tenantID, state.projectID, state.requestBody, state.originalRequestBody, state.requestHeaders.Get("Content-Type"))
+	state.privacyExchange = exchange
+	state.privacyEnabled = exchange != nil || rejection != nil
+	e.applyPrivacyExchange(c, state)
+	return e.rejectPrivacy(c, state, rejection)
+}
+
+func (e *Executor) applyPrivacyExchange(c *flow.Ctx, state *execState) {
+	exchange := state.privacyExchange
+	if exchange != nil {
+		state.requestBody = exchange.Body
+		state.originalRequestBody = exchange.OriginalBody
+		c.Set(flow.KeyRequestBody, state.requestBody)
+		c.Set(flow.KeyOriginalRequestBody, state.originalRequestBody)
 	}
-	enabled, rejection := e.privacy.Check(state.tenantID, state.projectID, body, state.requestHeaders.Get("Content-Type"))
-	state.privacyEnabled = enabled
 	if state.proxyReq != nil {
-		state.proxyReq.PrivacyEnabled = enabled
+		state.proxyReq.PrivacyEnabled = state.privacyEnabled
+		if exchange != nil {
+			state.proxyReq.PrivacyFilter = exchange.Archive
+		}
 	}
+}
+func (e *Executor) resolvePrivacyPlan(c *flow.Ctx, state *execState) bool {
+	ids := make([]uint64, 0, len(state.routes))
+	for _, route := range state.routes {
+		if route != nil && route.Provider != nil {
+			ids = append(ids, route.Provider.ID)
+		}
+	}
+	rejection := state.privacyExchange.ResolvePlan(ids)
+	e.applyPrivacyExchange(c, state)
+	return e.rejectPrivacy(c, state, rejection)
+}
+func (e *Executor) rejectPrivacy(c *flow.Ctx, state *execState, rejection *privacy.Rejection) bool {
 	if rejection == nil {
 		return true
 	}
@@ -44,6 +70,7 @@ func (e *Executor) enforceRequestPrivacy(c *flow.Ctx, state *execState) bool {
 			e.broadcaster.BroadcastProxyRequest(req)
 		}
 	}
+	state.privacyExchange.BeginRecord(req)
 	c.Abort()
 	return false
 }

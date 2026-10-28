@@ -182,6 +182,9 @@ func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string)
 		DevMode:         state.apiTokenDevMode,
 	}
 
+	if state.privacyExchange != nil {
+		proxyReq.PrivacyFilter = state.privacyExchange.Archive
+	}
 	clearDetail := e.shouldClearRequestDetailFor(state)
 	if !clearDetail {
 		requestURI := state.requestURI

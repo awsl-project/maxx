@@ -162,7 +162,7 @@ func ScrubURL(raw string) string {
 }
 
 // ScrubRequestInfo returns a scrubbed snapshot without changing transport objects.
-func ScrubRequestInfo(info *domain.RequestInfo) *domain.RequestInfo {
+func ScrubRequestInfo(info *domain.RequestInfo, filters ...func(string) string) *domain.RequestInfo {
 	if info == nil {
 		return nil
 	}
@@ -170,17 +170,34 @@ func ScrubRequestInfo(info *domain.RequestInfo) *domain.RequestInfo {
 	redacted.URL = ScrubURL(info.URL)
 	redacted.Headers = scrubHeaders(info.Headers)
 	redacted.Body = ScrubBody(info.Body)
+	for _, filter := range filters {
+		if filter != nil {
+			redacted.URL = filter(redacted.URL)
+			redacted.Body = filter(redacted.Body)
+			for key, value := range redacted.Headers {
+				redacted.Headers[key] = filter(value)
+			}
+		}
+	}
 	return &redacted
 }
 
 // ScrubResponseInfo returns a scrubbed snapshot without changing the client reply.
-func ScrubResponseInfo(info *domain.ResponseInfo) *domain.ResponseInfo {
+func ScrubResponseInfo(info *domain.ResponseInfo, filters ...func(string) string) *domain.ResponseInfo {
 	if info == nil {
 		return nil
 	}
 	redacted := *info
 	redacted.Headers = scrubHeaders(info.Headers)
 	redacted.Body = ScrubBody(info.Body)
+	for _, filter := range filters {
+		if filter != nil {
+			redacted.Body = filter(redacted.Body)
+			for key, value := range redacted.Headers {
+				redacted.Headers[key] = filter(value)
+			}
+		}
+	}
 	return &redacted
 }
 
