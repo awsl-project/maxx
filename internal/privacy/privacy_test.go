@@ -12,6 +12,26 @@ import (
 
 const testKey = "sk-proj-testtesttesttesttesttesttesttest"
 
+func TestTextDocumentsAndURLBoundaries(t *testing.T) {
+	for _, sourceType := range []string{"text", "base64"} {
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"` + sourceType + `","media_type":"text/plain","data":"` + testKey + `"}}]}]}`)
+		kind, err := InspectRequest(body, "application/json")
+		if err != nil || (kind != "") != (sourceType == "text") {
+			t.Fatalf("document source %s: kind=%s err=%v", sourceType, kind, err)
+		}
+	}
+	for _, url := range []string{"http://localhost:8080?to=a@b.com", "http://host:8080#x@y"} {
+		if Detect(url) != "" || ScrubText(url) != url {
+			t.Errorf("ordinary URL mistaken for a connection password: %s", url)
+		}
+	}
+	for _, url := range []string{"redis://:RedisExample123@localhost/0", "postgres://alice:hunter123@localhost/db"} {
+		if Detect(url) == "" || ScrubText(url) == url {
+			t.Errorf("connection password missed: %s", url)
+		}
+	}
+}
+
 func TestCredentialRules(t *testing.T) {
 	// Generate a synthetic JWT with a dummy signature; never embed a real token.
 	jwt := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256"}`)) + "." +

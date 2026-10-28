@@ -37,7 +37,7 @@ var rules = append([]rule{
 	{"credential", regexp.MustCompile(credentialAssignment + `([^\s"'` + "`" + `,;<>\\}]{8,})`), 1, credentialValue},
 	{"authorization", regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9_+/.=~-]{16,})`), 1, nil},
 	{"authorization", regexp.MustCompile(`(?i)\bbasic\s+([A-Za-z0-9_+/.=~-]{16,})`), 1, basicAuthValue},
-	{"connection_password", regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]*:([^\s/@]+)@`), 1, nil},
+	{"connection_password", regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@?#]*:([^\s/@?#]+)@`), 1, nil},
 }, namedRules...)
 
 // Detect returns only a rule name, never the matched credential.

@@ -136,3 +136,39 @@ func TestPrivacyPolicyIsFixedForInFlightRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestDeletedProjectReferencesPreserveLegacyRouting(t *testing.T) {
+	upstream := newMockOpenAIUpstream(t, &capturedRequest{})
+	defer upstream.Close()
+	env := NewProxyTestEnv(t)
+	provider := createProvider(t, env, "deleted-project", upstream.URL, []string{"openai"})
+	createRoute(t, env, "openai", provider)
+	project := createPrivacyProject(t, env, "deleted-project", false)
+	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+	resp = env.AdminPost("/api/admin/api-tokens", map[string]any{"name": "old-binding", "projectID": project.ID})
+	AssertStatus(t, resp, http.StatusCreated)
+	var token domain.APITokenCreateResult
+	DecodeJSON(t, resp, &token)
+	body := openaiRequest("gpt-4o")
+	body["messages"] = []any{map[string]any{"role": "user", "content": privacyTestKey}}
+	headers := map[string]string{"Authorization": "Bearer " + token.Token, "X-Session-Id": "old-project-session"}
+	send := func() {
+		t.Helper()
+		resp := env.ProxyPost("/v1/chat/completions", body, headers)
+		AssertStatus(t, resp, http.StatusOK)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	send() // Warm both the token and session caches with their project binding.
+	resp = env.doRequest(http.MethodDelete, fmt.Sprintf("/api/admin/projects/%d", project.ID), nil, env.Token)
+	AssertStatus(t, resp, http.StatusNoContent)
+	resp.Body.Close()
+	send()
+	resp = env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "false"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+	headers["Authorization"] = "Bearer fixed-placeholder"
+	send() // An old explicitly bound session also works with authentication off.
+}

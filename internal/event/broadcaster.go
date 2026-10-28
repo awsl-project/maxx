@@ -34,14 +34,16 @@ func SanitizeProxyRequestForBroadcast(req *domain.ProxyRequest) *domain.ProxyReq
 	if req == nil {
 		return nil
 	}
+	errorText := req.Error
+	if req.PrivacyEnabled {
+		errorText = privacy.ScrubText(errorText)
+	}
 	// 已经是瘦身后的对象，避免重复拷贝（高频场景会产生额外 GC 压力）
-	if req.RequestInfo == nil && req.ResponseInfo == nil && (!req.PrivacyEnabled || privacy.Detect(req.Error) == "") {
+	if req.RequestInfo == nil && req.ResponseInfo == nil && errorText == req.Error {
 		return req
 	}
 	copied := *req
-	if req.PrivacyEnabled {
-		copied.Error = privacy.ScrubText(req.Error)
-	}
+	copied.Error = errorText
 	copied.RequestInfo = nil
 	copied.ResponseInfo = nil
 	return &copied
@@ -52,14 +54,16 @@ func SanitizeProxyUpstreamAttemptForBroadcast(attempt *domain.ProxyUpstreamAttem
 	if attempt == nil {
 		return nil
 	}
+	errorText := attempt.Error
+	if attempt.PrivacyEnabled {
+		errorText = privacy.ScrubText(errorText)
+	}
 	// 已经是瘦身后的对象，避免重复拷贝（高频场景会产生额外 GC 压力）
-	if attempt.RequestInfo == nil && attempt.ResponseInfo == nil && (!attempt.PrivacyEnabled || privacy.Detect(attempt.Error) == "") {
+	if attempt.RequestInfo == nil && attempt.ResponseInfo == nil && errorText == attempt.Error {
 		return attempt
 	}
 	copied := *attempt
-	if attempt.PrivacyEnabled {
-		copied.Error = privacy.ScrubText(attempt.Error)
-	}
+	copied.Error = errorText
 	copied.RequestInfo = nil
 	copied.ResponseInfo = nil
 	return &copied

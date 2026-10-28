@@ -30,15 +30,15 @@ func TestProjectPolicyIsolationAndUpdates(t *testing.T) {
 		t.Fatal("project credential was not blocked")
 	}
 	for _, tenant := range []uint64{2, 3} {
-		if _, rejection := service.Check(tenant, project.ID, body, "application/json"); rejection == nil || rejection.Code != "privacy_check_failed" {
-			t.Fatal("another tenant's policy accessible")
+		if enabled, rejection := service.Check(tenant, project.ID, body, "application/json"); enabled || rejection != nil {
+			t.Fatal("another tenant's policy applied")
 		}
 		if _, err := service.SetProjectProtection(tenant, project.ID, false); err == nil {
 			t.Fatal("another tenant's policy updated")
 		}
 	}
-	if _, rejection := service.Check(1, project.ID+1, body, "application/json"); rejection == nil || rejection.HTTPStatusCode != 503 {
-		t.Fatal("missing policy silently accepted")
+	if enabled, rejection := service.Check(1, project.ID+1, body, "application/json"); enabled || rejection != nil {
+		t.Fatal("nonexistent project introduced a privacy policy")
 	}
 	if _, rejection := (*privacy.Service)(nil).Check(1, project.ID, body, "application/json"); rejection == nil {
 		t.Fatal("missing service silently disabled protection")
@@ -71,6 +71,28 @@ func TestProjectPolicyIsolationAndUpdates(t *testing.T) {
 		original := []byte("{ invalid JSON containing " + string(body))
 		if enabled, rejection := service.Check(1, project.ID, original, contentType); enabled || rejection != nil {
 			t.Fatalf("disabled project inspected %s", contentType)
+		}
+	}
+	if err := cache.Delete(1, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if enabled, rejection := service.Check(1, project.ID, body, "application/json"); enabled || rejection != nil {
+		t.Fatal("old deleted-project reference changed legacy request behavior")
+	}
+}
+
+type unavailablePrivacyProjects struct{ err error }
+
+func (p unavailablePrivacyProjects) GetByID(uint64, uint64) (*domain.Project, error) {
+	return nil, p.err
+}
+func (p unavailablePrivacyProjects) Update(*domain.Project) error { return p.err }
+
+func TestPolicyLookupFailureDoesNotDisableProtection(t *testing.T) {
+	for _, err := range []error{domain.ErrInvalidState, nil} {
+		svc := privacy.NewService(unavailablePrivacyProjects{err: err})
+		if enabled, rejection := svc.Check(1, 1, []byte(`{}`), "application/json"); !enabled || rejection == nil || rejection.HTTPStatusCode != 503 {
+			t.Fatal("unavailable or invalid policy storage silently disabled protection")
 		}
 	}
 }

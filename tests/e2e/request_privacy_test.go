@@ -296,7 +296,7 @@ func TestRequestPrivacyReviewRegressions(t *testing.T) {
 	provider := createProvider(t, env, "review-regressions", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
 	createPrivacyProject(t, env, "review-regressions", true)
-	safeMessages := []string{"Explain basic internationalization", `password = os.getenv("X")`, `api_key = config.api_key`, `API_KEY=[REDACTED]`, `{"access_token":"[REDACTED]"}`}
+	safeMessages := []string{"Explain basic internationalization", `password = os.getenv("X")`, `api_key = config.api_key`, `API_KEY=[REDACTED]`, `{"access_token":"[REDACTED]"}`, "http://localhost:8080?to=a@b.com", "http://host:8080#x@y"}
 	for _, text := range safeMessages {
 		body := openaiRequest("gpt-4o")
 		body["messages"] = []any{map[string]any{"role": "user", "content": text}}
@@ -309,6 +309,7 @@ func TestRequestPrivacyReviewRegressions(t *testing.T) {
 		t.Fatal("ordinary messages were not forwarded")
 	}
 	for _, tc := range []struct{ path, body string }{
+		{"/v1/messages", `{"model":"claude-test","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"text","media_type":"text/plain","data":"` + privacyTestKey + `"}}]}]}`},
 		{"/v1/messages", `{"model":"claude-test","max_tokens":1024,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"run","input":{"data":"` + privacyTestKey + `"}}]}]}`},
 		{"/v1beta/models/gemini-test:generateContent", `{"contents":[{"parts":[{"functionCall":{"name":"run","args":{"id":"` + privacyTestKey + `"}}}]}]}`},
 		{"/v1beta/models/gemini-test:generateContent", `{"contents":[{"parts":[{"functionResponse":{"name":"run","response":{"type":"` + privacyTestKey + `"}}}]}]}`},

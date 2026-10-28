@@ -1,6 +1,7 @@
 package privacy
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -24,21 +25,36 @@ type Rejection struct {
 	HTTPStatusCode int
 }
 
-// Check returns the request-scoped policy and an optional rejection.
-// Disabled projects bypass body parsing and detection entirely.
-// Missing policy storage fails closed for selected projects.
-func (s *Service) Check(tenantID, projectID uint64, body []byte, contentType string) (bool, *Rejection) {
+// Enabled reads only policy, including for early rejections with no request body.
+// A missing project has no opt-in policy; storage failures remain errors.
+func (s *Service) Enabled(tenantID, projectID uint64) (bool, error) {
 	if projectID == 0 {
 		return false, nil
 	}
 	if s == nil || s.projects == nil {
-		return true, checkFailure(http.StatusServiceUnavailable)
+		return false, domain.ErrInvalidState
 	}
 	project, err := s.projects.GetByID(tenantID, projectID)
-	if err != nil || project == nil {
+	if errors.Is(err, domain.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if project == nil {
+		return false, domain.ErrInvalidState
+	}
+	return project.BlockSecrets, nil
+}
+
+// Check returns the request-scoped policy and an optional rejection.
+// Disabled projects bypass body parsing and detection entirely.
+func (s *Service) Check(tenantID, projectID uint64, body []byte, contentType string) (bool, *Rejection) {
+	enabled, err := s.Enabled(tenantID, projectID)
+	if err != nil {
 		return true, checkFailure(http.StatusServiceUnavailable)
 	}
-	if !project.BlockSecrets {
+	if !enabled {
 		return false, nil
 	}
 	kind, err := InspectRequest(body, contentType)

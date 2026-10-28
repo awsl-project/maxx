@@ -44,7 +44,8 @@ and existing projects, is tenant scoped, and is preserved in configuration backu
 When enabled, Maxx checks message text, system instructions, prompts and tool
 results/arguments before contacting a provider. A recognized credential returns
 HTTP 400 with `privacy_blocked`; the request is recorded as `REJECTED`, without an
-upstream attempt, retry, cooldown or charge. Each WebSocket turn is checked. The
+upstream attempt, retry, cooldown or charge. Each WebSocket turn is checked. Early token-concurrency 429 records use the same
+project policy for URL/header/error scrubbing without reading the request body. The
 same policy applies to direct `/provider/{id}/...` requests when a project is
 selected. Requests without a project and projects with protection off bypass body inspection
 and the new archive rules. The existing sensitive-header redaction remains.
@@ -53,9 +54,13 @@ request keeps the policy captured when it entered the executor.
 
 Actual authentication headers, model names, protocol IDs, opaque signatures and
 tool definitions are outside the outbound check. Allowed request bytes are not
-rewritten. Multipart text fields are checked, while file parts and embedded
+rewritten. Anthropic plain-text document sources are checked too. Multipart text fields are checked, while file parts and embedded
 image/audio data are not inspected. Unsupported or malformed bodies are rejected
-only when the switch is on; policy lookup failures do not silently disable protection.
+only when the switch is on; unavailable or invalid policy storage returns 503.
+An authoritative tenant-scoped `ErrNotFound` means there is no project opt-in policy,
+so stale session/token references to deleted projects retain existing routing behavior.
+This feature is not a project-selection authorization boundary; requests without a
+project already use the existing global routes.
 
 For example, this message is blocked with the switch on:
 

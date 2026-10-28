@@ -88,7 +88,15 @@ func inspect(value any, protocol bool) string {
 						return kind
 					}
 					continue
-				case "id", "call_id", "tool_call_id", "type", "role", "name", "signature", "thoughtSignature", "encrypted_content", "image_url", "image", "audio", "inlineData", "inline_data", "file_data", "file_id", "file_url", "file_data_url", "data":
+				case "data":
+					// Anthropic text document sources carry readable content here.
+					if v["type"] == "text" {
+						if kind := inspect(child, false); kind != "" {
+							return kind
+						}
+					}
+					continue
+				case "id", "call_id", "tool_call_id", "type", "role", "name", "signature", "thoughtSignature", "encrypted_content", "image_url", "image", "audio", "inlineData", "inline_data", "file_data", "file_id", "file_url", "file_data_url":
 					continue
 				}
 			}

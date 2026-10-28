@@ -303,6 +303,9 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	tenantID := domain.DefaultTenantID
 	apiTokenID := uint64(0)
 	projectID := flow.GetProjectID(c)
+	if projectID == 0 && c.Request != nil {
+		projectID, _ = strconv.ParseUint(c.Request.Header.Get("X-Maxx-Project-ID"), 10, 64)
+	}
 	devMode := false
 	if apiToken != nil {
 		if apiToken.TenantID > 0 {
@@ -322,7 +325,13 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	}
 	isStream := flow.GetIsStream(c)
 	isWebSocket := flow.GetResponsesWebSocketExchange(c) != nil
+	privacyEnabled, policyErr := e.privacy.Enabled(tenantID, projectID)
+	if policyErr != nil {
+		// The response remains 429; omit secrets from its archive on lookup failure.
+		privacyEnabled = true
+	}
 	proxyReq := &domain.ProxyRequest{
+		PrivacyEnabled:  privacyEnabled,
 		TenantID:        tenantID,
 		InstanceID:      e.instanceID,
 		RequestID:       generateRequestID(),
