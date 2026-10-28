@@ -30,6 +30,22 @@ func maskedExchange(t *testing.T, text string) *Exchange {
 	}
 	return e
 }
+
+func TestUnusedResponseRestorerDoesNotCommitAttempt(t *testing.T) {
+	e := maskedExchange(t, "Nightjar")
+	target := httptest.NewRecorder()
+	writer := e.WrapResponse(target)
+	if err := writer.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if target.Flushed || target.Body.Len() != 0 {
+		t.Fatal("unused restorer committed a response before retry/error handling")
+	}
+	target.WriteHeader(http.StatusBadGateway)
+	if target.Code != http.StatusBadGateway {
+		t.Fatalf("error status was replaced: %d", target.Code)
+	}
+}
 func TestResponseRestorationEverySplitAndRequestIsolation(t *testing.T) {
 	e := maskedExchange(t, "Nightjar")
 	placeholder := e.Hits[0].Placeholder

@@ -176,6 +176,11 @@ func (rw *Writer) Finish() {
 		return
 	}
 	rw.done = true
+	// No upstream response reached this attempt. Flushing now would commit
+	// HTTP 200 before the executor can retry or send its actual error.
+	if rw.mode == unknown {
+		return
+	}
 	switch rw.mode {
 	case whole:
 		rw.w.Write(rw.state().restoreJSON(rw.buf.Bytes(), rw.count()))
