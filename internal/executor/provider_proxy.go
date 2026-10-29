@@ -140,7 +140,7 @@ func (e *Executor) ExecuteProviderProxyMatched(c *flow.Ctx, proxyReq *domain.Pro
 		state.privacyExchange.FinishRecord(proxyReq)
 		return state.lastErr
 	}
-	if !e.resolvePrivacyPlan(c, state) {
+	if !e.resolvePrivacyPlan(c, state, state.routes) {
 		state.privacyExchange.FinishRecord(proxyReq)
 		return state.lastErr
 	}

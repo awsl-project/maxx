@@ -408,7 +408,8 @@ func main() {
 	// Create executor
 	privacyService := privacy.NewService(settingRepo)
 	privacyService.SetDirectory(filepath.Join(dataDirPath, "privacy"))
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, privacyService)
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID)
+	requestExecutor.SetPrivacyService(privacyService)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()

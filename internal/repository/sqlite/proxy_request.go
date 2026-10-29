@@ -1074,13 +1074,7 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 // 在一次请求生命周期里会被调用多次),Create 走 toModel 一次性编码,Update
 // 路径据此按需决定是否编码,避免对状态/计量类更新重复序列化大 body。
 func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyRequest {
-	errorText := p.Error
-	if p.PrivacyEnabled {
-		errorText = privacy.ScrubText(errorText)
-		if p.PrivacyFilter != nil {
-			errorText = p.PrivacyFilter(errorText)
-		}
-	}
+	errorText := privacy.ScrubError(p.Error, p.PrivacyEnabled, p.PrivacyFilter)
 	return &ProxyRequest{
 		BaseModel: BaseModel{
 			ID:        p.ID,

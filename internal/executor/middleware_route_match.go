@@ -101,13 +101,13 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		return
 	}
 
-	state.routes = result.Routes
-	if !e.resolvePrivacyPlan(c, state) {
+	if !e.resolvePrivacyPlan(c, state, result.Routes) {
 		return
 	}
 	proxyReq := e.newProxyRequest(c, state, "IN_PROGRESS")
 	e.createProxyRequest(proxyReq)
 	state.proxyReq = proxyReq
+	state.routes = result.Routes
 	state.privacyExchange.BeginRecord(proxyReq)
 	state.stickyWrite = result.Sticky
 

@@ -5,7 +5,7 @@ Copyright (c) 2026 yetone. The MIT license is retained in `LICENSE`.
 
 Maxx changes the cache namespace, preserves the inherited HTTP proxy and CA trust,
 and uses small platform-specific command helpers. No model is downloaded or
-started automatically. Projects explicitly select a model; public model weights
+started automatically. The global policy explicitly selects a model; public model weights
 and backend processes may be shared, while reversible originals remain isolated
 in the enclosing Maxx privacy runtime. Model cache files contain only SHA-256 text
 hashes and span metadata, never original text.

@@ -6,7 +6,13 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/privacy"
+	"github.com/awsl-project/maxx/internal/router"
 )
+
+// SetPrivacyService installs the optional module before serving requests.
+func (e *Executor) SetPrivacyService(service *privacy.Service) {
+	e.privacy = service
+}
 
 // enforceRequestPrivacy runs once per logical request (including each WebSocket
 // turn), before creating an upstream attempt or entering the retry loop.
@@ -33,9 +39,9 @@ func (e *Executor) applyPrivacyExchange(c *flow.Ctx, state *execState) {
 		}
 	}
 }
-func (e *Executor) resolvePrivacyPlan(c *flow.Ctx, state *execState) bool {
-	ids := make([]uint64, 0, len(state.routes))
-	for _, route := range state.routes {
+func (e *Executor) resolvePrivacyPlan(c *flow.Ctx, state *execState, routes []*router.MatchedRoute) bool {
+	ids := make([]uint64, 0, len(routes))
+	for _, route := range routes {
 		if route != nil && route.Provider != nil {
 			ids = append(ids, route.Provider.ID)
 		}

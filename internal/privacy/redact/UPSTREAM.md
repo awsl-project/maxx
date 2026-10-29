@@ -7,7 +7,7 @@ Copyright (c) 2026 yetone. MIT license, retained in `LICENSE`.
 Maxx adaptation: mutable package state and the functions that depend on it
 are instance methods on `State`; `Options.State` and `Writer.scopeState` carry
 the selected instance. This isolates reversible mappings, learned values,
-shape substitutions and memoization by tenant and project. The legacy package
+shape substitutions and memoization by tenant. The legacy package
 functions delegate to a default state to run the upstream regression suite;
 Maxx runtime integration must use explicit state instances.
 
@@ -20,5 +20,5 @@ at the privacy-module boundary.
 The Maxx runtime limits each scope to 4,096 mappings / 8 MiB and bounds scope
 retention. Request-local restoration views contain only mappings used by that
 exchange. Optional integration hooks inspect explicitly named credential fields
-and nested JSON, capture matches for archive filtering, and apply the project
+and nested JSON, capture matches for archive filtering, and apply the global policy
 default action. Binary response bodies pass through unchanged.

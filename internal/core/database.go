@@ -394,8 +394,8 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
-		privacyService,
 	)
+	exec.SetPrivacyService(privacyService)
 
 	log.Printf("[Core] Creating client adapter")
 	clientAdapter := client.NewAdapter()

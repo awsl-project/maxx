@@ -208,3 +208,15 @@ func scrubHeaders(headers map[string]string) map[string]string {
 	}
 	return redacted
 }
+
+// ScrubError applies archive protection without changing the execution error.
+func ScrubError(text string, enabled bool, filter func(string) string) string {
+	if !enabled {
+		return text
+	}
+	text = ScrubText(text)
+	if filter != nil {
+		text = filter(text)
+	}
+	return text
+}

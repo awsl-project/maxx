@@ -59,11 +59,9 @@ func NewExecutor(
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
-	privacyService *privacy.Service,
 ) *Executor {
 	return &Executor{
 		router:              r,
-		privacy:             privacyService,
 		proxyRequestRepo:    prr,
 		attemptRepo:         ar,
 		apiTokenRepo:        apiTokenRepo,

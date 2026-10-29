@@ -231,7 +231,7 @@ func requestInfoJSON(info *domain.RequestInfo, enabled bool, filters ...func(str
 	return toJSON(&redacted)
 }
 
-// responseInfoJSON preserves legacy header protection, adding body scrubbing only when enabled.
+// responseInfoJSON 同 requestInfoJSON,针对响应头(如上游回传的 Set-Cookie)。
 func responseInfoJSON(info *domain.ResponseInfo, enabled bool, filters ...func(string) string) string {
 	if info == nil {
 		return ""

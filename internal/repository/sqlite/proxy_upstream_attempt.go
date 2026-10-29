@@ -379,13 +379,7 @@ func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt)
 // toModelMeta 构造除 request_info/response_info 两个大字段外的所有列,供 Update
 // 路径按需编码大字段,避免重复序列化完整请求/响应体。详见 Update 注释。
 func (r *ProxyUpstreamAttemptRepository) toModelMeta(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
-	errorText := a.Error
-	if a.PrivacyEnabled {
-		errorText = privacy.ScrubText(errorText)
-		if a.PrivacyFilter != nil {
-			errorText = a.PrivacyFilter(errorText)
-		}
-	}
+	errorText := privacy.ScrubError(a.Error, a.PrivacyEnabled, a.PrivacyFilter)
 	return &ProxyUpstreamAttempt{
 		BaseModel: BaseModel{
 			ID:        a.ID,
