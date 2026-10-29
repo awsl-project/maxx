@@ -17,6 +17,9 @@ func TestEnglishCredentialPresets(t *testing.T) {
 		{"The refresh-token is CobaltRefresh98765", "CobaltRefresh98765"},
 		{"clientSecret is CobaltClient98765", "CobaltClient98765"},
 		{"Token is CobaltToken98765", "CobaltToken98765"},
+		{`password="abc;Example456"`, "abc;Example456"},
+		{`password='abc;Example456'`, "abc;Example456"},
+		{`password=Abcd$efg123`, "Abcd$efg123"},
 		{"The password is " + strings.Repeat("Cobalt87", 50) + ".", strings.Repeat("Cobalt87", 50)},
 	} {
 		t.Run(tc.text, func(t *testing.T) {

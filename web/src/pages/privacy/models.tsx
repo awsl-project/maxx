@@ -6,23 +6,21 @@ import type { PrivacyConfig } from '@/lib/transport/privacy-types';
 import { Choice, Field, Toggle } from './controls';
 
 export function PrivacyModels({
-  id,
   model,
   setModel,
 }: {
-  id: number;
   model: PrivacyConfig['model'];
   setModel: (model: PrivacyConfig['model']) => void;
 }) {
   const { t } = useTranslation();
   const status = useQuery({
-    queryKey: ['privacy', id, 'models'],
-    queryFn: () => getTransport().getPrivacyModels(id),
+    queryKey: ['privacy', 'models'],
+    queryFn: () => getTransport().getPrivacyModels(),
     refetchInterval: 3000,
   });
   const action = useMutation({
     mutationFn: ({ name, verb }: { name: string; verb: string }) =>
-      getTransport().privacyModelAction(id, name, verb),
+      getTransport().privacyModelAction(name, verb),
     onSuccess: () => status.refetch(),
   });
   return (

@@ -6,13 +6,12 @@ import { getTransport } from '@/lib/transport';
 import type { PrivacyRecord } from '@/lib/transport/privacy-types';
 import { Choice } from './controls';
 
-function RecordDetail({ id, record }: { id: number; record: PrivacyRecord }) {
+function RecordDetail({ record }: { record: PrivacyRecord }) {
   const { t } = useTranslation();
   const original = useMutation({
-    mutationFn: (placeholder: string) =>
-      getTransport().getPrivacyOriginal(id, record.id, placeholder),
+    mutationFn: (placeholder: string) => getTransport().getPrivacyOriginal(record.id, placeholder),
   });
-  const sent = useMutation({ mutationFn: () => getTransport().getPrivacySent(id, record.id) });
+  const sent = useMutation({ mutationFn: () => getTransport().getPrivacySent(record.id) });
   return (
     <div className="space-y-3 rounded-lg border border-border p-4">
       <p className="break-all text-sm font-medium">
@@ -76,7 +75,7 @@ function RecordDetail({ id, record }: { id: number; record: PrivacyRecord }) {
   );
 }
 
-export function PrivacyHistory({ id }: { id: number }) {
+export function PrivacyHistory() {
   const { t } = useTranslation();
   const client = useQueryClient();
   const [page, setPage] = useState(1);
@@ -96,23 +95,23 @@ export function PrivacyHistory({ id }: { id: number }) {
     ...(since ? { since: new Date(since).toISOString() } : {}),
   };
   const records = useQuery({
-    queryKey: ['privacy', id, 'records', filters],
-    queryFn: () => getTransport().getPrivacyRecords(id, filters),
+    queryKey: ['privacy', 'records', filters],
+    queryFn: () => getTransport().getPrivacyRecords(filters),
     refetchInterval: 5000,
   });
   const summary = useQuery({
-    queryKey: ['privacy', id, 'summary'],
-    queryFn: () => getTransport().getPrivacySummary(id),
+    queryKey: ['privacy', 'summary'],
+    queryFn: () => getTransport().getPrivacySummary(),
     refetchInterval: 5000,
   });
   const clear = useMutation({
-    mutationFn: () => getTransport().clearPrivacyRecords(id),
+    mutationFn: () => getTransport().clearPrivacyRecords(),
     onSuccess: async () => {
       setSelected(undefined);
       setPage(1);
       await Promise.all([
-        client.invalidateQueries({ queryKey: ['privacy', id, 'records'] }),
-        client.invalidateQueries({ queryKey: ['privacy', id, 'summary'] }),
+        client.invalidateQueries({ queryKey: ['privacy', 'records'] }),
+        client.invalidateQueries({ queryKey: ['privacy', 'summary'] }),
       ]);
     },
   });
@@ -267,7 +266,7 @@ export function PrivacyHistory({ id }: { id: number }) {
           {t('privacy.clearHistory')}
         </Button>
       </div>
-      {selected && <RecordDetail key={selected.id} id={id} record={selected} />}
+      {selected && <RecordDetail key={selected.id} record={selected} />}
     </div>
   );
 }

@@ -174,24 +174,18 @@ export interface Transport {
   getProjectBySlug(slug: string): Promise<Project>;
   createProject(data: CreateProjectData): Promise<Project>;
   updateProject(id: number, data: Partial<Project>): Promise<Project>;
-  updateProjectPrivacy(id: number, enabled: boolean): Promise<Project>;
-  getPrivacyConfig(id: number): Promise<PrivacyConfig>;
-  savePrivacyConfig(id: number, config: PrivacyConfig): Promise<Project>;
-  getPrivacyCategories(id: number): Promise<PrivacyCategory[]>;
-  previewPrivacy(
-    id: number,
-    config: PrivacyConfig,
-    text: string,
-    json: boolean,
-  ): Promise<PrivacyPreview>;
-  getPrivacyModels(id: number): Promise<PrivacyModels>;
-  privacyModelAction(id: number, model: string, action: string): Promise<PrivacyModel>;
-  getPrivacyRecords(id: number, params: Record<string, string | number>): Promise<PrivacyRecords>;
-  getPrivacyRecord(id: number, record: string): Promise<PrivacyRecord>;
-  getPrivacySummary(id: number): Promise<PrivacySummary>;
-  getPrivacyOriginal(id: number, record: string, placeholder: string): Promise<{ value: string }>;
-  getPrivacySent(id: number, record: string): Promise<{ body: string }>;
-  clearPrivacyRecords(id: number): Promise<void>;
+  getPrivacyConfig(): Promise<PrivacyConfig>;
+  savePrivacyConfig(config: PrivacyConfig): Promise<PrivacyConfig>;
+  getPrivacyCategories(): Promise<PrivacyCategory[]>;
+  previewPrivacy(config: PrivacyConfig, text: string, json: boolean): Promise<PrivacyPreview>;
+  getPrivacyModels(): Promise<PrivacyModels>;
+  privacyModelAction(model: string, action: string): Promise<PrivacyModel>;
+  getPrivacyRecords(params: Record<string, string | number>): Promise<PrivacyRecords>;
+  getPrivacyRecord(record: string): Promise<PrivacyRecord>;
+  getPrivacySummary(): Promise<PrivacySummary>;
+  getPrivacyOriginal(record: string, placeholder: string): Promise<{ value: string }>;
+  getPrivacySent(record: string): Promise<{ body: string }>;
+  clearPrivacyRecords(): Promise<void>;
 
   deleteProject(id: number): Promise<void>;
   archiveInactiveProjects(thresholdDays: number): Promise<ProjectArchiveInactiveResult>;

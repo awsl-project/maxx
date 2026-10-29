@@ -67,7 +67,7 @@ type ledger struct {
 	bytes  int
 }
 
-func (s *projectScope) history() *ledger { return &s.records }
+func (s *tenantScope) history() *ledger { return &s.records }
 func (e *Exchange) addRestored(counts map[string]int) {
 	if e == nil || len(counts) == 0 {
 		return
@@ -83,7 +83,7 @@ func (r *Runtime) recordsDir(key scopeKey) string {
 	if r.directory == "" {
 		return ""
 	}
-	return filepath.Join(r.directory, strconv.FormatUint(key.tenant, 10), strconv.FormatUint(key.project, 10), "records")
+	return filepath.Join(r.directory, strconv.FormatUint(key.tenant, 10), "records")
 }
 func (e *Exchange) BeginRecord(req *domain.ProxyRequest) {
 	if e == nil || req == nil || e.runtime == nil {
@@ -188,21 +188,21 @@ func pruneRecords(directory string, now time.Time) {
 		}
 	}
 }
-func (s *Service) authorizedHistory(tenant, project uint64) (*ledger, error) {
-	if _, err := s.Configuration(tenant, project); err != nil {
+func (s *Service) authorizedHistory(tenant uint64) (*ledger, error) {
+	if _, err := s.Configuration(); err != nil {
 		return nil, err
 	}
-	return s.runtime.scope(scopeKey{tenant, project}).history(), nil
+	return s.runtime.scope(scopeKey{tenant}).history(), nil
 }
-func (s *Service) Records(tenant, project uint64, q RecordsQuery) (RecordsPage, error) {
-	l, err := s.authorizedHistory(tenant, project)
+func (s *Service) Records(tenant uint64, q RecordsQuery) (RecordsPage, error) {
+	l, err := s.authorizedHistory(tenant)
 	if err != nil {
 		return RecordsPage{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	records := map[string]Record{}
-	directory := s.runtime.recordsDir(scopeKey{tenant, project})
+	directory := s.runtime.recordsDir(scopeKey{tenant})
 	if directory != "" {
 		pruneRecords(directory, time.Now())
 		files, _ := filepath.Glob(filepath.Join(directory, "*.jsonl"))
@@ -262,10 +262,10 @@ func (s *Service) Records(tenant, project uint64, q RecordsQuery) (RecordsPage, 
 	out.Items = all[start:end]
 	return out, nil
 }
-func (s *Service) Record(tenant, project uint64, id string) (Record, error) {
+func (s *Service) Record(tenant uint64, id string) (Record, error) {
 	// Lists are bounded, but a detail lookup must cover the retained history.
 	for page := 1; ; page++ {
-		out, err := s.Records(tenant, project, RecordsQuery{Page: page, Limit: 200})
+		out, err := s.Records(tenant, RecordsQuery{Page: page, Limit: 200})
 		if err != nil {
 			return Record{}, err
 		}
@@ -279,10 +279,10 @@ func (s *Service) Record(tenant, project uint64, id string) (Record, error) {
 		}
 	}
 }
-func (s *Service) Summary(tenant, project uint64) (Summary, error) {
+func (s *Service) Summary(tenant uint64) (Summary, error) {
 	out := Summary{Kinds: map[string]int{}, Finders: map[string]int{}, Providers: map[uint64]int{}}
 	for page := 1; ; page++ {
-		result, err := s.Records(tenant, project, RecordsQuery{Page: page, Limit: 200})
+		result, err := s.Records(tenant, RecordsQuery{Page: page, Limit: 200})
 		if err != nil {
 			return out, err
 		}
@@ -312,8 +312,8 @@ func (s *Service) Summary(tenant, project uint64) (Summary, error) {
 		}
 	}
 }
-func (s *Service) Original(tenant, project uint64, id, placeholder string) (string, error) {
-	l, err := s.authorizedHistory(tenant, project)
+func (s *Service) Original(tenant uint64, id, placeholder string) (string, error) {
+	l, err := s.authorizedHistory(tenant)
 	if err != nil {
 		return "", err
 	}
@@ -329,8 +329,8 @@ func (s *Service) Original(tenant, project uint64, id, placeholder string) (stri
 	}
 	return "", domain.ErrNotFound
 }
-func (s *Service) Sent(tenant, project uint64, id string) (string, error) {
-	l, err := s.authorizedHistory(tenant, project)
+func (s *Service) Sent(tenant uint64, id string) (string, error) {
+	l, err := s.authorizedHistory(tenant)
 	if err != nil {
 		return "", err
 	}
@@ -343,8 +343,8 @@ func (s *Service) Sent(tenant, project uint64, id string) (string, error) {
 	}
 	return "", domain.ErrNotFound
 }
-func (s *Service) ClearRecords(tenant, project uint64) error {
-	l, err := s.authorizedHistory(tenant, project)
+func (s *Service) ClearRecords(tenant uint64) error {
+	l, err := s.authorizedHistory(tenant)
 	if err != nil {
 		return err
 	}
@@ -352,7 +352,7 @@ func (s *Service) ClearRecords(tenant, project uint64) error {
 	defer l.mu.Unlock()
 	s.runtime.recordMu.Lock()
 	defer s.runtime.recordMu.Unlock()
-	directory := s.runtime.recordsDir(scopeKey{tenant, project})
+	directory := s.runtime.recordsDir(scopeKey{tenant})
 	if directory != "" {
 		if err := os.RemoveAll(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -360,7 +360,7 @@ func (s *Service) ClearRecords(tenant, project uint64) error {
 	}
 	l.recent = nil
 	l.bytes = 0
-	s.runtime.generations[scopeKey{tenant, project}]++
-	s.runtime.scope(scopeKey{tenant, project}).state.Clear()
+	s.runtime.generations[scopeKey{tenant}]++
+	s.runtime.scope(scopeKey{tenant}).state.Clear()
 	return nil
 }

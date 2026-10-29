@@ -1,7 +1,6 @@
 package privacy
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,8 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/privacy/redact"
 )
 
-// Config is the project's complete privacy policy. It is deliberately owned by
-// this module, rather than the router or the general project settings API.
+// Config is the instance-wide privacy policy, owned by this module.
 type Config struct {
 	Enabled         bool              `json:"enabled"`
 	Secrets         bool              `json:"secrets"`
@@ -128,19 +126,15 @@ func normalizeValues(in []string, count, width int, fold bool) ([]string, error)
 	return out, nil
 }
 
-func projectConfig(project *domain.Project) (Config, error) {
-	if len(project.Privacy) == 0 || bytes.Equal(project.Privacy, []byte("null")) {
-		cfg := DefaultConfig()
-		cfg.Enabled = project.BlockSecrets
-		// Existing callers explicitly requested credential blocking. They keep
-		// that behavior until the dedicated settings page saves a full policy.
-		if project.BlockSecrets {
-			cfg.Mode = "block"
-		}
-		return cfg, nil
+// SettingKey stores the instance-wide policy in Maxx's existing settings table.
+const SettingKey = "privacy_policy"
+
+func ParseConfig(raw string) (Config, error) {
+	if strings.TrimSpace(raw) == "" {
+		return DefaultConfig(), nil
 	}
 	var cfg Config
-	d := json.NewDecoder(bytes.NewReader(project.Privacy))
+	d := json.NewDecoder(strings.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&cfg); err != nil {
 		return Config{}, errors.New("invalid stored privacy settings")
@@ -151,58 +145,34 @@ func projectConfig(project *domain.Project) (Config, error) {
 	return ValidateConfig(cfg)
 }
 
-func (s *Service) Configuration(tenantID, projectID uint64) (Config, error) {
-	if s == nil || s.projects == nil {
+func (s *Service) Configuration() (Config, error) {
+	if s == nil || s.settings == nil {
 		return Config{}, domain.ErrInvalidState
 	}
-	project, err := s.projects.GetByID(tenantID, projectID)
+	raw, err := s.settings.Get(SettingKey)
+	if errors.Is(err, domain.ErrNotFound) {
+		return DefaultConfig(), nil
+	}
 	if err != nil {
 		return Config{}, err
 	}
-	if project == nil {
-		return Config{}, domain.ErrNotFound
-	}
-	return projectConfig(project)
+	return ParseConfig(raw)
 }
 
-func (s *Service) SetConfiguration(tenantID, projectID uint64, config Config) (*domain.Project, error) {
-	if s == nil || s.projects == nil {
-		return nil, domain.ErrInvalidState
+func (s *Service) SetConfiguration(config Config) (Config, error) {
+	if s == nil || s.settings == nil {
+		return Config{}, domain.ErrInvalidState
 	}
 	cfg, err := ValidateConfig(config)
 	if err != nil {
-		return nil, err
+		return Config{}, err
 	}
-	project, err := s.projects.GetByID(tenantID, projectID)
+	raw, err := json.Marshal(cfg)
 	if err != nil {
-		return nil, err
+		return Config{}, err
 	}
-	if project == nil {
-		return nil, domain.ErrNotFound
+	if err := s.settings.Set(SettingKey, string(raw)); err != nil {
+		return Config{}, err
 	}
-	updated := *project
-	updated.Privacy, err = json.Marshal(cfg)
-	if err != nil {
-		return nil, err
-	}
-	updated.BlockSecrets = cfg.Enabled
-	if err := s.projects.Update(&updated); err != nil {
-		return nil, err
-	}
-	return &updated, nil
-}
-
-// SyncLegacyProtection keeps the legacy boolean API compatible without
-// discarding the rest of a project's new privacy configuration.
-func SyncLegacyProtection(project *domain.Project) error {
-	if len(project.Privacy) == 0 {
-		return nil
-	}
-	cfg, err := projectConfig(project)
-	if err != nil {
-		return err
-	}
-	cfg.Enabled = project.BlockSecrets
-	project.Privacy, err = json.Marshal(cfg)
-	return err
+	return cfg, nil
 }

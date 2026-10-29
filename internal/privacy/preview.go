@@ -17,7 +17,7 @@ type Preview struct {
 }
 
 // Preview applies an editor draft without changing policy, recording history,
-// learning originals, or touching the project's placeholder identity/cache.
+// learning originals, or touching the tenant's placeholder identity/cache.
 func (s *Service) Preview(ctx context.Context, config Config, body []byte) (Preview, *Rejection) {
 	cfg, err := ValidateConfig(config)
 	if err != nil {
@@ -33,8 +33,11 @@ func (s *Service) Preview(ctx context.Context, config Config, body []byte) (Prev
 	return Preview{Body: string(e.Body), Hits: append([]redact.Hit{}, e.Hits...), Blocked: rejection != nil}, nil
 }
 
-func (s *Service) EarlyArchiveFilter(tenant, project uint64) func(string) string {
-	cfg, err := s.Configuration(tenant, project)
+func (s *Service) EarlyArchiveFilter(tenant uint64) func(string) string {
+	if s == nil {
+		return nil
+	}
+	cfg, err := s.Configuration()
 	if errors.Is(err, domain.ErrNotFound) {
 		return nil
 	}
@@ -51,7 +54,7 @@ func (s *Service) EarlyArchiveFilter(tenant, project uint64) func(string) string
 	}
 	// No request body is read for early rejections. Model-only findings cannot
 	// be recovered safely here; omit inspected fields when the model was asked.
-	e := &Exchange{Enabled: true, Config: cfg, runtime: s.runtime, key: scopeKey{tenant, project}, evaluated: true, failed: cfg.Model.Enabled, matched: map[string]bool{}}
+	e := &Exchange{Enabled: true, Config: cfg, runtime: s.runtime, key: scopeKey{tenant}, evaluated: true, failed: cfg.Model.Enabled, matched: map[string]bool{}}
 	return e.Archive
 }
 

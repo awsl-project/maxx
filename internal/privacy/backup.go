@@ -15,11 +15,11 @@ type backupConfig struct {
 
 // ExportPolicy uses provider names, matching Maxx's existing backup references.
 // Database IDs must never silently exempt an unrelated provider after restore.
-func ExportPolicy(project *domain.Project, names map[uint64]string) (json.RawMessage, error) {
-	if len(project.Privacy) == 0 {
+func ExportPolicy(raw json.RawMessage, names map[uint64]string) (json.RawMessage, error) {
+	if len(raw) == 0 {
 		return nil, nil
 	}
-	cfg, err := projectConfig(project)
+	cfg, err := ParseConfig(string(raw))
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func ExportPolicy(project *domain.Project, names map[uint64]string) (json.RawMes
 	out.BypassProviders = nil
 	return json.Marshal(out)
 }
-func ImportPolicy(raw json.RawMessage, enabled bool, ids map[string]uint64) (json.RawMessage, error) {
+func ImportPolicy(raw json.RawMessage, ids map[string]uint64) (json.RawMessage, error) {
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
 		return nil, nil
 	}
@@ -53,7 +53,6 @@ func ImportPolicy(raw json.RawMessage, enabled bool, ids map[string]uint64) (jso
 			in.BypassProviders = append(in.BypassProviders, id)
 		}
 	}
-	in.Enabled = enabled
 	cfg, err := ValidateConfig(in.Config)
 	if err != nil {
 		return nil, err

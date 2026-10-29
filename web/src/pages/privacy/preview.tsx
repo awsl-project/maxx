@@ -7,12 +7,12 @@ import { getTransport } from '@/lib/transport';
 import type { PrivacyConfig } from '@/lib/transport/privacy-types';
 import { Toggle } from './controls';
 
-export function PrivacyPreview({ id, config }: { id: number; config: PrivacyConfig }) {
+export function PrivacyPreview({ config }: { config: PrivacyConfig }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
   const [json, setJSON] = useState(false);
   const preview = useMutation({
-    mutationFn: () => getTransport().previewPrivacy(id, config, text, json),
+    mutationFn: () => getTransport().previewPrivacy(config, text, json),
   });
   return (
     <div className="space-y-3">

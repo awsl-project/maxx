@@ -16,32 +16,31 @@ import (
 	"sync"
 	"time"
 
-	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/privacy/pii"
 	"github.com/awsl-project/maxx/internal/privacy/redact"
 )
 
-type scopeKey struct{ tenant, project uint64 }
+type scopeKey struct{ tenant uint64 }
 
-type projectScope struct {
+type tenantScope struct {
 	state   *redact.State
 	used    time.Time
 	records ledger
 }
 
 // Runtime belongs to one Maxx database/runtime. Original values are never shared
-// between its tenant/project scopes, or with another database in the process.
+// between its tenant scopes, or with another database in the process.
 type Runtime struct {
 	mu          sync.Mutex
 	recordMu    sync.Mutex
 	generations map[scopeKey]uint64
-	scopes      map[scopeKey]*projectScope
+	scopes      map[scopeKey]*tenantScope
 	directory   string
 	find        func(context.Context, string, []string) ([][]redact.Found, error)
 }
 
 func newRuntime() *Runtime {
-	return &Runtime{scopes: map[scopeKey]*projectScope{}, generations: map[scopeKey]uint64{}, find: func(ctx context.Context, name string, texts []string) ([][]redact.Found, error) {
+	return &Runtime{scopes: map[scopeKey]*tenantScope{}, generations: map[scopeKey]uint64{}, find: func(ctx context.Context, name string, texts []string) ([][]redact.Found, error) {
 		return pii.Of(name).Find(ctx, texts)
 	}}
 }
@@ -50,7 +49,7 @@ func newRuntime() *Runtime {
 // Merely configuring a directory creates no files or model processes.
 func (s *Service) SetDirectory(directory string) { s.runtime.directory = directory }
 
-func (r *Runtime) scope(key scopeKey) *projectScope {
+func (r *Runtime) scope(key scopeKey) *tenantScope {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if scope := r.scopes[key]; scope != nil {
@@ -71,15 +70,15 @@ func (r *Runtime) scope(key scopeKey) *projectScope {
 	state := redact.NewState()
 	state.SetLimits(4096, 8<<20)
 	if r.directory != "" {
-		state.SetKeyPath(filepath.Join(r.directory, strconv.FormatUint(key.tenant, 10), strconv.FormatUint(key.project, 10), "placeholder.key"))
+		state.SetKeyPath(filepath.Join(r.directory, strconv.FormatUint(key.tenant, 10), "placeholder.key"))
 	}
-	scope := &projectScope{state: state, used: time.Now()}
+	scope := &tenantScope{state: state, used: time.Now()}
 	r.scopes[key] = scope
 	return scope
 }
 
 // Exchange is one HTTP request or WebSocket turn. Its restore map contains only
-// values used by that exchange, even when the project's learned cache is shared.
+// values used by that exchange, even when the tenant's learned cache is shared.
 type Exchange struct {
 	Enabled          bool
 	Config           Config
@@ -89,7 +88,7 @@ type Exchange struct {
 	Bypassed         bool
 	key              scopeKey
 	runtime          *Runtime
-	scope            *projectScope
+	scope            *tenantScope
 	ctx              context.Context
 	contentType      string
 	rawBody          []byte
@@ -107,8 +106,8 @@ type Exchange struct {
 	tookUS           int64
 }
 
-func (s *Service) Prepare(ctx context.Context, tenantID, projectID uint64, body, original []byte, contentType string) (*Exchange, *Rejection) {
-	if projectID == 0 {
+func (s *Service) Prepare(ctx context.Context, tenantID uint64, body, original []byte, contentType string) (*Exchange, *Rejection) {
+	if s == nil {
 		return nil, nil
 	}
 	failure := func() (*Exchange, *Rejection) {
@@ -116,42 +115,19 @@ func (s *Service) Prepare(ctx context.Context, tenantID, projectID uint64, body,
 		return &Exchange{Enabled: true, Body: body, OriginalBody: original, failed: true, evaluated: true, rejection: rejection}, rejection
 	}
 
-	if s == nil || s.projects == nil {
-		return failure()
-	}
-	project, err := s.projects.GetByID(tenantID, projectID)
-	if errors.Is(err, domain.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil || project == nil {
-		return failure()
-	}
-	if !project.BlockSecrets {
-		return nil, nil // Off bypasses configuration/body parsing and runtime work.
-	}
-	cfg, err := projectConfig(project)
+	cfg, err := s.Configuration()
 	if err != nil {
 		return failure()
+	}
+	if !cfg.Enabled {
+		return nil, nil
 	}
 	if len(original) == 0 {
 		original = body
 	}
-	exchange := &Exchange{Enabled: true, Config: cfg, key: scopeKey{tenantID, projectID}, runtime: s.runtime,
+	exchange := &Exchange{Enabled: true, Config: cfg, key: scopeKey{tenantID}, runtime: s.runtime,
 		ctx: ctx, contentType: contentType, rawBody: body, rawOriginal: original, Body: body, OriginalBody: original,
 		pairs: map[string]string{}, matched: map[string]bool{}}
-	if len(project.Privacy) == 0 || bytes.Equal(project.Privacy, []byte("null")) {
-		// Existing boolean-only clients retain the original blocking semantics.
-		exchange.evaluated = true
-		kind, err := InspectRequest(original, contentType)
-		if err != nil {
-			exchange.failed = true
-			exchange.rejection = checkFailure(http.StatusBadRequest)
-		}
-		if kind != "" {
-			exchange.rejection = blocked(kind)
-		}
-		return exchange, exchange.rejection
-	}
 	if len(cfg.BypassProviders) == 0 {
 		return exchange, exchange.evaluate()
 	}

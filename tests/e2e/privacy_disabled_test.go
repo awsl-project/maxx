@@ -62,9 +62,6 @@ func TestDisabledPrivacyPreservesHTTPAndSSE(t *testing.T) {
 	AssertStatus(t, resp, http.StatusCreated)
 	var project domain.Project
 	DecodeJSON(t, resp, &project)
-	if project.BlockSecrets {
-		t.Fatal("privacy enabled without opt-in")
-	}
 	for _, path := range []string{"/v1/chat/completions", "/project/default-off/v1/chat/completions", fmt.Sprintf("/provider/%d/v1/chat/completions", provider)} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%v", path, stream), func(t *testing.T) {
@@ -110,7 +107,8 @@ func TestPrivacyPolicyIsFixedForInFlightRequest(t *testing.T) {
 			env := NewProxyTestEnv(t)
 			provider := createProvider(t, env, "in-flight-policy", upstream.URL, []string{"openai"})
 			createRoute(t, env, "openai", provider)
-			project := createPrivacyProject(t, env, "in-flight", initiallyEnabled)
+			createPrivacyTestProject(t, env, "in-flight")
+			setGlobalPrivacyBlocking(t, env, initiallyEnabled)
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -124,10 +122,8 @@ func TestPrivacyPolicyIsFixedForInFlightRequest(t *testing.T) {
 				close(release)
 				t.Fatal("upstream not reached")
 			}
-			resp := env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", project.ID), map[string]any{"blockSecrets": !initiallyEnabled})
+			setGlobalPrivacyBlocking(t, env, !initiallyEnabled)
 			close(release)
-			AssertStatus(t, resp, http.StatusOK)
-			resp.Body.Close()
 			<-done
 			stored := waitPrivacyRequest(t, env)
 			if stored.ResponseInfo == nil || strings.Contains(stored.ResponseInfo.Body, privacyTestKey) == initiallyEnabled {
@@ -143,7 +139,7 @@ func TestDeletedProjectReferencesPreserveLegacyRouting(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	provider := createProvider(t, env, "deleted-project", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
-	project := createPrivacyProject(t, env, "deleted-project", false)
+	project := createPrivacyTestProject(t, env, "deleted-project")
 	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
 	AssertStatus(t, resp, http.StatusOK)
 	resp.Body.Close()

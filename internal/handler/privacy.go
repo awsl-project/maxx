@@ -17,21 +17,16 @@ import (
 	"github.com/awsl-project/maxx/internal/service"
 )
 
-// Both existing project API routes delegate to this independent module handler.
-// The enclosing authentication middleware supplies the tenant and admin role.
-func handleProjectPrivacy(w http.ResponseWriter, r *http.Request, svc *service.AdminService, id uint64) {
+// Instance policy is managed by the server administrator, independently of projects.
+func handlePrivacy(w http.ResponseWriter, r *http.Request, svc *service.AdminService) {
 	w.Header().Set("Cache-Control", "no-store")
-	if !CheckRBAC(r, "projects") {
+	if !CheckRBAC(r, "settings") || maxxctx.GetTenantID(r.Context()) != domain.DefaultTenantID {
 		writeJSON(w, 403, map[string]string{"error": "forbidden"})
 		return
 	}
 	tenant := maxxctx.GetTenantID(r.Context())
-	if id == 0 {
-		writeJSON(w, 400, map[string]string{"error": "project id required"})
-		return
-	}
 	p := svc.Privacy()
-	cfg, err := p.Configuration(tenant, id)
+	cfg, err := p.Configuration()
 	if err != nil {
 		privacyError(w, err)
 		return
@@ -48,38 +43,32 @@ func handleProjectPrivacy(w http.ResponseWriter, r *http.Request, svc *service.A
 			writeJSON(w, 200, cfg)
 		case http.MethodPut:
 			var input struct {
-				BlockSecrets *bool           `json:"blockSecrets"`
-				Config       *privacy.Config `json:"config"`
+				Config *privacy.Config `json:"config"`
 			}
 			if !privacyDecode(w, r, &input, 256<<10) {
 				return
 			}
-			if (input.BlockSecrets == nil) == (input.Config == nil) {
-				writeJSON(w, 400, map[string]string{"error": "provide config or blockSecrets"})
+			if input.Config == nil {
+				writeJSON(w, 400, map[string]string{"error": "config required"})
 				return
 			}
-			var project *domain.Project
-			if input.Config != nil {
-				valid, validationErr := privacy.ValidateConfig(*input.Config)
-				if validationErr != nil {
-					writeJSON(w, 400, map[string]string{"error": validationErr.Error()})
+			valid, validationErr := privacy.ValidateConfig(*input.Config)
+			if validationErr != nil {
+				writeJSON(w, 400, map[string]string{"error": validationErr.Error()})
+				return
+			}
+			for _, providerID := range valid.BypassProviders {
+				if _, err := svc.GetProvider(tenant, providerID); err != nil {
+					writeJSON(w, 400, map[string]string{"error": "invalid privacy provider exception"})
 					return
 				}
-				for _, providerID := range valid.BypassProviders {
-					if _, err := svc.GetProvider(tenant, providerID); err != nil {
-						writeJSON(w, 400, map[string]string{"error": "invalid privacy provider exception"})
-						return
-					}
-				}
-				project, err = p.SetConfiguration(tenant, id, valid)
-			} else {
-				project, err = svc.UpdateProjectPrivacy(tenant, id, *input.BlockSecrets)
 			}
+			saved, err := p.SetConfiguration(valid)
 			if err != nil {
 				privacyError(w, err)
 				return
 			}
-			writeJSON(w, 200, project)
+			writeJSON(w, 200, saved)
 		default:
 			privacyMethod(w, "GET, PUT")
 		}
@@ -132,7 +121,7 @@ func handleProjectPrivacy(w http.ResponseWriter, r *http.Request, svc *service.A
 			return
 		}
 		// Weights/processes are shared public resources. Their lifecycle belongs to
-		// the server's default-tenant administrators, not another tenant's project.
+		// the server's default-tenant administrators, not another tenant.
 		if tenant != domain.DefaultTenantID {
 			writeJSON(w, 403, map[string]string{"error": "shared models are managed by the server administrator"})
 			return
@@ -172,7 +161,7 @@ func handleProjectPrivacy(w http.ResponseWriter, r *http.Request, svc *service.A
 			privacyMethod(w, "GET")
 			return
 		}
-		result, err := p.Summary(tenant, id)
+		result, err := p.Summary(tenant)
 		if err != nil {
 			privacyError(w, err)
 			return
@@ -181,7 +170,7 @@ func handleProjectPrivacy(w http.ResponseWriter, r *http.Request, svc *service.A
 	case "records":
 		switch {
 		case len(parts) == 1 && r.Method == http.MethodDelete:
-			if err := p.ClearRecords(tenant, id); err != nil {
+			if err := p.ClearRecords(tenant); err != nil {
 				privacyError(w, err)
 				return
 			}
@@ -193,28 +182,28 @@ func handleProjectPrivacy(w http.ResponseWriter, r *http.Request, svc *service.A
 			provider, _ := strconv.ParseUint(q.Get("providerId"), 10, 64)
 			since, _ := time.Parse(time.RFC3339, q.Get("since"))
 			until, _ := time.Parse(time.RFC3339, q.Get("until"))
-			result, err := p.Records(tenant, id, privacy.RecordsQuery{Page: page, Limit: limit, Kind: q.Get("kind"), Action: q.Get("action"), By: q.Get("by"), ProviderID: provider, Since: since, Until: until})
+			result, err := p.Records(tenant, privacy.RecordsQuery{Page: page, Limit: limit, Kind: q.Get("kind"), Action: q.Get("action"), By: q.Get("by"), ProviderID: provider, Since: since, Until: until})
 			if err != nil {
 				privacyError(w, err)
 				return
 			}
 			writeJSON(w, 200, result)
 		case len(parts) == 2 && r.Method == http.MethodGet:
-			result, err := p.Record(tenant, id, parts[1])
+			result, err := p.Record(tenant, parts[1])
 			if err != nil {
 				privacyError(w, err)
 				return
 			}
 			writeJSON(w, 200, result)
 		case len(parts) == 3 && parts[2] == "value" && r.Method == http.MethodGet:
-			result, err := p.Original(tenant, id, parts[1], r.URL.Query().Get("placeholder"))
+			result, err := p.Original(tenant, parts[1], r.URL.Query().Get("placeholder"))
 			if err != nil {
 				privacyError(w, err)
 				return
 			}
 			writeJSON(w, 200, map[string]string{"value": result})
 		case len(parts) == 3 && parts[2] == "sent" && r.Method == http.MethodGet:
-			result, err := p.Sent(tenant, id, parts[1])
+			result, err := p.Sent(tenant, parts[1])
 			if err != nil {
 				privacyError(w, err)
 				return
@@ -243,7 +232,7 @@ func privacyDecode(w http.ResponseWriter, r *http.Request, out any, limit int64)
 }
 func privacyError(w http.ResponseWriter, err error) {
 	if errors.Is(err, domain.ErrNotFound) {
-		writeJSON(w, 404, map[string]string{"error": "project or privacy record not found"})
+		writeJSON(w, 404, map[string]string{"error": "privacy record not found"})
 		return
 	}
 	writeJSON(w, 500, map[string]string{"error": "privacy operation failed"})

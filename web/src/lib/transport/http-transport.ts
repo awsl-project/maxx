@@ -462,83 +462,65 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async updateProjectPrivacy(id: number, enabled: boolean): Promise<Project> {
-    const { data } = await this.client.put<Project>(`/projects/${id}/privacy`, {
-      blockSecrets: enabled,
-    });
-    return data;
+  async getPrivacyConfig(): Promise<PrivacyConfig> {
+    return (await this.adminClient.get<PrivacyConfig>(`/privacy`)).data;
   }
-
-  async getPrivacyConfig(id: number): Promise<PrivacyConfig> {
-    return (await this.client.get<PrivacyConfig>(`/projects/${id}/privacy`)).data;
+  async savePrivacyConfig(config: PrivacyConfig): Promise<PrivacyConfig> {
+    return (await this.adminClient.put<PrivacyConfig>(`/privacy`, { config })).data;
   }
-  async savePrivacyConfig(id: number, config: PrivacyConfig): Promise<Project> {
-    return (await this.client.put<Project>(`/projects/${id}/privacy`, { config })).data;
-  }
-  async getPrivacyCategories(id: number): Promise<PrivacyCategory[]> {
-    return (await this.client.get<PrivacyCategory[]>(`/projects/${id}/privacy/categories`)).data;
+  async getPrivacyCategories(): Promise<PrivacyCategory[]> {
+    return (await this.adminClient.get<PrivacyCategory[]>(`/privacy/categories`)).data;
   }
   async previewPrivacy(
-    id: number,
     config: PrivacyConfig,
     text: string,
     json: boolean,
   ): Promise<PrivacyPreview> {
     return (
-      await this.client.post<PrivacyPreview>(`/projects/${id}/privacy/preview`, {
+      await this.adminClient.post<PrivacyPreview>(`/privacy/preview`, {
         config,
         ...(json ? { body: text } : { text }),
       })
     ).data;
   }
-  async getPrivacyModels(id: number): Promise<PrivacyModels> {
-    return (await this.client.get<PrivacyModels>(`/projects/${id}/privacy/models`)).data;
+  async getPrivacyModels(): Promise<PrivacyModels> {
+    return (await this.adminClient.get<PrivacyModels>(`/privacy/models`)).data;
   }
-  async privacyModelAction(id: number, model: string, action: string): Promise<PrivacyModel> {
+  async privacyModelAction(model: string, action: string): Promise<PrivacyModel> {
     return (
-      await this.client.post<PrivacyModel>(
-        `/projects/${id}/privacy/models/${encodeURIComponent(model)}/${encodeURIComponent(action)}`,
+      await this.adminClient.post<PrivacyModel>(
+        `/privacy/models/${encodeURIComponent(model)}/${encodeURIComponent(action)}`,
       )
     ).data;
   }
-  async getPrivacyRecords(
-    id: number,
-    params: Record<string, string | number>,
-  ): Promise<PrivacyRecords> {
-    return (await this.client.get<PrivacyRecords>(`/projects/${id}/privacy/records`, { params }))
-      .data;
+  async getPrivacyRecords(params: Record<string, string | number>): Promise<PrivacyRecords> {
+    return (await this.adminClient.get<PrivacyRecords>(`/privacy/records`, { params })).data;
   }
-  async getPrivacyRecord(id: number, record: string): Promise<PrivacyRecord> {
+  async getPrivacyRecord(record: string): Promise<PrivacyRecord> {
     return (
-      await this.client.get<PrivacyRecord>(
-        `/projects/${id}/privacy/records/${encodeURIComponent(record)}`,
-      )
+      await this.adminClient.get<PrivacyRecord>(`/privacy/records/${encodeURIComponent(record)}`)
     ).data;
   }
-  async getPrivacySummary(id: number): Promise<PrivacySummary> {
-    return (await this.client.get<PrivacySummary>(`/projects/${id}/privacy/summary`)).data;
+  async getPrivacySummary(): Promise<PrivacySummary> {
+    return (await this.adminClient.get<PrivacySummary>(`/privacy/summary`)).data;
   }
-  async getPrivacyOriginal(
-    id: number,
-    record: string,
-    placeholder: string,
-  ): Promise<{ value: string }> {
+  async getPrivacyOriginal(record: string, placeholder: string): Promise<{ value: string }> {
     return (
-      await this.client.get<{ value: string }>(
-        `/projects/${id}/privacy/records/${encodeURIComponent(record)}/value`,
+      await this.adminClient.get<{ value: string }>(
+        `/privacy/records/${encodeURIComponent(record)}/value`,
         { params: { placeholder } },
       )
     ).data;
   }
-  async getPrivacySent(id: number, record: string): Promise<{ body: string }> {
+  async getPrivacySent(record: string): Promise<{ body: string }> {
     return (
-      await this.client.get<{ body: string }>(
-        `/projects/${id}/privacy/records/${encodeURIComponent(record)}/sent`,
+      await this.adminClient.get<{ body: string }>(
+        `/privacy/records/${encodeURIComponent(record)}/sent`,
       )
     ).data;
   }
-  async clearPrivacyRecords(id: number): Promise<void> {
-    await this.client.delete(`/projects/${id}/privacy/records`);
+  async clearPrivacyRecords(): Promise<void> {
+    await this.adminClient.delete(`/privacy/records`);
   }
 
   async deleteProject(id: number): Promise<void> {

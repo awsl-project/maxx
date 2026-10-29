@@ -406,7 +406,7 @@ func main() {
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
 	// Create executor
-	privacyService := privacy.NewService(cachedProjectRepo)
+	privacyService := privacy.NewService(settingRepo)
 	privacyService.SetDirectory(filepath.Join(dataDirPath, "privacy"))
 	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, privacyService)
 

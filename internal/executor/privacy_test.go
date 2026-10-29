@@ -18,7 +18,7 @@ type unreadPrivacyBody struct{ reads int }
 
 func (b *unreadPrivacyBody) Read([]byte) (int, error) { b.reads++; return 0, io.EOF }
 
-func TestEarlyRejectionArchivesUseProjectPrivacyWithoutReadingBody(t *testing.T) {
+func TestEarlyRejectionArchivesUseGlobalPrivacyWithoutReadingBody(t *testing.T) {
 	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -26,9 +26,14 @@ func TestEarlyRejectionArchivesUseProjectPrivacyWithoutReadingBody(t *testing.T)
 	defer db.Close()
 	projects := sqlite.NewProjectRepository(db)
 	requests := sqlite.NewProxyRequestRepository(db)
-	exec := &Executor{proxyRequestRepo: requests, privacy: privacy.NewService(projects)}
+	exec := &Executor{proxyRequestRepo: requests, privacy: privacy.NewService(sqlite.NewSystemSettingRepository(db))}
 	for _, enabled := range []bool{false, true} {
-		project := &domain.Project{TenantID: 1, Name: "early", BlockSecrets: enabled}
+		cfg := privacy.DefaultConfig()
+		cfg.Enabled = enabled
+		if _, err := exec.privacy.SetConfiguration(cfg); err != nil {
+			t.Fatal(err)
+		}
+		project := &domain.Project{TenantID: 1, Name: "early"}
 		if err := projects.Create(project); err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +59,7 @@ func TestEarlyRejectionArchivesUseProjectPrivacyWithoutReadingBody(t *testing.T)
 				t.Fatalf("early rejection changed: %+v %v", stored, err)
 			}
 			if strings.Contains(stored.RequestInfo.URL, "query-secret") == enabled || strings.Contains(stored.Error, "Example1234") == enabled || (stored.RequestInfo.Headers["X-Service-Secret"] == "header-secret") == enabled {
-				t.Fatal("early archive did not use project policy")
+				t.Fatal("early archive did not use global policy")
 			}
 			if body.reads != 0 || stored.RequestInfo.Body != "" {
 				t.Fatal("early rejection read or saved the request body")

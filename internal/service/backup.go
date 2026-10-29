@@ -100,6 +100,9 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export settings: %w", err)
 	}
 	for _, setting := range settings {
+		if setting.Key == privacy.SettingKey && tenantID != domain.DefaultTenantID {
+			continue
+		}
 		backup.Data.SystemSettings = append(backup.Data.SystemSettings, domain.BackupSystemSetting{
 			Key:   setting.Key,
 			Value: setting.Value,
@@ -130,6 +133,18 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		})
 	}
 
+	// Export provider exceptions by name rather than source database IDs.
+	for i := range backup.Data.SystemSettings {
+		setting := &backup.Data.SystemSettings[i]
+		if setting.Key == privacy.SettingKey {
+			raw, err := privacy.ExportPolicy(json.RawMessage(setting.Value), providerIDToName)
+			if err != nil {
+				return nil, fmt.Errorf("invalid global privacy policy: %w", err)
+			}
+			setting.Value = string(raw)
+		}
+	}
+
 	// 3. Export Projects
 	projects, err := s.projectRepo.List(tenantID)
 	if err != nil {
@@ -137,16 +152,10 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	}
 	for _, p := range projects {
 		projectIDToSlug[p.ID] = p.Slug
-		policy, err := privacy.ExportPolicy(p, providerIDToName)
-		if err != nil {
-			return nil, fmt.Errorf("invalid project privacy policy: %w", err)
-		}
 		backup.Data.Projects = append(backup.Data.Projects, domain.BackupProject{
 			Name:                p.Name,
 			Slug:                p.Slug,
 			EnabledCustomRoutes: p.EnabledCustomRoutes,
-			BlockSecrets:        p.BlockSecrets,
-			Privacy:             policy,
 		})
 	}
 
@@ -300,13 +309,44 @@ func (s *BackupService) Import(tenantID uint64, backup *domain.BackupFile, opts 
 
 	// Import in dependency order
 	// 1. SystemSettings (no dependencies)
-	s.importSystemSettings(backup.Data.SystemSettings, opts, result)
+	regularSettings := []domain.BackupSystemSetting{}
+	for _, setting := range backup.Data.SystemSettings {
+		if setting.Key != privacy.SettingKey {
+			regularSettings = append(regularSettings, setting)
+		}
+	}
+	s.importSystemSettings(regularSettings, opts, result)
 
 	// 2. RetryConfigs (no dependencies)
 	s.importRetryConfigs(tenantID, backup.Data.RetryConfigs, opts, result, ctx)
 
 	// 3. Providers (no dependencies)
 	s.importProviders(tenantID, backup.Data.Providers, opts, result, ctx)
+	// Provider IDs exist now; unresolved exceptions are removed conservatively.
+	for _, setting := range backup.Data.SystemSettings {
+		if setting.Key != privacy.SettingKey {
+			continue
+		}
+		if tenantID != domain.DefaultTenantID {
+			result.Warnings = append(result.Warnings, "Global privacy settings require the server administrator")
+			continue
+		}
+
+		raw, err := privacy.ImportPolicy(json.RawMessage(setting.Value), ctx.providerNameToID)
+		if err != nil {
+			result.Success = false
+			result.Errors = append(result.Errors, "Invalid global privacy policy")
+			return result, nil
+		}
+		setting.Value = string(raw)
+		previous := result.Summary["systemSettings"]
+		s.importSystemSettings([]domain.BackupSystemSetting{setting}, opts, result)
+		summary := result.Summary["systemSettings"]
+		summary.Imported += previous.Imported
+		summary.Updated += previous.Updated
+		summary.Skipped += previous.Skipped
+		result.Summary["systemSettings"] = summary
+	}
 
 	// 4. Projects (no dependencies)
 	s.importProjects(tenantID, backup.Data.Projects, opts, result, ctx)
@@ -596,18 +636,11 @@ func (s *BackupService) importProjects(tenantID uint64, projects []domain.Backup
 			}
 		}
 
-		policy, err := privacy.ImportPolicy(bp.Privacy, bp.BlockSecrets, ctx.providerNameToID)
-		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Project %q has invalid privacy settings, skipped", bp.Slug))
-			continue
-		}
 		p := &domain.Project{
 			TenantID:            tenantID,
 			Name:                bp.Name,
 			Slug:                bp.Slug,
 			EnabledCustomRoutes: bp.EnabledCustomRoutes,
-			BlockSecrets:        bp.BlockSecrets,
-			Privacy:             policy,
 		}
 
 		if !opts.DryRun {

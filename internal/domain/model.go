@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 )
@@ -614,12 +613,6 @@ type Project struct {
 
 	// 启用自定义路由的 ClientType 列表，空数组表示所有 ClientType 都使用全局路由
 	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes"`
-
-	// BlockSecrets opts this project into credential blocking and archive scrubbing.
-	BlockSecrets bool `json:"blockSecrets"`
-
-	// Privacy is module-owned configuration, served only by the admin privacy API.
-	Privacy json.RawMessage `json:"-"`
 
 	// 使用统计由 proxy_requests 聚合填充，用于项目清理候选检测；不落 projects 表。
 	LastRequestAt             *time.Time `json:"lastRequestAt,omitempty"`

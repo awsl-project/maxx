@@ -11,7 +11,7 @@ import (
 // enforceRequestPrivacy runs once per logical request (including each WebSocket
 // turn), before creating an upstream attempt or entering the retry loop.
 func (e *Executor) enforceRequestPrivacy(c *flow.Ctx, state *execState) bool {
-	exchange, rejection := e.privacy.Prepare(state.ctx, state.tenantID, state.projectID, state.requestBody, state.originalRequestBody, state.requestHeaders.Get("Content-Type"))
+	exchange, rejection := e.privacy.Prepare(state.ctx, state.tenantID, state.requestBody, state.originalRequestBody, state.requestHeaders.Get("Content-Type"))
 	state.privacyExchange = exchange
 	state.privacyEnabled = exchange != nil || rejection != nil
 	e.applyPrivacyExchange(c, state)

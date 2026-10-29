@@ -377,7 +377,7 @@ func InitializeServerComponents(
 		return policy, nil
 	})
 
-	privacyService := privacy.NewService(repos.CachedProjectRepo)
+	privacyService := privacy.NewService(repos.SettingRepo)
 	if logPath != "" {
 		privacyService.SetDirectory(filepath.Join(filepath.Dir(logPath), "privacy"))
 	}

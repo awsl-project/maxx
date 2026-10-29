@@ -2,11 +2,11 @@ package handler
 
 import (
 	"bytes"
-	"encoding/json"
-	"net/http"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
@@ -36,98 +36,57 @@ func TestLogWriterPreservesExistingBehavior(t *testing.T) {
 	}
 }
 
-func TestSelfServiceProjectPrivacyUpdate(t *testing.T) {
-	repo := &selfServiceProjectRepo{projects: []*domain.Project{{ID: 1, TenantID: 1, Name: "protected", Slug: "protected", BlockSecrets: true}}}
-	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{projectRepo: repo})
-	for _, tc := range []struct {
-		body    string
-		role    domain.UserRole
-		status  int
-		enabled bool
-	}{
-		{`{"name":"protected","slug":"protected"}`, domain.UserRoleAdmin, 200, true},
-		{`{"name":"protected","slug":"protected","blockSecrets":false}`, domain.UserRoleMember, 403, true},
-		{`{"name":"protected","slug":"protected","blockSecrets":false}`, domain.UserRoleAdmin, 200, false},
-		{`{"name":"protected","slug":"protected","blockSecrets":true}`, domain.UserRoleAdmin, 200, true},
-	} {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/projects/1", bytes.NewBufferString(tc.body))
-		handler.ServeHTTP(rec, withSelfServiceContext(req, tc.role))
-		if rec.Code != tc.status {
-			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-		}
-		if repo.projects[0].BlockSecrets != tc.enabled {
-			t.Fatal("project protection changed unexpectedly")
-		}
-		if rec.Code == 200 {
-			var project domain.Project
-			if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil || project.BlockSecrets != tc.enabled {
-				t.Fatal("wrong project response")
-			}
-		}
-	}
-}
+type memoryGlobalPrivacySettings struct{ value string }
 
-func TestSelfServicePrivacyEndpointOnlyChangesPolicy(t *testing.T) {
-	repo := &selfServiceProjectRepo{projects: []*domain.Project{
-		{ID: 1, TenantID: 1, Name: "original", Slug: "original", EnabledCustomRoutes: []domain.ClientType{domain.ClientTypeOpenAI}, BlockSecrets: true},
-		{ID: 2, TenantID: 2, Name: "other", Slug: "other", BlockSecrets: true},
-	}}
-	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{projectRepo: repo})
+func (m *memoryGlobalPrivacySettings) Get(string) (string, error)       { return m.value, nil }
+func (m *memoryGlobalPrivacySettings) Set(_ string, value string) error { m.value = value; return nil }
+
+func TestGlobalPrivacyEndpointAndAccess(t *testing.T) {
+	svc := newSelfServiceHandlerForTests(selfServiceTestDeps{}).svc
+	svc.SetPrivacyService(privacy.NewService(&memoryGlobalPrivacySettings{}))
+	handler := NewAdminHandler(svc, nil, "")
 	for _, tc := range []struct {
 		path, method, body string
 		role               domain.UserRole
+		tenant             uint64
 		status             int
-		enabled            bool
 	}{
-		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":false}`, domain.UserRoleAdmin, 200, false},
-		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true}`, domain.UserRoleMember, 403, false},
-		{"/projects/1/privacy", http.MethodPut, `{}`, domain.UserRoleAdmin, 400, false},
-		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":null}`, domain.UserRoleAdmin, 400, false},
-		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true,"name":"changed"}`, domain.UserRoleAdmin, 400, false},
-		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true} {}`, domain.UserRoleAdmin, 400, false},
-		{"/projects/2/privacy", http.MethodPut, `{"blockSecrets":false}`, domain.UserRoleAdmin, 404, false},
-		{"/projects/1/privacy", http.MethodGet, ``, domain.UserRoleAdmin, 200, false},
-		{"/projects/1/privacy", http.MethodPut, `{"blockSecrets":true}`, domain.UserRoleAdmin, 200, true},
+		{"/admin/privacy", "GET", "", domain.UserRoleAdmin, 1, 200},
+		{"/admin/privacy", "PUT", `{"config":{"enabled":true,"secrets":true,"mode":"mask","model":{"enabled":false,"name":"astrlink-guard"}}}`, domain.UserRoleAdmin, 1, 200},
+		{"/admin/privacy/preview", "POST", `{"config":{"enabled":true,"secrets":true},"text":"sk-proj-testtesttesttesttesttesttesttest"}`, domain.UserRoleAdmin, 1, 200},
+		{"/admin/privacy", "PUT", `{"blockSecrets":false}`, domain.UserRoleAdmin, 1, 400},
+		{"/admin/privacy", "PUT", `{"config":{}} {}`, domain.UserRoleAdmin, 1, 400},
+		{"/admin/privacy/models", "GET", "", domain.UserRoleAdmin, 1, 200},
+		{"/admin/privacy/records", "GET", "", domain.UserRoleAdmin, 1, 200},
+		{"/admin/privacy/summary", "GET", "", domain.UserRoleAdmin, 1, 200},
+		{"/admin/settings/privacy_policy", "GET", "", domain.UserRoleAdmin, 1, 403},
+		{"/admin/settings/privacy_policy", "PUT", `{"value":"{}"}`, domain.UserRoleAdmin, 2, 403},
+		{"/admin/settings/privacy_policy", "DELETE", "", domain.UserRoleAdmin, 2, 403},
+		{"/admin/privacy", "GET", "", domain.UserRoleMember, 1, 403},
+		{"/admin/privacy", "PUT", `{"config":{}}`, domain.UserRoleAdmin, 2, 403},
+		{"/admin/privacy/records", "GET", "", domain.UserRoleAdmin, 2, 403},
 	} {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
-		handler.ServeHTTP(rec, withSelfServiceContext(req, tc.role))
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req = withSelfServiceContext(req, tc.role)
+		req = req.WithContext(maxxctx.WithTenantID(req.Context(), tc.tenant))
+		handler.ServeHTTP(rec, req)
 		if rec.Code != tc.status {
-			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+			t.Fatalf("%s %s: %d %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
-		project := repo.projects[0]
-		if project.BlockSecrets != tc.enabled || project.Name != "original" || project.Slug != "original" || len(project.EnabledCustomRoutes) != 1 || !repo.projects[1].BlockSecrets {
-			t.Fatal("privacy update changed unrelated settings or another tenant")
-		}
+	}
+	cfg, err := svc.Privacy().Configuration()
+	if err != nil || !cfg.Enabled {
+		t.Fatal("global update did not persist")
 	}
 }
-
-func TestFullPrivacyEndpointsRequireScopedAdmin(t *testing.T) {
-	repo := &selfServiceProjectRepo{projects: []*domain.Project{{ID: 1, TenantID: 1, Name: "one", Slug: "one"}, {ID: 2, TenantID: 2, Name: "two", Slug: "two"}}}
-	h := newSelfServiceHandlerForTests(selfServiceTestDeps{projectRepo: repo})
-	for _, path := range []string{"/projects/1/privacy", "/projects/1/privacy/categories", "/projects/1/privacy/models", "/projects/1/privacy/records", "/projects/1/privacy/summary", "/projects/1/privacy/records/missing/value?placeholder=anything", "/projects/1/privacy/records/missing/sent"} {
-		for _, role := range []domain.UserRole{domain.UserRoleMember, domain.UserRoleAdmin} {
-			req := withSelfServiceContext(httptest.NewRequest(http.MethodGet, path, nil), role)
-			if role == domain.UserRoleAdmin {
-				req = req.WithContext(maxxctx.WithTenantID(req.Context(), 2))
-			}
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, req)
-			want := 403
-			if role == domain.UserRoleAdmin {
-				want = 404
-			}
-			if w.Code != want {
-				t.Fatalf("%s role=%s status=%d want=%d", path, role, w.Code, want)
-			}
+func TestProjectPrivacyRoutesAreRemoved(t *testing.T) {
+	h := newSelfServiceHandlerForTests(selfServiceTestDeps{})
+	for _, path := range []string{"/projects/1/privacy", "/projects/1/privacy/models", "/projects/1/privacy/records"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, withSelfServiceContext(httptest.NewRequest("GET", path, nil), domain.UserRoleAdmin))
+		if rec.Code != 404 {
+			t.Fatalf("project privacy route remains: %s: %d", path, rec.Code)
 		}
-	}
-	req := withSelfServiceContext(httptest.NewRequest(http.MethodPost, "/projects/2/privacy/models/astrlink-guard/remove", nil), domain.UserRoleAdmin)
-	req = req.WithContext(maxxctx.WithTenantID(req.Context(), 2))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != 403 {
-		t.Fatalf("tenant admin could manage shared model: %d", w.Code)
 	}
 }

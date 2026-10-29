@@ -18,9 +18,9 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
-func saveFullPrivacy(t *testing.T, env *ProxyTestEnv, project domain.Project, cfg privacy.Config) {
+func saveFullPrivacy(t *testing.T, env *ProxyTestEnv, cfg privacy.Config) {
 	t.Helper()
-	resp := env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", project.ID), map[string]any{"config": cfg})
+	resp := env.AdminPut("/api/admin/privacy", map[string]any{"config": cfg})
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
@@ -66,12 +66,12 @@ func TestFullPrivacyHTTPAndSSERoundTrip(t *testing.T) {
 				defer upstream.Close()
 				provider := createProvider(t, env, "full-privacy", upstream.URL, []string{"openai"})
 				createRoute(t, env, "openai", provider)
-				project := createPrivacyProject(t, env, "full-privacy", false)
+				project := createPrivacyTestProject(t, env, "full-privacy")
 				cfg := privacy.DefaultConfig()
 				cfg.Enabled = true
 				cfg.Personal = true
 				cfg.Words = []string{"Nightjar"}
-				saveFullPrivacy(t, env, project, cfg)
+				saveFullPrivacy(t, env, cfg)
 				body := openaiRequest("gpt-4o")
 				body["stream"] = stream
 				body["messages"] = []any{map[string]any{"role": "user", "content": "Nightjar person@corp-real.com"}}
@@ -101,7 +101,7 @@ func TestFullPrivacyHTTPAndSSERoundTrip(t *testing.T) {
 						t.Fatal("original persisted in request archive")
 					}
 				}
-				recordsResp := env.AdminGet(fmt.Sprintf("/api/admin/projects/%d/privacy/records", project.ID))
+				recordsResp := env.AdminGet("/api/admin/privacy/records")
 				defer recordsResp.Body.Close()
 				var records privacy.RecordsPage
 				if json.NewDecoder(recordsResp.Body).Decode(&records) != nil || records.Total != 1 || len(records.Items[0].Values) < 2 {
@@ -127,12 +127,12 @@ func TestFullPrivacyModesBypassAndUnavailableModel(t *testing.T) {
 	defer upstream.Close()
 	provider := createProvider(t, env, "mode-provider", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
-	project := createPrivacyProject(t, env, "full-modes", false)
+	createPrivacyTestProject(t, env, "full-modes")
 	cfg := privacy.DefaultConfig()
 	cfg.Enabled = true
 	cfg.Words = []string{"Nightjar"}
 	cfg.Mode = "block"
-	saveFullPrivacy(t, env, project, cfg)
+	saveFullPrivacy(t, env, cfg)
 	body := openaiRequest("gpt-4o")
 	body["messages"] = []any{map[string]any{"role": "user", "content": "Nightjar"}}
 	send := func(want int) {
@@ -149,38 +149,38 @@ func TestFullPrivacyModesBypassAndUnavailableModel(t *testing.T) {
 		t.Fatal("blocked request reached upstream")
 	}
 	cfg.Mode = "warn"
-	saveFullPrivacy(t, env, project, cfg)
+	saveFullPrivacy(t, env, cfg)
 	send(200)
 	cfg.Mode = "block"
 	cfg.BypassProviders = []uint64{provider}
-	saveFullPrivacy(t, env, project, cfg)
+	saveFullPrivacy(t, env, cfg)
 	send(200)
 	cfg.BypassProviders = nil
 	cfg.Model.Enabled = true
 	t.Setenv("MAXX_PRIVACY_CACHE_DIR", t.TempDir())
-	saveFullPrivacy(t, env, project, cfg)
+	saveFullPrivacy(t, env, cfg)
 	send(503)
 	if calls.Load() != 2 {
 		t.Fatal("failed model silently forwarded")
 	}
 	cfg.Enabled = false
-	saveFullPrivacy(t, env, project, cfg)
+	saveFullPrivacy(t, env, cfg)
 	send(200)
 	if calls.Load() != 3 {
 		t.Fatal("disabled model affected old transport")
 	}
 }
-func TestFullPrivacyConfigurationPreviewAndIsolation(t *testing.T) {
+func TestFullPrivacyGlobalConfigurationAndPreview(t *testing.T) {
 	env := NewProxyTestEnv(t)
-	project := createPrivacyProject(t, env, "config-preview", false)
-	other := createPrivacyProject(t, env, "config-other", false)
+	project := createPrivacyTestProject(t, env, "config-preview")
+	other := createPrivacyTestProject(t, env, "config-other")
 	cfg := privacy.DefaultConfig()
 	cfg.Enabled = true
 	cfg.Words = []string{"Nightjar"}
 	cfg.WordsAnyCase = true
 	cfg.Personal = true
-	saveFullPrivacy(t, env, project, cfg)
-	endpoint := fmt.Sprintf("/api/admin/projects/%d/privacy", project.ID)
+	saveFullPrivacy(t, env, cfg)
+	endpoint := "/api/admin/privacy"
 	resp := env.AdminGet(endpoint)
 	var got privacy.Config
 	json.NewDecoder(resp.Body).Decode(&got)
@@ -209,12 +209,8 @@ func TestFullPrivacyConfigurationPreviewAndIsolation(t *testing.T) {
 		t.Fatal("general project API exposed policy contents")
 	}
 	otherResp := env.AdminGet(fmt.Sprintf("/api/admin/projects/%d/privacy", other.ID))
-	got = privacy.Config{}
-	json.NewDecoder(otherResp.Body).Decode(&got)
+	AssertStatus(t, otherResp, http.StatusNotFound)
 	otherResp.Body.Close()
-	if got.Enabled || len(got.Words) > 0 {
-		t.Fatal("config crossed projects")
-	}
 	legacy := env.AdminPut(fmt.Sprintf("/api/admin/projects/%d", project.ID), map[string]any{"name": "renamed", "slug": "config-preview"})
 	legacy.Body.Close()
 	resp = env.AdminGet(endpoint)
@@ -232,7 +228,7 @@ func TestFullPrivacyConfigurationPreviewAndIsolation(t *testing.T) {
 
 func TestFullPrivacyWebSocketTurnRestoration(t *testing.T) {
 	env := NewProxyTestEnv(t)
-	project := createPrivacyProject(t, env, "full-ws", false)
+	createPrivacyTestProject(t, env, "full-ws")
 	var originalSent atomic.Bool
 	var connections atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -272,7 +268,7 @@ func TestFullPrivacyWebSocketTurnRestoration(t *testing.T) {
 	cfg := privacy.DefaultConfig()
 	cfg.Enabled = true
 	cfg.Words = []string{"Nightjar"}
-	saveFullPrivacy(t, env, project, cfg)
+	saveFullPrivacy(t, env, cfg)
 	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(env.Server.URL, "http")+"/project/full-ws/v1/responses", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -281,7 +277,7 @@ func TestFullPrivacyWebSocketTurnRestoration(t *testing.T) {
 	for turn := 0; turn < 2; turn++ {
 		if turn == 1 {
 			cfg.Enabled = false
-			saveFullPrivacy(t, env, project, cfg)
+			saveFullPrivacy(t, env, cfg)
 		}
 		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-test","input":[{"role":"user","content":"Nightjar"}]}`)) != nil {
@@ -308,7 +304,7 @@ func TestFullPrivacyWebSocketTurnRestoration(t *testing.T) {
 			t.Fatalf("turn %d restoration=%q", turn, text.String())
 		}
 		if originalSent.Load() != (turn == 1) {
-			t.Fatal("turn did not apply the project policy")
+			t.Fatal("turn did not apply the global policy")
 		}
 	}
 	if connections.Load() != 1 {
@@ -333,11 +329,11 @@ func TestFullPrivacyResponseConversionRestoresAfterConversion(t *testing.T) {
 	defer upstream.Close()
 	provider := createProvider(t, env, "conversion-private", upstream.URL, []string{"claude"})
 	createRoute(t, env, "openai", provider)
-	project := createPrivacyProject(t, env, "full-conversion", false)
+	createPrivacyTestProject(t, env, "full-conversion")
 	cfg := privacy.DefaultConfig()
 	cfg.Enabled = true
 	cfg.Words = []string{"Nightjar"}
-	saveFullPrivacy(t, env, project, cfg)
+	saveFullPrivacy(t, env, cfg)
 	body := openaiRequest("gpt-4o")
 	body["messages"] = []any{map[string]any{"role": "user", "content": "Nightjar"}}
 	resp := env.ProxyPost("/project/full-conversion/v1/chat/completions", body, nil)

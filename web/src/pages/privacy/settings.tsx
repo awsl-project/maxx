@@ -3,19 +3,18 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/components/ui';
-import { getTransport, type Project } from '@/lib/transport';
+import { getTransport } from '@/lib/transport';
 import type { PrivacyAction, PrivacyConfig, PrivacyRule } from '@/lib/transport/privacy-types';
 import { Choice, Field, Toggle } from './controls';
 import { PrivacyModels } from './models';
 import { PrivacyPreview } from './preview';
 import { PrivacyHistory } from './history';
-import { projectKeys } from '@/hooks/queries';
 
-export function ProjectPrivacySettings({ project }: { project: Project }) {
+export function PrivacySettings() {
   const { t } = useTranslation();
   const config = useQuery({
-    queryKey: ['privacy', project.id, 'config'],
-    queryFn: () => getTransport().getPrivacyConfig(project.id),
+    queryKey: ['privacy', 'config'],
+    queryFn: () => getTransport().getPrivacyConfig(),
   });
   if (config.isLoading) return <p>{t('common.loading')}</p>;
   if (!config.data)
@@ -27,38 +26,29 @@ export function ProjectPrivacySettings({ project }: { project: Project }) {
         </Button>
       </div>
     );
-  return (
-    <PrivacyEditor
-      key={`${project.id}:${config.dataUpdatedAt}`}
-      project={project}
-      initial={config.data}
-    />
-  );
+  return <PrivacyEditor key={config.dataUpdatedAt} initial={config.data} />;
 }
 
-function PrivacyEditor({ project, initial }: { project: Project; initial: PrivacyConfig }) {
+function PrivacyEditor({ initial }: { initial: PrivacyConfig }) {
   const { t } = useTranslation();
   const client = useQueryClient();
   const [config, setConfig] = useState(initial);
   const [tab, setTab] = useState<'settings' | 'history'>('settings');
   const [actionKind, setActionKind] = useState('');
   const categories = useQuery({
-    queryKey: ['privacy', project.id, 'categories'],
-    queryFn: () => getTransport().getPrivacyCategories(project.id),
+    queryKey: ['privacy', 'categories'],
+    queryFn: () => getTransport().getPrivacyCategories(),
   });
   const providers = useQuery({
-    queryKey: ['privacy', project.id, 'providers'],
+    queryKey: ['privacy', 'providers'],
     queryFn: () => getTransport().getProviders(),
   });
   const set = <K extends keyof PrivacyConfig>(key: K, value: PrivacyConfig[K]) =>
     setConfig((c) => ({ ...c, [key]: value }));
   const save = useMutation({
-    mutationFn: () => getTransport().savePrivacyConfig(project.id, config),
+    mutationFn: () => getTransport().savePrivacyConfig(config),
     onSuccess: async () => {
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ['privacy', project.id, 'config'] }),
-        client.invalidateQueries({ queryKey: projectKeys.all }),
-      ]);
+      await Promise.all([client.invalidateQueries({ queryKey: ['privacy', 'config'] })]);
     },
   });
   const updateRule = (index: number, patch: Partial<PrivacyRule>) =>
@@ -70,9 +60,7 @@ function PrivacyEditor({ project, initial }: { project: Project; initial: Privac
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          {project.name} · {t('privacy.settings')}
-        </CardTitle>
+        <CardTitle>{t('privacy.settings')}</CardTitle>
         <div className="flex gap-2">
           <Button
             type="button"
@@ -92,7 +80,7 @@ function PrivacyEditor({ project, initial }: { project: Project; initial: Privac
       </CardHeader>
       <CardContent>
         {tab === 'history' ? (
-          <PrivacyHistory id={project.id} />
+          <PrivacyHistory />
         ) : (
           <form
             className="space-y-6"
@@ -306,11 +294,7 @@ function PrivacyEditor({ project, initial }: { project: Project; initial: Privac
                 {t('privacy.models')}
               </summary>
               <div className="mt-4">
-                <PrivacyModels
-                  id={project.id}
-                  model={config.model}
-                  setModel={(value) => set('model', value)}
-                />
+                <PrivacyModels model={config.model} setModel={(value) => set('model', value)} />
               </div>
             </details>
             <details className="rounded-lg border border-border p-4">
@@ -348,7 +332,7 @@ function PrivacyEditor({ project, initial }: { project: Project; initial: Privac
                 {t('privacy.preview')}
               </summary>
               <div className="mt-4">
-                <PrivacyPreview id={project.id} config={config} />
+                <PrivacyPreview config={config} />
               </div>
             </details>
           </form>

@@ -179,6 +179,10 @@ var rules = append([]rule{
 	// password = …, API_KEY: "…", as .env files and configs have them
 	{kind: "SECRET", re: regexp.MustCompile(`(?i)[A-Za-z0-9_.-]*(?:` + secretNames.pattern() + `)[A-Za-z0-9_.-]*` + quote + `[ \t]*[:=][ \t]*` + quote + `(` + secretCh + `{8,})`),
 		markers: secretNames.markers(), ok: secretValue, at: fieldAt},
+	// Quoted credentials may contain separators that end unquoted values.
+	{kind: "SECRET", re: regexp.MustCompile(`(?i)\b[A-Za-z0-9_-]*(?:` + secretNames.pattern() + `)[A-Za-z0-9_-]*` + quote + `[ \t]*[:=][ \t]*` +
+		`(?:\\?"((?:[^"\\\r\n]|\\[^"])+)\\?"|\\?'((?:[^'\\\r\n]|\\[^'])+)\\?')`),
+		fold: []string{"pass", "key", "token", "secret", "credential"}, anyGroup: true, ok: secretValue, at: fieldAt},
 	// a field called key and nothing more, as providers.json has one: "key":
 	// "oc_sk_…" (#195). Only a long value of letters and digits both, since
 	// code calls anything a key: a map's "key": "value", sort_key, keyboard.
@@ -296,7 +300,7 @@ const (
 	// in JSON written inside a string
 	quote = `(?:\\?["'])?`
 	// secretCh are the characters of a secret's value
-	secretCh = `[A-Za-z0-9_\-./+=~!@#%^&*]`
+	secretCh = `[A-Za-z0-9_\-./+=~!@#$%^&*]`
 )
 
 // placeholderRe is a placeholder as Mask writes it.

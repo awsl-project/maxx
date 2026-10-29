@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -127,8 +126,6 @@ func (r *ProjectRepository) toModel(p *domain.Project) *Project {
 		Name:                p.Name,
 		Slug:                p.Slug,
 		EnabledCustomRoutes: LongText(toJSON(p.EnabledCustomRoutes)),
-		BlockSecrets:        p.BlockSecrets,
-		Privacy:             LongText(string(p.Privacy)),
 	}
 }
 
@@ -142,8 +139,6 @@ func (r *ProjectRepository) toDomain(m *Project) *domain.Project {
 		Name:                m.Name,
 		Slug:                m.Slug,
 		EnabledCustomRoutes: fromJSON[[]domain.ClientType](string(m.EnabledCustomRoutes)),
-		BlockSecrets:        m.BlockSecrets,
-		Privacy:             json.RawMessage(m.Privacy),
 	}
 }
 

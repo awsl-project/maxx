@@ -1,6 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '@/lib/auth-context';
 import { Card, CardContent, CardHeader, CardTitle, Input, Button } from '@/components/ui';
 import { useUpdateProject, projectKeys } from '@/hooks/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -18,7 +16,6 @@ export function OverviewTab({ project }: OverviewTabProps) {
   const updateProject = useUpdateProject();
   const [name, setName] = useState(project.name);
   const [slug, setSlug] = useState(project.slug);
-  const { authEnabled, user } = useAuth();
   const [copied, setCopied] = useState<string | null>(null);
 
   const hasChanges = name !== project.name || slug !== project.slug;
@@ -99,23 +96,6 @@ export function OverviewTab({ project }: OverviewTabProps) {
                 {new Date(project.updatedAt).toLocaleString()}
               </span>
             </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border p-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-text-primary">{t('privacy.title')}</p>
-              <p className="text-xs text-text-muted">
-                {t(project.blockSecrets ? 'privacy.projectEnabled' : 'privacy.projectDisabled')}
-              </p>
-            </div>
-            {(!authEnabled || user?.role === 'admin') && (
-              <Link
-                to={`/privacy?project=${project.id}`}
-                className="text-sm text-primary hover:underline"
-              >
-                {t('privacy.manage')}
-              </Link>
-            )}
           </div>
 
           {hasChanges && (

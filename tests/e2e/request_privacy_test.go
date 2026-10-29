@@ -12,25 +12,33 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/gorilla/websocket"
 )
 
 const privacyTestKey = "sk-proj-testtesttesttesttesttesttesttest"
 
-func createPrivacyProject(t *testing.T, env *ProxyTestEnv, slug string, enabled bool) domain.Project {
+func createPrivacyTestProject(t *testing.T, env *ProxyTestEnv, slug string) domain.Project {
 	t.Helper()
-	resp := env.AdminPost("/api/admin/projects", map[string]any{"name": slug, "slug": slug, "blockSecrets": enabled})
+	resp := env.AdminPost("/api/admin/projects", map[string]any{"name": slug, "slug": slug})
 	AssertStatus(t, resp, http.StatusCreated)
 	var project domain.Project
 	DecodeJSON(t, resp, &project)
-	if project.BlockSecrets != enabled {
-		t.Fatal("project policy not saved")
-	}
 	return project
 }
 
-func TestRequestPrivacyProjectPolicy(t *testing.T) {
+func setGlobalPrivacyBlocking(t *testing.T, env *ProxyTestEnv, enabled bool) {
+	t.Helper()
+	cfg := privacy.DefaultConfig()
+	cfg.Enabled = enabled
+	cfg.Mode = "block"
+	response := env.AdminPut("/api/admin/privacy", map[string]any{"config": cfg})
+	AssertStatus(t, response, http.StatusOK)
+	response.Body.Close()
+}
+
+func TestRequestPrivacyGlobalPolicy(t *testing.T) {
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -48,8 +56,9 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	provider := createProvider(t, env, "privacy-upstream", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
-	protected := createPrivacyProject(t, env, "protected", true)
-	createPrivacyProject(t, env, "unprotected", false)
+	protected := createPrivacyTestProject(t, env, "protected")
+	setGlobalPrivacyBlocking(t, env, true)
+	createPrivacyTestProject(t, env, "unprotected")
 	requestRepo := sqlite.NewProxyRequestRepository(env.DB)
 	disabledRequests := map[uint64]bool{}
 	markDisabled := func() {
@@ -63,7 +72,7 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 	blocked := func(path string, body any) {
 		t.Helper()
 		before := calls.Load()
-		resp := env.ProxyPost(path, body, map[string]string{"Authorization": "Bearer " + privacyTestKey, "X-Maxx-Project-ID": fmt.Sprint(protected.ID)})
+		resp := env.ProxyPost(path, body, map[string]string{"Authorization": "Bearer " + privacyTestKey})
 		AssertStatus(t, resp, http.StatusBadRequest)
 		result, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -74,7 +83,7 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 			t.Fatal("blocked content reached upstream")
 		}
 		requests, err := requestRepo.List(domain.DefaultTenantID, 1, 0)
-		if err != nil || len(requests) != 1 || requests[0].Status != "REJECTED" || requests[0].ProjectID != protected.ID {
+		if err != nil || len(requests) != 1 || requests[0].Status != "REJECTED" {
 			t.Fatalf("rejection not recorded: %+v %v", requests, err)
 		}
 		var count int64
@@ -96,29 +105,17 @@ func TestRequestPrivacyProjectPolicy(t *testing.T) {
 	AssertStatus(t, resp, http.StatusOK)
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
-	// A different project's disabled policy must preserve the secret upstream.
-	resp = env.ProxyPost("/project/unprotected/v1/chat/completions", secretBody, nil)
-	AssertStatus(t, resp, http.StatusOK)
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-
-	markDisabled()
+	// Neither another project nor an unassigned request can bypass the policy.
+	blocked("/project/unprotected/v1/chat/completions", secretBody)
+	blocked("/v1/chat/completions", secretBody)
 
 	// Existing route editors omit this field. Such saves must not disable it.
 	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d", protected.ID), map[string]any{"name": "protected", "slug": "protected", "enabledCustomRoutes": []string{}})
 	AssertStatus(t, resp, http.StatusOK)
 	var updated domain.Project
 	DecodeJSON(t, resp, &updated)
-	if !updated.BlockSecrets {
-		t.Fatal("omitted field disabled protection")
-	}
 	blocked("/project/protected/v1/chat/completions", secretBody)
-	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", protected.ID), map[string]any{"blockSecrets": false})
-	AssertStatus(t, resp, http.StatusOK)
-	DecodeJSON(t, resp, &updated)
-	if updated.BlockSecrets {
-		t.Fatal("cannot disable protection")
-	}
+	setGlobalPrivacyBlocking(t, env, false)
 	resp = env.ProxyPost("/project/protected/v1/chat/completions", secretBody, nil)
 	AssertStatus(t, resp, http.StatusOK)
 	io.Copy(io.Discard, resp.Body)
@@ -160,7 +157,8 @@ func TestRequestPrivacyStreamArchive(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	provider := createProvider(t, env, "privacy-stream", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
-	project := createPrivacyProject(t, env, "stream-protected", true)
+	project := createPrivacyTestProject(t, env, "stream-protected")
+	setGlobalPrivacyBlocking(t, env, true)
 	body := openaiRequest("gpt-4o")
 	body["stream"] = true
 	resp := env.ProxyPost("/project/stream-protected/v1/chat/completions", body, nil)
@@ -225,7 +223,8 @@ func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 	}))
 	defer upstream.Close()
 	env := NewProxyTestEnv(t)
-	project := createPrivacyProject(t, env, "ws-protected", true)
+	createPrivacyTestProject(t, env, "ws-protected")
+	setGlobalPrivacyBlocking(t, env, true)
 	resp := env.AdminPost("/api/admin/providers", map[string]any{"name": "privacy-ws", "type": "custom", "config": map[string]any{"custom": map[string]any{"baseURL": upstream.URL + "/v1", "apiKey": "sk-mock-test-key", "responsesWebSocket": true}}, "supportedClientTypes": []string{"codex"}})
 	AssertStatus(t, resp, http.StatusCreated)
 	var provider domain.Provider
@@ -250,9 +249,7 @@ func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 	if frames.Load() != 1 {
 		t.Fatalf("secret turn reached upstream: %d", frames.Load())
 	}
-	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", project.ID), map[string]any{"blockSecrets": false})
-	AssertStatus(t, resp, http.StatusOK)
-	resp.Body.Close()
+	setGlobalPrivacyBlocking(t, env, false)
 	offConn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(env.Server.URL, "http")+"/project/ws-protected/v1/responses", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -271,10 +268,8 @@ func TestRequestPrivacyWebSocketTurns(t *testing.T) {
 	if stored.RequestInfo == nil || !strings.Contains(stored.RequestInfo.Body, privacyTestKey) {
 		t.Fatal("disabled policy changed WebSocket archive")
 	}
-	// A new turn on the same connection uses the new project setting.
-	resp = env.AdminPut(fmt.Sprintf("/api/admin/projects/%d/privacy", project.ID), map[string]any{"blockSecrets": true})
-	AssertStatus(t, resp, http.StatusOK)
-	resp.Body.Close()
+	// A new turn on the same connection uses the new global setting.
+	setGlobalPrivacyBlocking(t, env, true)
 	if err := offConn.WriteMessage(websocket.TextMessage, secretTurn); err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +290,8 @@ func TestRequestPrivacyReviewRegressions(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	provider := createProvider(t, env, "review-regressions", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
-	createPrivacyProject(t, env, "review-regressions", true)
+	createPrivacyTestProject(t, env, "review-regressions")
+	setGlobalPrivacyBlocking(t, env, true)
 	safeMessages := []string{"Explain basic internationalization", `password = os.getenv("X")`, `api_key = config.api_key`, `API_KEY=[REDACTED]`, `{"access_token":"[REDACTED]"}`, "http://localhost:8080?to=a@b.com", "http://host:8080#x@y"}
 	for _, text := range safeMessages {
 		body := openaiRequest("gpt-4o")
@@ -342,7 +338,8 @@ func TestRequestPrivacyMagpieCoverage(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	provider := createProvider(t, env, "magpie-coverage", upstream.URL, []string{"openai"})
 	createRoute(t, env, "openai", provider)
-	createPrivacyProject(t, env, "magpie-coverage", true)
+	createPrivacyTestProject(t, env, "magpie-coverage")
+	setGlobalPrivacyBlocking(t, env, true)
 	for _, text := range []string{`password="abc;Example456"`, `password=Abcd$efg123`, "hf_" + strings.Repeat("test", 8), `{"aws_secret_access_key":"tiny"}`} {
 		body := openaiRequest("gpt-4o")
 		body["messages"] = []any{map[string]any{"role": "user", "content": text}}

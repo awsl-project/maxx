@@ -13,29 +13,17 @@ import (
 	"github.com/awsl-project/maxx/internal/privacy/redact"
 )
 
-type memoryPrivacyProjects struct{ project *domain.Project }
+type memoryPrivacySettings struct{ raw string }
 
-func (m *memoryPrivacyProjects) GetByID(tenantID, projectID uint64) (*domain.Project, error) {
-	if m.project == nil || m.project.TenantID != tenantID || m.project.ID != projectID {
-		return nil, domain.ErrNotFound
-	}
-	copy := *m.project
-	copy.Privacy = append([]byte(nil), m.project.Privacy...)
-	return &copy, nil
-}
-func (m *memoryPrivacyProjects) Update(project *domain.Project) error {
-	copy := *project
-	m.project = &copy
-	return nil
-}
-func configuredService(t *testing.T, cfg Config) (*Service, *domain.Project) {
+func (m *memoryPrivacySettings) Get(string) (string, error)     { return m.raw, nil }
+func (m *memoryPrivacySettings) Set(_ string, raw string) error { m.raw = raw; return nil }
+func configuredService(t *testing.T, cfg Config) *Service {
 	t.Helper()
-	project := &domain.Project{ID: 1, TenantID: 1, Name: "privacy", Slug: "privacy"}
-	svc := NewService(&memoryPrivacyProjects{project: project})
-	if _, err := svc.SetConfiguration(1, project.ID, cfg); err != nil {
+	svc := NewService(&memoryPrivacySettings{})
+	if _, err := svc.SetConfiguration(cfg); err != nil {
 		t.Fatal(err)
 	}
-	return svc, project
+	return svc
 }
 
 func TestFullPolicyMaskWarnBlockAndAllow(t *testing.T) {
@@ -43,9 +31,9 @@ func TestFullPolicyMaskWarnBlockAndAllow(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.Enabled, cfg.Mode = true, mode
-			svc, project := configuredService(t, cfg)
+			svc := configuredService(t, cfg)
 			body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"` + testKey + `"}]}`)
-			x, rejection := svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+			x, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 			if x == nil || (rejection != nil) != (mode == "block") || len(x.Hits) == 0 {
 				t.Fatalf("mode %s: exchange=%+v rejection=%+v", mode, x, rejection)
 			}
@@ -57,8 +45,8 @@ func TestFullPolicyMaskWarnBlockAndAllow(t *testing.T) {
 				t.Fatal("mask/restore roundtrip failed")
 			}
 			cfg.Allow = []string{testKey}
-			svc.SetConfiguration(1, project.ID, cfg)
-			x, rejection = svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+			svc.SetConfiguration(cfg)
+			x, rejection = svc.Prepare(context.Background(), 1, body, body, "application/json")
 			if rejection != nil || !bytes.Equal(x.Body, body) || len(x.Hits) != 0 {
 				t.Fatal("allowlist did not preserve the whole value")
 			}
@@ -71,9 +59,9 @@ func TestFullPolicyWordsCustomRulesAndFieldContext(t *testing.T) {
 	cfg.Enabled, cfg.WordsAnyCase, cfg.WordsWhole = true, true, true
 	cfg.Words = []string{"Nightjar"}
 	cfg.Rules = []redact.Rule{{Kind: "CORPORATE", Prefix: "corp_"}}
-	svc, project := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	body := []byte(`{"model":"Nightjar","messages":[{"role":"user","content":"NIGHTJAR XNightjarY corp_Abc123456789"},{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"tool","arguments":"{\"password\":\"tiny\"}"}}]}]}`)
-	x, rejection := svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+	x, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection != nil {
 		t.Fatalf("unexpected rejection: %+v", rejection)
 	}
@@ -93,7 +81,7 @@ func TestFullPolicyWordsCustomRulesAndFieldContext(t *testing.T) {
 func TestFullPolicyOffDoesNoRuntimeWork(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Model.Enabled = true // A prepared but disabled policy must remain inert.
-	svc, project := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	dir := t.TempDir()
 	svc.SetDirectory(dir)
 	svc.runtime.find = func(context.Context, string, []string) ([][]redact.Found, error) {
@@ -102,7 +90,7 @@ func TestFullPolicyOffDoesNoRuntimeWork(t *testing.T) {
 	}
 	for _, contentType := range []string{"application/json", "binary/unknown", "invalid;="} {
 		body := []byte("not JSON " + testKey)
-		if x, rejection := svc.Prepare(context.Background(), 1, project.ID, body, body, contentType); x != nil || rejection != nil {
+		if x, rejection := svc.Prepare(context.Background(), 1, body, body, contentType); x != nil || rejection != nil {
 			t.Fatal("disabled policy inspected or rejected the body")
 		}
 	}
@@ -116,12 +104,12 @@ func TestFullPolicyModelFailureAndThreshold(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled, cfg.Personal, cfg.Model.Enabled = true, true, true
 	cfg.Model.Score = .9
-	svc, project := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	body := []byte(`{"messages":[{"role":"user","content":"My name is Emilia Brooks."}]}`)
 	svc.runtime.find = func(context.Context, string, []string) ([][]redact.Found, error) {
 		return nil, errors.New("unavailable")
 	}
-	x, rejection := svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+	x, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection == nil || rejection.HTTPStatusCode != 503 || !x.failed {
 		t.Fatal("model failure silently sent content with only rules")
 	}
@@ -134,13 +122,13 @@ func TestFullPolicyModelFailureAndThreshold(t *testing.T) {
 		}
 		return out, nil
 	}
-	x, rejection = svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+	x, rejection = svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection != nil || !bytes.Equal(x.Body, body) {
 		t.Fatal("model threshold ignored")
 	}
 	cfg.Model.Score = .8
-	svc.SetConfiguration(1, project.ID, cfg)
-	x, rejection = svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+	svc.SetConfiguration(cfg)
+	x, rejection = svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection != nil || strings.Contains(string(x.Body), "Emilia Brooks") || !bytes.Equal(x.RestoreState().RestoreJSON(x.Body), body) {
 		t.Fatal("model finding was not masked/restored after threshold change")
 	}
@@ -150,24 +138,24 @@ func TestFullPolicyProviderPlanAndMultipart(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled, cfg.Model.Enabled = true, true
 	cfg.BypassProviders = []uint64{10, 11}
-	svc, project := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	svc.runtime.find = func(context.Context, string, []string) ([][]redact.Found, error) {
 		t.Fatal("exempt plan invoked the model")
 		return nil, nil
 	}
 	body := []byte(`{"messages":[{"role":"user","content":"` + testKey + `"}]}`)
-	x, rejection := svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+	x, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection != nil || x.ResolvePlan([]uint64{10, 11}) != nil || !x.Bypassed || !bytes.Equal(x.Body, body) {
 		t.Fatal("fully exempt plan was not bypassed")
 	}
 	cfg.Model.Enabled = false
-	svc.SetConfiguration(1, project.ID, cfg)
-	x, _ = svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+	svc.SetConfiguration(cfg)
+	x, _ = svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if x.ResolvePlan([]uint64{10, 12}) != nil || x.Bypassed || strings.Contains(string(x.Body), testKey) {
 		t.Fatal("mixed fallback plan bypassed privacy")
 	}
 	cfg.BypassProviders = nil
-	svc.SetConfiguration(1, project.ID, cfg)
+	svc.SetConfiguration(cfg)
 	var buffer bytes.Buffer
 	w := multipart.NewWriter(&buffer)
 	w.WriteField("prompt", "keep "+testKey+" private")
@@ -175,7 +163,7 @@ func TestFullPolicyProviderPlanAndMultipart(t *testing.T) {
 	binary := []byte("\x00\xff" + testKey + "\x00")
 	file.Write(binary)
 	w.Close()
-	x, rejection = svc.Prepare(context.Background(), 1, project.ID, buffer.Bytes(), buffer.Bytes(), w.FormDataContentType())
+	x, rejection = svc.Prepare(context.Background(), 1, buffer.Bytes(), buffer.Bytes(), w.FormDataContentType())
 	if rejection != nil || !bytes.Contains(x.Body, binary) {
 		t.Fatal("multipart file bytes changed")
 	}
@@ -194,12 +182,12 @@ func TestFullPolicyProviderPlanAndMultipart(t *testing.T) {
 func TestFullPolicyNativeDocumentAndFunctionResponse(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
-	svc, p := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	for _, body := range []string{
 		`{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"text","media_type":"text/plain","data":"` + testKey + `"}}]}]}`,
 		`{"contents":[{"parts":[{"functionResponse":{"name":"tool","response":{"id":"` + testKey + `","password":"tiny"}}}]}]}`,
 	} {
-		e, rejection := svc.Prepare(context.Background(), 1, p.ID, []byte(body), []byte(body), "application/json")
+		e, rejection := svc.Prepare(context.Background(), 1, []byte(body), []byte(body), "application/json")
 		if rejection != nil || strings.Contains(string(e.Body), testKey) || strings.Contains(string(e.Body), "tiny") {
 			t.Fatalf("native private content was not inspected: %s %+v", e.Body, rejection)
 		}
@@ -209,18 +197,16 @@ func TestFullPolicyNativeDocumentAndFunctionResponse(t *testing.T) {
 	}
 }
 
-type unavailablePrivacyProjects struct{}
+type unavailablePrivacySettings struct{}
 
-func (unavailablePrivacyProjects) GetByID(uint64, uint64) (*domain.Project, error) {
-	return nil, errors.New("storage unavailable")
+func (unavailablePrivacySettings) Get(string) (string, error) {
+	return "", errors.New("storage unavailable")
 }
-func (unavailablePrivacyProjects) Update(*domain.Project) error {
-	return errors.New("storage unavailable")
-}
+func (unavailablePrivacySettings) Set(string, string) error { return errors.New("storage unavailable") }
 func TestPrivacyUnavailablePolicyOmitsUninspectedArchives(t *testing.T) {
-	for _, svc := range []*Service{NewService(unavailablePrivacyProjects{}), NewService(nil), nil} {
+	for _, svc := range []*Service{NewService(unavailablePrivacySettings{}), NewService(nil)} {
 		body := TextRequest("Nightjar person@corp-real.com")
-		e, rejection := svc.Prepare(context.Background(), 1, 7, body, body, "application/json")
+		e, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 		if rejection == nil || rejection.HTTPStatusCode != 503 || e == nil {
 			t.Fatal("policy failure did not fail closed")
 		}
@@ -229,8 +215,8 @@ func TestPrivacyUnavailablePolicyOmitsUninspectedArchives(t *testing.T) {
 		}
 		e.BeginRecord(&domain.ProxyRequest{RequestID: "failed"})
 	}
-	svc := NewService(unavailablePrivacyProjects{})
-	if filter := svc.EarlyArchiveFilter(1, 7); filter == nil || strings.Contains(filter("Nightjar"), "Nightjar") {
+	svc := NewService(unavailablePrivacySettings{})
+	if filter := svc.EarlyArchiveFilter(1); filter == nil || strings.Contains(filter("Nightjar"), "Nightjar") {
 		t.Fatal("early rejection retained uninspected content")
 	}
 }
@@ -239,12 +225,12 @@ func TestExplicitModelCancellationDoesNotSilentlyForward(t *testing.T) {
 	cfg.Enabled = true
 	cfg.Personal = true
 	cfg.Model.Enabled = true
-	svc, p := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	svc.runtime.find = func(ctx context.Context, _ string, _ []string) ([][]redact.Found, error) { return nil, ctx.Err() }
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	body := TextRequest("customer personal content")
-	e, rejection := svc.Prepare(ctx, 1, p.ID, body, body, "application/json")
+	e, rejection := svc.Prepare(ctx, 1, body, body, "application/json")
 	if rejection == nil || rejection.HTTPStatusCode != 503 || !e.failed {
 		t.Fatal("canceled model request was treated as successful inspection")
 	}

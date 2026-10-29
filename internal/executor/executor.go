@@ -325,14 +325,10 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	}
 	isStream := flow.GetIsStream(c)
 	isWebSocket := flow.GetResponsesWebSocketExchange(c) != nil
-	privacyEnabled, policyErr := e.privacy.Enabled(tenantID, projectID)
-	if policyErr != nil {
-		// The response remains 429; omit secrets from its archive on lookup failure.
-		privacyEnabled = true
-	}
+	privacyFilter := e.privacy.EarlyArchiveFilter(tenantID)
 	proxyReq := &domain.ProxyRequest{
-		PrivacyEnabled:  privacyEnabled,
-		PrivacyFilter:   e.privacy.EarlyArchiveFilter(tenantID, projectID),
+		PrivacyEnabled:  privacyFilter != nil,
+		PrivacyFilter:   privacyFilter,
 		TenantID:        tenantID,
 		InstanceID:      e.instanceID,
 		RequestID:       generateRequestID(),

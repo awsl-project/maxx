@@ -22,9 +22,9 @@ func maskedExchange(t *testing.T, text string) *Exchange {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
 	cfg.Words = []string{text}
-	svc, p := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	body := TextRequest(text)
-	e, rejection := svc.Prepare(context.Background(), 1, p.ID, body, body, "application/json")
+	e, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection != nil {
 		t.Fatal(rejection)
 	}
@@ -160,11 +160,11 @@ func TestRecordsAreScopedMetadataOnlyAndPreviewIsEphemeral(t *testing.T) {
 	cfg.Enabled = true
 	cfg.Personal = true
 	cfg.Words = []string{"Nightjar"}
-	svc, project := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	directory := t.TempDir()
 	svc.SetDirectory(directory)
 	body := TextRequest("Nightjar email person@corp-real.com")
-	e, rejection := svc.Prepare(context.Background(), 1, project.ID, body, body, "application/json")
+	e, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection != nil {
 		t.Fatal(rejection)
 	}
@@ -172,21 +172,18 @@ func TestRecordsAreScopedMetadataOnlyAndPreviewIsEphemeral(t *testing.T) {
 	e.BeginRecord(req)
 	e.addRestored(map[string]int{e.Hits[0].Placeholder: 1})
 	e.FinishRecord(req)
-	records, err := svc.Records(1, project.ID, RecordsQuery{})
+	records, err := svc.Records(1, RecordsQuery{})
 	if err != nil || records.Total != 1 || records.Items[0].ProviderID != 9 {
 		t.Fatalf("%+v %v", records, err)
 	}
-	value, err := svc.Original(1, project.ID, req.RequestID, e.Hits[0].Placeholder)
+	value, err := svc.Original(1, req.RequestID, e.Hits[0].Placeholder)
 	if err != nil || value == "" {
 		t.Fatal(err)
 	}
-	if _, err := svc.Original(2, project.ID, req.RequestID, e.Hits[0].Placeholder); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := svc.Original(2, req.RequestID, e.Hits[0].Placeholder); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("cross-tenant original lookup")
 	}
-	if _, err := svc.Original(1, project.ID+1, req.RequestID, e.Hits[0].Placeholder); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatal("cross-project original lookup")
-	}
-	if _, err := svc.Sent(1, project.ID, req.RequestID); err != nil {
+	if _, err := svc.Sent(1, req.RequestID); err != nil {
 		t.Fatal(err)
 	}
 	filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
@@ -198,13 +195,13 @@ func TestRecordsAreScopedMetadataOnlyAndPreviewIsEphemeral(t *testing.T) {
 		}
 		return err
 	})
-	restarted := NewService(svc.projects)
+	restarted := NewService(svc.settings)
 	restarted.SetDirectory(directory)
-	page, err := restarted.Records(1, project.ID, RecordsQuery{Kind: "TERM"})
+	page, err := restarted.Records(1, RecordsQuery{Kind: "TERM"})
 	if err != nil || page.Total != 1 {
 		t.Fatalf("persisted metadata missing: %+v %v", page, err)
 	}
-	if _, err := restarted.Original(1, project.ID, req.RequestID, e.Hits[0].Placeholder); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := restarted.Original(1, req.RequestID, e.Hits[0].Placeholder); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("original persisted across restart")
 	}
 	before := len(svc.runtime.scopes)
@@ -212,16 +209,16 @@ func TestRecordsAreScopedMetadataOnlyAndPreviewIsEphemeral(t *testing.T) {
 	if rejection != nil || len(preview.Hits) == 0 || len(svc.runtime.scopes) != before {
 		t.Fatal("preview failed or retained a new scope")
 	}
-	if page, _ := svc.Records(1, project.ID, RecordsQuery{}); page.Total != 1 {
+	if page, _ := svc.Records(1, RecordsQuery{}); page.Total != 1 {
 		t.Fatal("preview recorded history")
 	}
-	if err := svc.ClearRecords(1, project.ID); err != nil {
+	if err := svc.ClearRecords(1); err != nil {
 		t.Fatal(err)
 	}
-	if page, _ := svc.Records(1, project.ID, RecordsQuery{}); page.Total != 0 {
+	if page, _ := svc.Records(1, RecordsQuery{}); page.Total != 0 {
 		t.Fatal("clear left records")
 	}
-	if _, err := svc.Original(1, project.ID, req.RequestID, e.Hits[0].Placeholder); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := svc.Original(1, req.RequestID, e.Hits[0].Placeholder); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("clear retained originals")
 	}
 }
@@ -232,7 +229,7 @@ func TestAdvancedArchiveRemovesWarnedModelWordsAndSplitPII(t *testing.T) {
 	cfg.Mode = "warn"
 	cfg.Words = []string{"Nightjar"}
 	cfg.Model.Enabled = true
-	svc, p := configuredService(t, cfg)
+	svc := configuredService(t, cfg)
 	calls := 0
 	svc.runtime.find = func(_ context.Context, _ string, texts []string) ([][]redact.Found, error) {
 		calls++
@@ -246,7 +243,7 @@ func TestAdvancedArchiveRemovesWarnedModelWordsAndSplitPII(t *testing.T) {
 		return out, nil
 	}
 	body := TextRequest("Nightjar Lina Kowalski person@corp-real.com")
-	e, rejection := svc.Prepare(context.Background(), 1, p.ID, body, body, "application/json")
+	e, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
 	if rejection != nil {
 		t.Fatal(rejection)
 	}
@@ -282,17 +279,17 @@ func TestClearRecordsFencesInFlightAfterScopeEviction(t *testing.T) {
 	e := maskedExchange(t, "Nightjar")
 	req := &domain.ProxyRequest{ID: 1, RequestID: "inflight", Status: "COMPLETED"}
 	e.BeginRecord(req)
-	// The real project store authorizes the original scope, while other active
-	// scopes evict its learned-value cache before the administrator clears it.
-	svc := &Service{projects: &memoryPrivacyProjects{project: &domain.Project{ID: 1, TenantID: 1}}, runtime: e.runtime}
+	// Other tenant scopes evict the original learned-value cache, while active
+	// exchanges retain their pointer until the administrator clears records.
+	svc := &Service{settings: &memoryPrivacySettings{}, runtime: e.runtime}
 	for i := uint64(2); i < 20; i++ {
-		e.runtime.scope(scopeKey{1, i})
+		e.runtime.scope(scopeKey{i})
 	}
-	if err := svc.ClearRecords(1, 1); err != nil {
+	if err := svc.ClearRecords(1); err != nil {
 		t.Fatal(err)
 	}
 	e.FinishRecord(req)
-	page, err := svc.Records(1, 1, RecordsQuery{})
+	page, err := svc.Records(1, RecordsQuery{})
 	if err != nil || page.Total != 0 {
 		t.Fatal("evicted in-flight record reappeared after clearing")
 	}

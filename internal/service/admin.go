@@ -1245,14 +1245,7 @@ func (s *AdminService) CreateProject(tenantID uint64, project *domain.Project) e
 	return s.projectRepo.Create(project)
 }
 
-func (s *AdminService) UpdateProjectPrivacy(tenantID, id uint64, enabled bool) (*domain.Project, error) {
-	return s.Privacy().SetProjectProtection(tenantID, id, enabled)
-}
-
 func (s *AdminService) UpdateProject(tenantID uint64, project *domain.Project) error {
-	if err := privacy.SyncLegacyProtection(project); err != nil {
-		return err
-	}
 	return s.projectRepo.Update(project)
 }
 
@@ -1502,6 +1495,9 @@ func (s *AdminService) GetSettings() (map[string]string, error) {
 	}
 	result := make(map[string]string)
 	for _, setting := range settings {
+		if setting.Key == privacy.SettingKey {
+			continue
+		}
 		result[setting.Key] = setting.Value
 	}
 	return result, nil
