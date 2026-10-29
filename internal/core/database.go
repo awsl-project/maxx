@@ -407,7 +407,7 @@ func InitializeServerComponents(
 	adminService := service.NewAdminService(
 		repos.CachedProviderRepo,
 		repos.CachedRouteRepo,
-		repos.CachedProjectRepo,
+		repos.ProjectRepo,
 		repos.CachedSessionRepo,
 		repos.CachedRetryConfigRepo,
 		repos.CachedRoutingStrategyRepo,
