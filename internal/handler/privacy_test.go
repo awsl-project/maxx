@@ -90,3 +90,34 @@ func TestProjectPrivacyRoutesAreRemoved(t *testing.T) {
 		}
 	}
 }
+
+func TestPrivacyAdministratorCanRepairInvalidPolicy(t *testing.T) {
+	svc := newSelfServiceHandlerForTests(selfServiceTestDeps{}).svc
+	store := &memoryGlobalPrivacySettings{value: "{invalid"}
+	svc.SetPrivacyService(privacy.NewService(store))
+	h := NewAdminHandler(svc, nil, "")
+	for _, tc := range []struct {
+		method, path, body string
+		status             int
+	}{
+		{"GET", "/admin/privacy", "", 500},
+		{"GET", "/admin/privacy/categories", "", 200},
+		{"GET", "/admin/privacy/models", "", 200},
+		{"GET", "/admin/privacy/records", "", 200},
+		{"GET", "/admin/privacy/summary", "", 200},
+		{"GET", "/admin/privacy/summary/unexpected", "", 404},
+		{"PUT", "/admin/privacy", `{"config":{"enabled":true,"secrets":true,"mode":"mask"}}`, 200},
+		{"GET", "/admin/privacy", "", 200},
+	} {
+		req := withSelfServiceContext(httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body)), domain.UserRoleAdmin)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.status {
+			t.Fatalf("%s %s: got %d, want %d: %s", tc.method, tc.path, rec.Code, tc.status, rec.Body.String())
+		}
+	}
+	cfg, err := svc.Privacy().Configuration()
+	if err != nil || !cfg.Enabled || !cfg.Secrets {
+		t.Fatal("repair did not persist the replacement policy", err)
+	}
+}

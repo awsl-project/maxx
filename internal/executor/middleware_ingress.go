@@ -164,7 +164,7 @@ func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string)
 		reasoningBody = state.requestBody
 	}
 	proxyReq := &domain.ProxyRequest{
-		PrivacyEnabled:  state.privacyEnabled,
+		PrivacyEnabled:  state.privacyExchange != nil,
 		TenantID:        state.tenantID,
 		InstanceID:      e.instanceID,
 		RequestID:       generateRequestID(),

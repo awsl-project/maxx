@@ -19,7 +19,6 @@ func (e *Executor) SetPrivacyService(service *privacy.Service) {
 func (e *Executor) enforceRequestPrivacy(c *flow.Ctx, state *execState) bool {
 	exchange, rejection := e.privacy.Prepare(state.ctx, state.tenantID, state.requestBody, state.originalRequestBody, state.requestHeaders.Get("Content-Type"))
 	state.privacyExchange = exchange
-	state.privacyEnabled = exchange != nil || rejection != nil
 	e.applyPrivacyExchange(c, state)
 	return e.rejectPrivacy(c, state, rejection)
 }
@@ -33,7 +32,8 @@ func (e *Executor) applyPrivacyExchange(c *flow.Ctx, state *execState) {
 		c.Set(flow.KeyOriginalRequestBody, state.originalRequestBody)
 	}
 	if state.proxyReq != nil {
-		state.proxyReq.PrivacyEnabled = state.privacyEnabled
+		state.proxyReq.PrivacyEnabled = exchange != nil
+		state.proxyReq.PrivacyFilter = nil
 		if exchange != nil {
 			state.proxyReq.PrivacyFilter = exchange.Archive
 		}

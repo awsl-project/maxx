@@ -136,16 +136,14 @@ func (e *Executor) ExecuteProviderProxyMatched(c *flow.Ctx, proxyReq *domain.Pro
 	e.applyGlobalUserAgentOverride(c, state)
 
 	c.Set(flow.KeyExecutorState, state)
+	defer func() { state.privacyExchange.FinishRecord(proxyReq) }()
 	if !e.enforceRequestPrivacy(c, state) {
-		state.privacyExchange.FinishRecord(proxyReq)
 		return state.lastErr
 	}
 	if !e.resolvePrivacyPlan(c, state, state.routes) {
-		state.privacyExchange.FinishRecord(proxyReq)
 		return state.lastErr
 	}
 	state.privacyExchange.BeginRecord(proxyReq)
-	defer func() { state.privacyExchange.FinishRecord(proxyReq) }()
 	if proxyReq.ID == 0 {
 		e.createProxyRequest(proxyReq)
 	}

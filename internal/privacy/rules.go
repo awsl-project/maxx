@@ -1,4 +1,4 @@
-// Package privacy applies stateless, irreversible credential protection. Rules
+// Package privacy owns opt-in detection, masking, restoration and history. Rules
 // are inspired by Magpie (https://github.com/yetone/magpie); see LICENSE.magpie.
 package privacy
 

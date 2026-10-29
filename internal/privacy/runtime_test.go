@@ -235,3 +235,51 @@ func TestExplicitModelCancellationDoesNotSilentlyForward(t *testing.T) {
 		t.Fatal("canceled model request was treated as successful inspection")
 	}
 }
+
+func TestConvertedPayloadsKeepOccurrenceCountsWithoutRecounting(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.Words = []string{"Nightjar", "Cobalt", "Cedar"}
+	svc := configuredService(t, cfg)
+	original := TextRequest("Nightjar Nightjar")
+	converted := TextRequest("Nightjar Nightjar Cobalt Cobalt")
+	e, rejection := svc.Prepare(context.Background(), 1, converted, original, "application/json")
+	if rejection != nil {
+		t.Fatal(rejection)
+	}
+	outbound := TextRequest("Nightjar Cobalt Cedar")
+	for i := 0; i < 2; i++ {
+		masked, rejection := e.Outbound(outbound)
+		if rejection != nil || string(e.RestoreState().RestoreJSON(masked)) != string(outbound) {
+			t.Fatal("converted payload did not roundtrip", rejection)
+		}
+	}
+	counts := map[string]int{}
+	for _, hit := range e.Hits {
+		counts[e.pairs[hit.Placeholder]]++
+	}
+	if counts["Nightjar"] != 2 || counts["Cobalt"] != 2 || counts["Cedar"] != 1 || len(e.Hits) != 5 {
+		t.Fatalf("repeated content lost or double-counted: %+v", counts)
+	}
+}
+
+func TestOutboundCannotSkipPrivacyDecision(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.BypassProviders = []uint64{10}
+	svc := configuredService(t, cfg)
+	body := TextRequest(testKey)
+	e, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json")
+	if rejection != nil {
+		t.Fatal(rejection)
+	}
+	if wire, rejection := e.Outbound(body); rejection == nil || rejection.HTTPStatusCode != 503 || len(wire) != 0 {
+		t.Fatal("outbound forwarded before the exemption plan was resolved")
+	}
+	if rejection := e.ResolvePlan([]uint64{11}); rejection != nil {
+		t.Fatal(rejection)
+	}
+	if wire, rejection := e.Outbound(body); rejection != nil || bytes.Contains(wire, []byte(testKey)) {
+		t.Fatal("resolved mixed plan did not protect outbound content")
+	}
+}

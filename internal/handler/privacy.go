@@ -26,20 +26,24 @@ func handlePrivacy(w http.ResponseWriter, r *http.Request, svc *service.AdminSer
 	}
 	tenant := maxxctx.GetTenantID(r.Context())
 	p := svc.Privacy()
-	cfg, err := p.Configuration()
-	if err != nil {
-		privacyError(w, err)
-		return
-	}
 	suffix := ""
 	if _, tail, ok := strings.Cut(r.URL.Path, "/privacy"); ok {
 		suffix = strings.Trim(tail, "/")
 	}
 	parts := strings.Split(suffix, "/")
+	if len(parts) > 1 && parts[0] != "models" && parts[0] != "records" {
+		writeJSON(w, 404, map[string]string{"error": "not found"})
+		return
+	}
 	switch parts[0] {
 	case "":
 		switch r.Method {
 		case http.MethodGet:
+			cfg, err := p.Configuration()
+			if err != nil {
+				privacyError(w, err)
+				return
+			}
 			writeJSON(w, 200, cfg)
 		case http.MethodPut:
 			var input struct {
@@ -113,17 +117,11 @@ func handlePrivacy(w http.ResponseWriter, r *http.Request, svc *service.AdminSer
 			for _, model := range pii.Models() {
 				statuses = append(statuses, model.Now())
 			}
-			writeJSON(w, 200, map[string]any{"items": statuses, "canManage": tenant == domain.DefaultTenantID})
+			writeJSON(w, 200, map[string]any{"items": statuses, "canManage": true})
 			return
 		}
 		if r.Method != http.MethodPost {
 			privacyMethod(w, "GET, POST")
-			return
-		}
-		// Weights/processes are shared public resources. Their lifecycle belongs to
-		// the server's default-tenant administrators, not another tenant.
-		if tenant != domain.DefaultTenantID {
-			writeJSON(w, 403, map[string]string{"error": "shared models are managed by the server administrator"})
 			return
 		}
 		if len(parts) != 3 || parts[1] != pii.PrivacyFilter && parts[1] != pii.AstrLinkGuard {

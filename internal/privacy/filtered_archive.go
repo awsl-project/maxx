@@ -12,7 +12,7 @@ import (
 // in a database write. Model findings, including warn-only findings, were
 // captured during inspection and are removed irreversibly here.
 func (e *Exchange) Archive(text string) string {
-	if e == nil || !e.Enabled || text == "" {
+	if e == nil || text == "" {
 		return text
 	}
 	if e.failed || !e.evaluated || e.Bypassed && e.Config.Model.Enabled {

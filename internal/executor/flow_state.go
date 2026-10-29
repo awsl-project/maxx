@@ -26,7 +26,6 @@ type execState struct {
 	requestModel        string
 	isStream            bool
 	apiTokenID          uint64
-	privacyEnabled      bool
 	privacyExchange     *privacy.Exchange
 	apiTokenDevMode     bool
 	requestBody         []byte

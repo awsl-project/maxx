@@ -188,17 +188,17 @@ func pruneRecords(directory string, now time.Time) {
 		}
 	}
 }
-func (s *Service) authorizedHistory(tenant uint64) (*ledger, error) {
-	if _, err := s.Configuration(); err != nil {
-		return nil, err
-	}
-	return s.runtime.scope(scopeKey{tenant}).history(), nil
+
+// History is tenant-scoped and remains readable while a policy is repaired.
+// Administrator authorization is enforced by the HTTP handler.
+func (s *Service) history(tenant uint64) *ledger {
+	return s.runtime.scope(scopeKey{tenant}).history()
 }
-func (s *Service) Records(tenant uint64, q RecordsQuery) (RecordsPage, error) {
-	l, err := s.authorizedHistory(tenant)
-	if err != nil {
-		return RecordsPage{}, err
-	}
+
+// Read one snapshot per operation. Detail and summary must not repeatedly read
+// the same retained files through the paginated list endpoint.
+func (s *Service) records(tenant uint64) []Record {
+	l := s.history(tenant)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	records := map[string]Record{}
@@ -227,6 +227,16 @@ func (s *Service) Records(tenant uint64, q RecordsQuery) (RecordsPage, error) {
 	}
 	all := make([]Record, 0, len(records))
 	for _, record := range records {
+		record.Values = append([]Value(nil), record.Values...)
+		all = append(all, record)
+	}
+	return all
+}
+
+func (s *Service) Records(tenant uint64, q RecordsQuery) (RecordsPage, error) {
+	records := s.records(tenant)
+	all := records[:0]
+	for _, record := range records {
 		if q.ProviderID != 0 && q.ProviderID != record.ProviderID || !q.Since.IsZero() && record.Time.Before(q.Since) || !q.Until.IsZero() && record.Time.After(q.Until) {
 			continue
 		}
@@ -242,10 +252,14 @@ func (s *Service) Records(tenant uint64, q RecordsQuery) (RecordsPage, error) {
 				continue
 			}
 		}
-		record.Values = append([]Value(nil), record.Values...)
 		all = append(all, record)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Time.After(all[j].Time) })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Time.Equal(all[j].Time) {
+			return all[i].ID < all[j].ID
+		}
+		return all[i].Time.After(all[j].Time)
+	})
 	page, limit := q.Page, q.Limit
 	if page < 1 {
 		page = 1
@@ -263,60 +277,40 @@ func (s *Service) Records(tenant uint64, q RecordsQuery) (RecordsPage, error) {
 	return out, nil
 }
 func (s *Service) Record(tenant uint64, id string) (Record, error) {
-	// Lists are bounded, but a detail lookup must cover the retained history.
-	for page := 1; ; page++ {
-		out, err := s.Records(tenant, RecordsQuery{Page: page, Limit: 200})
-		if err != nil {
-			return Record{}, err
-		}
-		for _, record := range out.Items {
-			if record.ID == id {
-				return record, nil
-			}
-		}
-		if page*200 >= out.Total {
-			return Record{}, domain.ErrNotFound
+	for _, record := range s.records(tenant) {
+		if record.ID == id {
+			return record, nil
 		}
 	}
+	return Record{}, domain.ErrNotFound
 }
 func (s *Service) Summary(tenant uint64) (Summary, error) {
 	out := Summary{Kinds: map[string]int{}, Finders: map[string]int{}, Providers: map[uint64]int{}}
-	for page := 1; ; page++ {
-		result, err := s.Records(tenant, RecordsQuery{Page: page, Limit: 200})
-		if err != nil {
-			return out, err
+	for _, record := range s.records(tenant) {
+		out.Requests++
+		if record.Bypassed {
+			out.Bypassed++
 		}
-		for _, record := range result.Items {
-			out.Requests++
-			if record.Bypassed {
-				out.Bypassed++
+		for _, v := range record.Values {
+			out.Hits += v.Count
+			out.Restored += v.Restored
+			out.Kinds[v.Kind] += v.Count
+			out.Finders[v.By] += v.Count
+			out.Providers[record.ProviderID] += v.Count
+			switch v.Action {
+			case "warn":
+				out.Warned += v.Count
+			case "block":
+				out.Blocked += v.Count
+			default:
+				out.Masked += v.Count
 			}
-			for _, v := range record.Values {
-				out.Hits += v.Count
-				out.Restored += v.Restored
-				out.Kinds[v.Kind] += v.Count
-				out.Finders[v.By] += v.Count
-				out.Providers[record.ProviderID] += v.Count
-				switch v.Action {
-				case "warn":
-					out.Warned += v.Count
-				case "block":
-					out.Blocked += v.Count
-				default:
-					out.Masked += v.Count
-				}
-			}
-		}
-		if page*200 >= result.Total {
-			return out, nil
 		}
 	}
+	return out, nil
 }
 func (s *Service) Original(tenant uint64, id, placeholder string) (string, error) {
-	l, err := s.authorizedHistory(tenant)
-	if err != nil {
-		return "", err
-	}
+	l := s.history(tenant)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, kept := range l.recent {
@@ -330,10 +324,7 @@ func (s *Service) Original(tenant uint64, id, placeholder string) (string, error
 	return "", domain.ErrNotFound
 }
 func (s *Service) Sent(tenant uint64, id string) (string, error) {
-	l, err := s.authorizedHistory(tenant)
-	if err != nil {
-		return "", err
-	}
+	l := s.history(tenant)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, kept := range l.recent {
@@ -344,10 +335,7 @@ func (s *Service) Sent(tenant uint64, id string) (string, error) {
 	return "", domain.ErrNotFound
 }
 func (s *Service) ClearRecords(tenant uint64) error {
-	l, err := s.authorizedHistory(tenant)
-	if err != nil {
-		return err
-	}
+	l := s.history(tenant)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	s.runtime.recordMu.Lock()

@@ -72,7 +72,7 @@ func ScrubBody(body string) string {
 	}
 	// A key can span arbitrary delta boundaries (including escaped JSON). Drop
 	// the archived stream rather than persist partially redacted fragments.
-	if frames > 0 && inspect(text.String(), false) != "" {
+	if frames > 0 && inspectArchive(text.String()) != "" {
 		return "[REDACTED: credential in streamed content]"
 	}
 	return strings.Join(lines, "\n")

@@ -2,8 +2,10 @@ package privacy
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/url"
 	"strings"
@@ -12,10 +14,27 @@ import (
 
 const testKey = "sk-proj-testtesttesttesttesttesttesttest"
 
+// Exercise the production policy pipeline rather than the removed boolean-only
+// parser. Keep the original boundary assertions for every credential fixture.
+func inspectRequest(t *testing.T, body []byte, contentType string) (string, error) {
+	t.Helper()
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	svc := configuredService(t, cfg)
+	e, rejection := svc.Prepare(context.Background(), 1, body, body, contentType)
+	if rejection != nil {
+		return "", errors.New(rejection.Message)
+	}
+	if len(e.Hits) != 0 {
+		return e.Hits[0].Kind, nil
+	}
+	return "", nil
+}
+
 func TestTextDocumentsAndURLBoundaries(t *testing.T) {
 	for _, sourceType := range []string{"text", "base64"} {
 		body := []byte(`{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"` + sourceType + `","media_type":"text/plain","data":"` + testKey + `"}}]}]}`)
-		kind, err := InspectRequest(body, "application/json")
+		kind, err := inspectRequest(t, body, "application/json")
 		if err != nil || (kind != "") != (sourceType == "text") {
 			t.Fatalf("document source %s: kind=%s err=%v", sourceType, kind, err)
 		}
@@ -108,23 +127,23 @@ func TestInspectRequest(t *testing.T) {
 		`{"system":"password=abcdefghijk","messages":[]}`,
 		`{"messages":[{"role":"tool","content":"{\"data\":{\"password\":\"tiny\"}}"}]}`,
 	} {
-		kind, err := InspectRequest([]byte(body), "application/json")
+		kind, err := inspectRequest(t, []byte(body), "application/json")
 		if err != nil || kind == "" {
 			t.Fatalf("missed payload %s: kind=%s err=%v", body, kind, err)
 		}
 	}
 	safe := `{"model":"` + testKey + `","max_tokens":12,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,` + testKey + `"}},{"type":"text","text":"explain this"}]},{"role":"assistant","tool_calls":[{"id":"` + testKey + `","function":{"name":"` + testKey + `","arguments":"{\"max_tokens\":4}"}}]}],"tools":[{"name":"search","parameters":{"properties":{"password":{"type":"string"}}}}]}`
-	if kind, err := InspectRequest([]byte(safe), "application/json"); kind != "" || err != nil {
+	if kind, err := inspectRequest(t, []byte(safe), "application/json"); kind != "" || err != nil {
 		t.Fatalf("protocol or schema mistaken for content: %s %v", kind, err)
 	}
 	for _, body := range []string{`{`, `[]`, `{"messages":[]} {}`} {
-		if _, err := InspectRequest([]byte(body), "application/json"); err == nil {
+		if _, err := inspectRequest(t, []byte(body), "application/json"); err == nil {
 			t.Fatalf("invalid input accepted: %s", body)
 		}
 	}
 	// Detection never leaves state that can affect a subsequent request/tenant.
-	InspectRequest([]byte(`{"input":"`+testKey+`"}`), "application/json")
-	if kind, err := InspectRequest([]byte(`{"input":"hello"}`), "application/json"); kind != "" || err != nil {
+	inspectRequest(t, []byte(`{"input":"`+testKey+`"}`), "application/json")
+	if kind, err := inspectRequest(t, []byte(`{"input":"hello"}`), "application/json"); kind != "" || err != nil {
 		t.Fatal("cross-request state")
 	}
 }
@@ -136,17 +155,17 @@ func TestInspectMultipartTextOnly(t *testing.T) {
 	file.Write([]byte(testKey))
 	w.WriteField("prompt", "describe this image")
 	w.Close()
-	if kind, err := InspectRequest(body.Bytes(), w.FormDataContentType()); kind != "" || err != nil {
+	if kind, err := inspectRequest(t, body.Bytes(), w.FormDataContentType()); kind != "" || err != nil {
 		t.Fatalf("binary file inspected: %s %v", kind, err)
 	}
 	body.Reset()
 	w = multipart.NewWriter(&body)
 	w.WriteField("prompt", testKey)
 	w.Close()
-	if kind, err := InspectRequest(body.Bytes(), w.FormDataContentType()); kind == "" || err != nil {
+	if kind, err := inspectRequest(t, body.Bytes(), w.FormDataContentType()); kind == "" || err != nil {
 		t.Fatalf("text prompt missed: %s %v", kind, err)
 	}
-	if _, err := InspectRequest(body.Bytes(), "multipart/form-data"); err == nil {
+	if _, err := inspectRequest(t, body.Bytes(), "multipart/form-data"); err == nil {
 		t.Fatal("missing boundary accepted")
 	}
 }
@@ -171,7 +190,7 @@ func TestOrdinaryTextAndCodeAreNotCredentials(t *testing.T) {
 				t.Error("ordinary fragmented stream scrubbed")
 			}
 			body, _ := json.Marshal(map[string]any{"messages": []any{map[string]any{"role": "user", "content": text}}})
-			if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+			if kind, err := inspectRequest(t, body, "application/json"); kind != "" || err != nil {
 				t.Errorf("ordinary request blocked: %s %v", kind, err)
 			}
 			var stored struct {
@@ -192,7 +211,7 @@ func TestToolObjectsDoNotSkipArbitraryKeys(t *testing.T) {
 		`{"contents":[{"parts":[{"functionCall":{"name":"run","args":{"id":"` + testKey + `"}}}]}]}`,
 		`{"contents":[{"parts":[{"functionResponse":{"name":"run","response":{"type":"` + testKey + `"}}}]}]}`,
 	} {
-		if kind, err := InspectRequest([]byte(body), "application/json"); kind == "" || err != nil {
+		if kind, err := inspectRequest(t, []byte(body), "application/json"); kind == "" || err != nil {
 			t.Errorf("tool credential missed: %s %v", kind, err)
 		}
 	}
@@ -237,7 +256,7 @@ func TestPasswordPunctuation(t *testing.T) {
 			t.Errorf("credential left behind: %s", got)
 		}
 		body, _ := json.Marshal(map[string]any{"input": text})
-		if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+		if kind, err := inspectRequest(t, body, "application/json"); kind == "" || err != nil {
 			t.Errorf("credential forwarded: %s %v", kind, err)
 		}
 		if got := ScrubBody(string(body)); strings.Contains(got, "Example456") || strings.Contains(got, "Abcd$efg123") {
@@ -266,7 +285,7 @@ func TestAdditionalCredentialFormats(t *testing.T) {
 	}
 	for _, field := range []string{"aws_secret_access_key", "awsSessionToken", "db_password", "token", "AZURE_OPENAI_API_KEY"} {
 		body, _ := json.Marshal(map[string]any{"input": map[string]any{field: "tiny"}})
-		if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+		if kind, err := inspectRequest(t, body, "application/json"); kind == "" || err != nil {
 			t.Errorf("credential field missed: %s", field)
 		}
 		if strings.Contains(ScrubBody(string(body)), "tiny") {
@@ -340,7 +359,7 @@ func TestMultipartStructuredTextIsInspected(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if kind, err := InspectRequest(body.Bytes(), writer.FormDataContentType()); kind == "" || err != nil {
+	if kind, err := inspectRequest(t, body.Bytes(), writer.FormDataContentType()); kind == "" || err != nil {
 		t.Fatalf("structured prompt forwarded: %s %v", kind, err)
 	}
 }
@@ -366,7 +385,7 @@ func TestAlreadyRedactedToolResultsRemainUsable(t *testing.T) {
 			t.Errorf("redacted value detected as %s", kind)
 		}
 		body, _ := json.Marshal(map[string]any{"messages": []any{map[string]any{"role": "tool", "content": text}}})
-		if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+		if kind, err := inspectRequest(t, body, "application/json"); kind != "" || err != nil {
 			t.Errorf("redacted tool output blocked: %s %v", kind, err)
 		}
 		if cleaned := ScrubText(text); cleaned != text {
@@ -374,7 +393,7 @@ func TestAlreadyRedactedToolResultsRemainUsable(t *testing.T) {
 		}
 	}
 	body := []byte(`{"input":{"access_token":"[REDACTED]"}}`)
-	if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+	if kind, err := inspectRequest(t, body, "application/json"); kind != "" || err != nil {
 		t.Errorf("structured redacted output blocked: %s %v", kind, err)
 	}
 	if kind := Detect(`API_KEY=[REDACTED]; password=example_example_example`); kind == "" {
@@ -385,7 +404,7 @@ func TestAlreadyRedactedToolResultsRemainUsable(t *testing.T) {
 func TestCamelCaseCredentialsAndBooleanFlags(t *testing.T) {
 	for _, key := range []string{"adminPassword", "smtpPassword", "clientToken", "stripeApiKey"} {
 		body, _ := json.Marshal(map[string]any{"input": map[string]any{key: "tiny"}})
-		if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+		if kind, err := inspectRequest(t, body, "application/json"); kind == "" || err != nil {
 			t.Errorf("camel-case field missed: %s", key)
 		}
 		if strings.Contains(ScrubBody(string(body)), "tiny") {
@@ -396,7 +415,7 @@ func TestCamelCaseCredentialsAndBooleanFlags(t *testing.T) {
 		}
 	}
 	body := []byte(`{"input":{"hasPassword":true,"hasApiKey":false,"token_count":8,"max_tokens":20}}`)
-	if kind, err := InspectRequest(body, "application/json"); kind != "" || err != nil {
+	if kind, err := inspectRequest(t, body, "application/json"); kind != "" || err != nil {
 		t.Errorf("metadata flags rejected: %s %v", kind, err)
 	}
 	if got := ScrubBody(string(body)); !strings.Contains(got, `"hasPassword":true`) || !strings.Contains(got, `"max_tokens":20`) {
@@ -427,7 +446,7 @@ func TestLiteralParenthesesAndFunctionCalls(t *testing.T) {
 		t.Fatal("literal password missed")
 	}
 	body, _ := json.Marshal(map[string]any{"input": text})
-	if kind, err := InspectRequest(body, "application/json"); kind == "" || err != nil {
+	if kind, err := inspectRequest(t, body, "application/json"); kind == "" || err != nil {
 		t.Fatal("literal password forwarded")
 	}
 	if strings.Contains(ScrubBody(string(body)), "Abc(123)xyz!") {

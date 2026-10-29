@@ -2,6 +2,7 @@ package privacy_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
@@ -19,7 +20,7 @@ func TestGlobalPolicyPersistsAndCoversEveryTenant(t *testing.T) {
 	svc := privacy.NewService(repo)
 	const key = "sk-proj-testtesttesttesttesttesttesttest"
 	body := privacy.TextRequest(key)
-	if enabled, rejection := svc.Check(1, body, "application/json"); enabled || rejection != nil {
+	if exchange, rejection := svc.Prepare(context.Background(), 1, body, body, "application/json"); exchange != nil || rejection != nil {
 		t.Fatal("global policy is not off by default")
 	}
 	cfg := privacy.DefaultConfig()
@@ -45,7 +46,7 @@ func TestGlobalPolicyPersistsAndCoversEveryTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, contentType := range []string{"application/json", "application/octet-stream", "multipart/form-data; boundary=missing", "invalid;="} {
-		if enabled, rejection := svc.Check(1, []byte("invalid JSON "+key), contentType); enabled || rejection != nil {
+		if exchange, rejection := svc.Prepare(context.Background(), 1, []byte("invalid JSON "+key), nil, contentType); exchange != nil || rejection != nil {
 			t.Fatal("off policy parsed a request")
 		}
 	}
@@ -59,7 +60,7 @@ func (unavailablePrivacySettings) Get(string) (string, error) {
 func (unavailablePrivacySettings) Set(string, string) error { return errors.New("storage unavailable") }
 func TestGlobalPolicyFailureDoesNotDisableProtection(t *testing.T) {
 	for _, svc := range []*privacy.Service{privacy.NewService(unavailablePrivacySettings{}), privacy.NewService(nil)} {
-		if enabled, rejection := svc.Check(1, []byte(`{}`), "application/json"); !enabled || rejection == nil || rejection.HTTPStatusCode != 503 {
+		if exchange, rejection := svc.Prepare(context.Background(), 1, []byte(`{}`), nil, "application/json"); exchange == nil || rejection == nil || rejection.HTTPStatusCode != 503 {
 			t.Fatal("storage failure disabled protection")
 		}
 	}
@@ -69,7 +70,11 @@ func TestGlobalPolicyBackupRemapsExceptions(t *testing.T) {
 	cfg.Enabled, cfg.Personal = true, true
 	cfg.Words = []string{"Nightjar"}
 	cfg.BypassProviders = []uint64{7}
-	exported, err := privacy.ExportPolicy(privacy.MarshalConfig(cfg), map[uint64]string{7: "private-upstream"})
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := privacy.ExportPolicy(raw, map[uint64]string{7: "private-upstream"})
 	if err != nil {
 		t.Fatal(err)
 	}

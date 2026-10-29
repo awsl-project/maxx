@@ -20,7 +20,7 @@ func TestLatestMagpieCredentialContexts(t *testing.T) {
 				t.Fatal("credential context missed")
 			}
 			body, _ := json.Marshal(map[string]any{"messages": []any{map[string]any{"role": "user", "content": text}}})
-			if kind, err := InspectRequest(body, "application/json"); err != nil || kind == "" {
+			if kind, err := inspectRequest(t, body, "application/json"); err != nil || kind == "" {
 				t.Fatalf("request not protected: %s %v", kind, err)
 			}
 			if cleaned := ScrubBody(string(body)); strings.Contains(cleaned, text) || !strings.Contains(cleaned, Redacted) {

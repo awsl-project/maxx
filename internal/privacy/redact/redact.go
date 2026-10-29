@@ -183,6 +183,12 @@ var rules = append([]rule{
 	{kind: "SECRET", re: regexp.MustCompile(`(?i)\b[A-Za-z0-9_-]*(?:` + secretNames.pattern() + `)[A-Za-z0-9_-]*` + quote + `[ \t]*[:=][ \t]*` +
 		`(?:\\?"((?:[^"\\\r\n]|\\[^"])+)\\?"|\\?'((?:[^'\\\r\n]|\\[^'])+)\\?')`),
 		fold: []string{"pass", "key", "token", "secret", "credential"}, anyGroup: true, ok: secretValue, at: fieldAt},
+	// Maxx also protects literal values in explicitly named assignments. These
+	// use the same action, allowlist and reversible mapping pipeline.
+	{kind: "SECRET", re: regexp.MustCompile(`(?i)\b(?:` + literalCredentialNames + `)\b["']?[ \t]*[:=][ \t]*(?:"((?:\\.|[^"\\\r\n])+)(?:"|$)|'((?:\\.|[^'\\\r\n])+)(?:'|$))`),
+		fold: []string{"pass", "key", "token", "secret"}, anyGroup: true, ok: literalCredentialValue, at: fieldAt},
+	{kind: "SECRET", re: regexp.MustCompile("(?i)\\b(?:" + literalCredentialNames + ")\\b[\"']?[ \\t]*[:=][ \\t]*([^\\s\"'`,;<>\\\\}]{8,})"),
+		fold: []string{"pass", "key", "token", "secret"}, ok: literalCredentialValue, at: fieldAt},
 	// a field called key and nothing more, as providers.json has one: "key":
 	// "oc_sk_…" (#195). Only a long value of letters and digits both, since
 	// code calls anything a key: a map's "key": "value", sort_key, keyboard.
@@ -867,7 +873,18 @@ func (scopeState *State) Mask(s string, o Options) (string, int) {
 	o.State = scopeState
 
 	o.sent = true
-	return scopeState.mask(s, withModel(o, []string{s}), o.put(), false)
+	text, n := scopeState.mask(s, withModel(o, []string{s}), o.put(), false)
+	if o.NestedJSON {
+		trimmed := strings.TrimSpace(text)
+		if len(trimmed) > 1 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid([]byte(trimmed)) {
+			// The text was already inspected by the model; add JSON field context
+			// without a second inference, as MaskJSON does for embedded strings.
+			o.Model = nil
+			masked, more := scopeState.MaskJSON([]byte(text), o)
+			return string(masked), n + more
+		}
+	}
+	return text, n
 }
 func Mask(s string, o Options) (string, int) { return o.state().Mask(s, o) }
 

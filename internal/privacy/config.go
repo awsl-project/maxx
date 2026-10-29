@@ -42,7 +42,7 @@ func DefaultConfig() Config {
 	return Config{Secrets: true, Mode: "mask", Model: ModelConfig{Name: pii.AstrLinkGuard}}
 }
 
-// ValidateConfig normalizes copies, so a cached project or editor draft is never
+// ValidateConfig normalizes copies, so a request snapshot or editor draft is never
 // mutated. The rule compiler is Magpie's RE2 compiler with its original limits.
 func ValidateConfig(in Config) (Config, error) {
 	out := in
