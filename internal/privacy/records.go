@@ -98,6 +98,21 @@ func (e *Exchange) BeginRecord(req *domain.ProxyRequest) {
 	e.recordGeneration = e.runtime.generations[e.key]
 	e.runtime.recordMu.Unlock()
 }
+
+// CaptureOutbound keeps the last attempted payload after conversion and privacy
+// inspection. Call immediately before invoking the adapter; routing candidates
+// that are skipped or blocked must not replace this snapshot. Adapters may still
+// apply their own protocol adjustments. The copy is bounded and memory-only.
+func (e *Exchange) CaptureOutbound(body []byte) {
+	if e == nil || len(e.Hits) == 0 && !e.Bypassed {
+		return
+	}
+	e.outbound = ""
+	if len(body) <= 4<<20 {
+		e.outbound = string(body)
+	}
+}
+
 func (e *Exchange) FinishRecord(req *domain.ProxyRequest) {
 	if e == nil || req == nil || e.recorded || len(e.Hits) == 0 && !e.Bypassed {
 		return
@@ -122,12 +137,12 @@ func (e *Exchange) FinishRecord(req *domain.ProxyRequest) {
 		record.Values = append(record.Values, Value{Placeholder: h.Placeholder, Kind: h.Kind, By: h.By, Hint: strings.Clone(h.Head), Length: h.Len, Count: 1, Action: action, Restored: e.restored[h.Placeholder]})
 	}
 	originals := make(map[string]string, len(e.pairs))
-	size := len(e.Body)
+	size := len(e.outbound)
 	for p, v := range e.pairs {
 		originals[p] = v
 		size += len(p) + len(v)
 	}
-	sent := string(e.Body)
+	sent := e.outbound
 	if size > 4<<20 {
 		originals = nil
 		sent = ""
@@ -227,7 +242,7 @@ func (s *Service) records(tenant uint64) []Record {
 	}
 	all := make([]Record, 0, len(records))
 	for _, record := range records {
-		record.Values = append([]Value(nil), record.Values...)
+		record.Values = append([]Value{}, record.Values...)
 		all = append(all, record)
 	}
 	return all

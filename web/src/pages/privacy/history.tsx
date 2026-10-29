@@ -60,6 +60,7 @@ function RecordDetail({ record }: { record: PrivacyRecord }) {
       >
         {t('privacy.sentBody')}
       </Button>
+      <p className="text-xs text-text-secondary">{t('privacy.outboundHelp')}</p>
       {sent.error && (
         <p role="alert" className="text-sm text-text-secondary">
           {t('privacy.originalExpired')}

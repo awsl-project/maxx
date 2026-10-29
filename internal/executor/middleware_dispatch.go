@@ -348,6 +348,7 @@ routeLoop:
 			}
 
 			err := executeWithProviderSlot(releaseProvider, func() error {
+				state.privacyExchange.CaptureOutbound(requestBody)
 				return matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
 			})
 			c.Writer = originalWriter

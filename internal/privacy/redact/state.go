@@ -7,7 +7,7 @@ import (
 )
 
 // State isolates reversible mappings, learned values and caches. Maxx allocates
-// one state per tenant/project; callers must never share it across projects.
+// one state per tenant; callers must never share it across tenants.
 // Upstream's stateless rules stay shared, while no credential value is global.
 type State struct {
 	capacity  int
@@ -54,7 +54,7 @@ func (rw *Writer) state() *State {
 }
 
 // SetLimits must be called before this state is used. A nonpositive bound keeps
-// the upstream default; Maxx runtime sets explicit per-project memory bounds.
+// the upstream default; Maxx runtime sets explicit per-tenant memory bounds.
 func (s *State) SetLimits(entries, bytes int) {
 	s.capacity, s.maxBytes = entries, bytes
 	if bytes > 0 {

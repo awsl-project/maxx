@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -33,9 +34,11 @@ func TestFullPrivacyHTTPAndSSERoundTrip(t *testing.T) {
 			t.Run(fmt.Sprintf("direct=%t/stream=%t", direct, stream), func(t *testing.T) {
 				env := NewProxyTestEnv(t)
 				var calls atomic.Int32
+				outbound := make(chan []byte, 1)
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					calls.Add(1)
 					raw, _ := io.ReadAll(r.Body)
+					outbound <- raw
 					if strings.Contains(string(raw), "Nightjar") || strings.Contains(string(raw), "person@corp-real.com") {
 						t.Error("original reached upstream")
 					}
@@ -111,6 +114,20 @@ func TestFullPrivacyHTTPAndSSERoundTrip(t *testing.T) {
 					if v.Restored != 1 {
 						t.Fatalf("restore count=%d: %+v", v.Restored, v)
 					}
+				}
+				var sent struct {
+					Body string `json:"body"`
+				}
+				DecodeJSON(t, env.AdminGet("/api/admin/privacy/records/"+records.Items[0].ID+"/sent"), &sent)
+				var actual, retained any
+				if err := json.Unmarshal(<-outbound, &actual); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal([]byte(sent.Body), &retained); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(actual, retained) {
+					t.Fatalf("outbound body differs from upstream: got %s, want %+v", sent.Body, actual)
 				}
 			})
 		}
@@ -314,8 +331,10 @@ func TestFullPrivacyWebSocketTurnRestoration(t *testing.T) {
 
 func TestFullPrivacyResponseConversionRestoresAfterConversion(t *testing.T) {
 	env := NewProxyTestEnv(t)
+	outbound := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
+		outbound <- string(raw)
 		if strings.Contains(string(raw), "Nightjar") {
 			t.Error("private original reached conversion provider")
 		}
@@ -335,11 +354,43 @@ func TestFullPrivacyResponseConversionRestoresAfterConversion(t *testing.T) {
 	cfg.Words = []string{"Nightjar"}
 	saveFullPrivacy(t, env, cfg)
 	body := openaiRequest("gpt-4o")
-	body["messages"] = []any{map[string]any{"role": "user", "content": "Nightjar"}}
+	body["messages"] = []any{
+		map[string]any{"role": "system", "content": "Synthetic conversion instructions"},
+		map[string]any{"role": "user", "content": "Nightjar"},
+	}
 	resp := env.ProxyPost("/project/full-conversion/v1/chat/completions", body, nil)
 	result, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != 200 || !strings.Contains(string(result), "Nightjar") {
 		t.Fatalf("converted response %d: %s", resp.StatusCode, result)
+	}
+	waitPrivacyRequest(t, env)
+	var records privacy.RecordsPage
+	DecodeJSON(t, env.AdminGet("/api/admin/privacy/records"), &records)
+	if len(records.Items) != 1 {
+		t.Fatalf("missing conversion history: %+v", records)
+	}
+	var sent struct {
+		Body string `json:"body"`
+	}
+	DecodeJSON(t, env.AdminGet("/api/admin/privacy/records/"+records.Items[0].ID+"/sent"), &sent)
+	var actual, retained map[string]any
+	if err := json.Unmarshal([]byte(<-outbound), &actual); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(sent.Body), &retained); err != nil {
+		t.Fatal(err)
+	}
+	if len(gjson.Get(sent.Body, "messages").Array()) != 1 || !strings.Contains(gjson.Get(sent.Body, "system").String(), "Synthetic conversion instructions") {
+		t.Fatalf("history retained pre-conversion input instead of Claude output: %s", sent.Body)
+	}
+	for _, key := range []string{"messages", "model", "max_tokens"} {
+		if !reflect.DeepEqual(actual[key], retained[key]) {
+			t.Fatalf("converted %s differs from upstream: %+v vs %+v", key, retained[key], actual[key])
+		}
+	}
+	// Claude-specific identity is added inside the adapter, after the snapshot.
+	if actual["metadata"] == nil || retained["metadata"] != nil {
+		t.Fatalf("outbound snapshot crossed the documented adapter boundary: %s", sent.Body)
 	}
 }

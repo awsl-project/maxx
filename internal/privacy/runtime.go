@@ -103,6 +103,7 @@ type Exchange struct {
 	recordGeneration uint64
 	recorded         bool
 	tookUS           int64
+	outbound         string
 }
 
 func (s *Service) Prepare(ctx context.Context, tenantID uint64, body, original []byte, contentType string) (*Exchange, *Rejection) {

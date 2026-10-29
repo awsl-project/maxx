@@ -124,10 +124,12 @@ retain existing behavior and are outside these archive filters.
 The history tab provides pagination, kind/action/finder/provider/time filters,
 details, restored counts and aggregate counts. Disk retains **metadata only**
 under `<data-dir>/privacy/<tenant>/records`, for at most 30 days and
-100 MiB per tenant. Original values and processed sent bodies are memory-only,
+100 MiB per tenant. Original values and outbound bodies are memory-only,
 bounded to 400 recent records and 16 MiB per active tenant scope (at most 4 MiB
-per record); they disappear after eviction/restart/clear. Sent bodies show the
-privacy module's processed request, before adapter-specific wire preparation.
+per record); they disappear after eviction/restart/clear. Outbound bodies show the
+last attempted request after protocol conversion and privacy inspection, before
+adapter-specific wire preparation. Skipped routing candidates never replace this
+snapshot, and requests blocked before any attempt have no outbound body.
 Record clearing also forgets learned originals and fences in-flight record writes.
 Policy/configuration backups remain sensitive: custom keywords and allowlists
 are administrator-supplied settings, not detection history.

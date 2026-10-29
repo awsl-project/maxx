@@ -169,6 +169,7 @@ func (e *Executor) dispatchResponsesWebSocket(c *flow.Ctx) {
 	eventDone := make(chan struct{})
 	go e.processAdapterEventsRealtime(eventChan, attempt, eventDone, clearDetail)
 
+	state.privacyExchange.CaptureOutbound(outboundFrame)
 	result, execErr := wsAdapter.ExecuteResponsesWebSocket(c, matched.Provider, &turnExchange)
 	if restoreErr := privacyFrames.Finish(); restoreErr != nil && execErr == nil {
 		execErr = privacy.ClientWriteError(restoreErr)

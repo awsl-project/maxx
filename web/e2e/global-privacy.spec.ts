@@ -2,6 +2,42 @@ import { expect, test } from '@playwright/test';
 
 test.describe.configure({ mode: 'serial' });
 
+test('provider exemption history renders empty findings and outbound details', async ({ page, request }) => {
+  const original = await (await request.get('/api/admin/privacy')).json();
+  const providers = await (await request.get('/api/admin/providers')).json();
+  const provider = providers.find((p: { supportedClientTypes: string[] }) => p.supportedClientTypes.includes('openai'));
+  expect(provider).toBeTruthy();
+  try {
+    await request.delete('/api/admin/privacy/records');
+    expect((await request.put('/api/admin/privacy', {
+      data: { config: { ...original, enabled: true, bypassProviders: [provider.id] } },
+    })).ok()).toBeTruthy();
+    expect((await request.post(`/provider/${provider.id}/v1/chat/completions`, {
+      data: { model: 'gpt-4o', messages: [{ role: 'user', content: 'synthetic exemption request' }] },
+    })).status()).toBe(200);
+    await expect.poll(async () => (await (await request.get('/api/admin/privacy/records')).json()).total).toBe(1);
+    const records = await (await request.get('/api/admin/privacy/records')).json();
+    expect(records.items[0].bypassed).toBe(true);
+    expect(records.items[0].values).toEqual([]);
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.addInitScript(() => {
+      localStorage.setItem('maxx-admin-token', 'mock-token');
+      localStorage.setItem('maxx-ui-language', 'zh');
+    });
+    await page.goto('/privacy');
+    await page.getByRole('button', { name: '命中记录', exact: true }).click();
+    await page.getByRole('button', { name: '详情', exact: true }).click();
+    await expect(page.getByRole('button', { name: '查看原值', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: '查看出站正文', exact: true }).click();
+    await expect(page.locator('pre')).toContainText('synthetic exemption request');
+    expect(errors).toEqual([]);
+  } finally {
+    await request.put('/api/admin/privacy', { data: { config: original } });
+    await request.delete('/api/admin/privacy/records');
+  }
+});
+
 test('global privacy persists and projects have no policy override', async ({ page, request }) => {
   const original = await (await request.get('/api/admin/privacy')).json();
   const created = await request.post('/api/admin/projects', {

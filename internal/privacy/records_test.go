@@ -1,16 +1,108 @@
 package privacy
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
+
+func TestBypassedHistorySerializesEmptyValuesAsArray(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled, cfg.BypassProviders = true, []uint64{7}
+	svc := configuredService(t, cfg)
+	svc.SetDirectory(t.TempDir())
+	e, rejection := svc.Prepare(context.Background(), 1, TextRequest("hello"), nil, "application/json")
+	if rejection != nil || e.ResolvePlan([]uint64{7}) != nil || !e.Bypassed {
+		t.Fatal("provider was not exempted", rejection)
+	}
+	req := &domain.ProxyRequest{ID: 1, RequestID: "bypass", StartTime: time.Now(), Status: "COMPLETED", ProviderID: 7}
+	e.BeginRecord(req)
+	e.CaptureOutbound(e.Body)
+	e.FinishRecord(req)
+	restarted := NewService(svc.settings)
+	restarted.SetDirectory(svc.runtime.directory)
+	for _, service := range []*Service{svc, restarted} {
+		page, err := service.Records(1, RecordsQuery{})
+		if err != nil || page.Total != 1 {
+			t.Fatalf("missing bypass record: %+v %v", page, err)
+		}
+		detail, err := service.Record(1, req.RequestID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range []Record{page.Items[0], detail} {
+			raw, err := json.Marshal(record)
+			if err != nil || !bytes.Contains(raw, []byte(`"values":[]`)) {
+				t.Fatalf("empty values must be an array: %s %v", raw, err)
+			}
+		}
+	}
+}
+
+func TestHistoryRetainsOnlyLastAttemptedOutbound(t *testing.T) {
+	for _, mode := range []string{"mask", "block", "bypass", "oversized"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Enabled, cfg.Words = true, []string{"Nightjar"}
+			if mode == "block" {
+				cfg.Mode = "block"
+			}
+			if mode == "bypass" {
+				cfg.BypassProviders = []uint64{7}
+			}
+			svc := configuredService(t, cfg)
+			e, rejection := svc.Prepare(context.Background(), 1, TextRequest("Nightjar"), nil, "application/json")
+			if (rejection != nil) != (mode == "block") {
+				t.Fatal(rejection)
+			}
+			req := &domain.ProxyRequest{ID: 2, RequestID: mode, Status: "COMPLETED", ProviderID: 7}
+			e.BeginRecord(req)
+			want := ""
+			if mode == "block" {
+				req.Status = "REJECTED"
+			} else {
+				if rejection := e.ResolvePlan([]uint64{7}); rejection != nil {
+					t.Fatal(rejection)
+				}
+				for _, temperature := range []string{"0.1", "0.2", "0.3"} {
+					body, rejection := e.Outbound([]byte(`{"messages":[{"role":"user","content":"Nightjar"}],"temperature":` + temperature + `}`))
+					if rejection != nil {
+						t.Fatal(rejection)
+					}
+					// This routing candidate never acquired a slot.
+					if temperature == "0.3" {
+						continue
+					}
+					want = string(body)
+					e.CaptureOutbound(body)
+					body[0] = '!' // The retained snapshot must own its bytes.
+				}
+				if mode == "oversized" {
+					e.CaptureOutbound([]byte(strings.Repeat("x", (4<<20)+1)))
+					want = ""
+				}
+			}
+			e.FinishRecord(req)
+			got, err := svc.Sent(1, req.RequestID)
+			if want == "" {
+				if !errors.Is(err, domain.ErrNotFound) {
+					t.Fatal("unavailable outbound should not return an initial/stale body", err)
+				}
+			} else if err != nil || got != want {
+				t.Fatalf("outbound snapshot: got %s, want %s, error %v", got, want, err)
+			}
+		})
+	}
+}
 
 // History must remain readable and clearable even if an administrator needs to
 // repair the policy. Exercise persisted history beyond the in-memory limit.

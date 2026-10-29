@@ -171,6 +171,7 @@ func TestRecordsAreScopedMetadataOnlyAndPreviewIsEphemeral(t *testing.T) {
 	req := &domain.ProxyRequest{ID: 7, RequestID: "record-7", Status: "COMPLETED", ProviderID: 9}
 	e.BeginRecord(req)
 	e.addRestored(map[string]int{e.Hits[0].Placeholder: 1})
+	e.CaptureOutbound(e.Body)
 	e.FinishRecord(req)
 	records, err := svc.Records(1, RecordsQuery{})
 	if err != nil || records.Total != 1 || records.Items[0].ProviderID != 9 {
