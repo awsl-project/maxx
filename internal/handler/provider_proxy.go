@@ -129,9 +129,6 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 			clearDetail = false
 		}
 		proxyReq := h.newProxyRequest(c, route, provider, requestModel, mappedModel, isStream, clearDetail)
-		if err := h.proxyRequestRepo.Create(proxyReq); err != nil {
-			log.Printf("[ProviderProxy] failed to create proxy request: %v", err)
-		}
 
 		c.Set(flow.KeyMappedModel, mappedModel)
 		c.Set(flow.KeyOriginalClientType, clientType)

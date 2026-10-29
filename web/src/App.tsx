@@ -18,6 +18,7 @@ import { ConsolePage } from '@/pages/console';
 import { SettingsPage } from '@/pages/settings';
 import { TestFieldPage } from '@/pages/test-field';
 import { DataManagementPage } from '@/pages/data-management';
+import { PrivacyPage } from '@/pages/privacy';
 import { ProxyAccessPage } from '@/pages/proxy-access';
 import { DiagnosticsPage } from '@/pages/diagnostics';
 import { DocumentationPage } from '@/pages/documentation';
@@ -163,6 +164,14 @@ function AppRoutes() {
           <Route path="providers/create/*" element={<ProviderCreateLayout />} />
           <Route path="providers/:id/edit" element={<ProviderEditPage />} />
           <Route path="routes/:clientType" element={<ClientRoutesPage />} />
+          <Route
+            path="privacy"
+            element={
+              <AdminRoute>
+                <PrivacyPage />
+              </AdminRoute>
+            }
+          />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="sessions" element={<SessionsPage />} />

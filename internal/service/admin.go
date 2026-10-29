@@ -21,6 +21,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
 	"github.com/awsl-project/maxx/internal/version"
@@ -63,6 +64,8 @@ type apiTokenCacheRefresher interface {
 }
 
 type AdminService struct {
+	privacyOnce               sync.Once
+	privacyService            *privacy.Service
 	providerRepo              repository.ProviderRepository
 	routeRepo                 repository.RouteRepository
 	projectRepo               repository.ProjectRepository
@@ -1477,6 +1480,9 @@ func (s *AdminService) GetSettings() (map[string]string, error) {
 	}
 	result := make(map[string]string)
 	for _, setting := range settings {
+		if setting.Key == privacy.SettingKey {
+			continue
+		}
 		result[setting.Key] = setting.Value
 	}
 	return result, nil

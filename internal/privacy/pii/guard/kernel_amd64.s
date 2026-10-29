@@ -1,0 +1,205 @@
+#include "textflag.h"
+
+// The kernels here use SSE2 only, which every amd64 has.
+
+// func dot4sse(a, b *int8, k int, out *[4]int32)
+// out[j] = Σ a[i]*b[j*k+i] for i < k, k a multiple of 16.
+TEXT ·dot4sse(SB), NOSPLIT, $0-32
+	MOVQ a+0(FP), BX
+	MOVQ b+8(FP), SI
+	MOVQ k+16(FP), DX
+	MOVQ out+24(FP), DI
+	LEAQ (SI)(DX*1), R8
+	LEAQ (R8)(DX*1), R9
+	LEAQ (R9)(DX*1), R10
+	PXOR X8, X8
+	PXOR X9, X9
+	PXOR X10, X10
+	PXOR X11, X11
+	XORQ CX, CX
+	TESTQ DX, DX
+	JEQ  ddone
+dloop:
+	MOVOU (BX)(CX*1), X1
+	MOVO  X1, X2
+	PUNPCKLBW X1, X1
+	PUNPCKHBW X2, X2
+	PSRAW $8, X1
+	PSRAW $8, X2
+	MOVOU (SI)(CX*1), X3
+	MOVO  X3, X4
+	PUNPCKLBW X3, X3
+	PUNPCKHBW X4, X4
+	PSRAW $8, X3
+	PSRAW $8, X4
+	PMADDWL X1, X3
+	PMADDWL X2, X4
+	PADDL X3, X8
+	PADDL X4, X8
+	MOVOU (R8)(CX*1), X3
+	MOVO  X3, X4
+	PUNPCKLBW X3, X3
+	PUNPCKHBW X4, X4
+	PSRAW $8, X3
+	PSRAW $8, X4
+	PMADDWL X1, X3
+	PMADDWL X2, X4
+	PADDL X3, X9
+	PADDL X4, X9
+	MOVOU (R9)(CX*1), X3
+	MOVO  X3, X4
+	PUNPCKLBW X3, X3
+	PUNPCKHBW X4, X4
+	PSRAW $8, X3
+	PSRAW $8, X4
+	PMADDWL X1, X3
+	PMADDWL X2, X4
+	PADDL X3, X10
+	PADDL X4, X10
+	MOVOU (R10)(CX*1), X3
+	MOVO  X3, X4
+	PUNPCKLBW X3, X3
+	PUNPCKHBW X4, X4
+	PSRAW $8, X3
+	PSRAW $8, X4
+	PMADDWL X1, X3
+	PMADDWL X2, X4
+	PADDL X3, X11
+	PADDL X4, X11
+	ADDQ $16, CX
+	CMPQ CX, DX
+	JLT  dloop
+ddone:
+	PSHUFD $0x4e, X8, X0
+	PADDL  X0, X8
+	PSHUFD $0xb1, X8, X0
+	PADDL  X0, X8
+	MOVQ   X8, AX
+	MOVL   AX, 0(DI)
+	PSHUFD $0x4e, X9, X0
+	PADDL  X0, X9
+	PSHUFD $0xb1, X9, X0
+	PADDL  X0, X9
+	MOVQ   X9, AX
+	MOVL   AX, 4(DI)
+	PSHUFD $0x4e, X10, X0
+	PADDL  X0, X10
+	PSHUFD $0xb1, X10, X0
+	PADDL  X0, X10
+	MOVQ   X10, AX
+	MOVL   AX, 8(DI)
+	PSHUFD $0x4e, X11, X0
+	PADDL  X0, X11
+	PSHUFD $0xb1, X11, X0
+	PADDL  X0, X11
+	MOVQ   X11, AX
+	MOVL   AX, 12(DI)
+	RET
+
+// func scoresT(q, kt *float32, np int, out *float32)
+// out[u] = Σ q[i]*kt[i*np+u] for i < 32, u < np, np a multiple of 16.
+TEXT ·scoresT(SB), NOSPLIT, $0-32
+	MOVQ q+0(FP), SI
+	MOVQ kt+8(FP), BX
+	MOVQ np+16(FP), DX
+	MOVQ out+24(FP), DI
+	MOVQ DX, R8
+	SHLQ $2, R8 // a row of kt in bytes
+	TESTQ DX, DX
+	JEQ  tdone
+tblock:
+	XORPS X0, X0
+	XORPS X1, X1
+	XORPS X2, X2
+	XORPS X3, X3
+	MOVQ SI, R9
+	MOVQ BX, R10
+	MOVQ $32, CX
+trow:
+	MOVSS  (R9), X4
+	SHUFPS $0, X4, X4
+	MOVUPS (R10), X5
+	MOVUPS 16(R10), X6
+	MOVUPS 32(R10), X7
+	MOVUPS 48(R10), X8
+	MULPS  X4, X5
+	MULPS  X4, X6
+	MULPS  X4, X7
+	MULPS  X4, X8
+	ADDPS  X5, X0
+	ADDPS  X6, X1
+	ADDPS  X7, X2
+	ADDPS  X8, X3
+	ADDQ   $4, R9
+	ADDQ   R8, R10
+	DECQ   CX
+	JNE    trow
+	MOVUPS X0, (DI)
+	MOVUPS X1, 16(DI)
+	MOVUPS X2, 32(DI)
+	MOVUPS X3, 48(DI)
+	ADDQ $64, DI
+	ADDQ $64, BX
+	SUBQ $16, DX
+	JNE  tblock
+tdone:
+	RET
+
+// func mix32(c, p, v *float32, n int)
+// c[i] += Σ p[u]*v[u*32+i] for u < n, i < 32.
+TEXT ·mix32(SB), NOSPLIT, $0-32
+	MOVQ c+0(FP), DI
+	MOVQ p+8(FP), SI
+	MOVQ v+16(FP), DX
+	MOVQ n+24(FP), CX
+	MOVUPS (DI), X0
+	MOVUPS 16(DI), X1
+	MOVUPS 32(DI), X2
+	MOVUPS 48(DI), X3
+	MOVUPS 64(DI), X4
+	MOVUPS 80(DI), X5
+	MOVUPS 96(DI), X6
+	MOVUPS 112(DI), X7
+	TESTQ CX, CX
+	JEQ  mdone
+mloop:
+	MOVSS  (SI), X15
+	SHUFPS $0, X15, X15
+	MOVUPS 0(DX), X8
+	MULPS  X15, X8
+	ADDPS  X8, X0
+	MOVUPS 16(DX), X9
+	MULPS  X15, X9
+	ADDPS  X9, X1
+	MOVUPS 32(DX), X8
+	MULPS  X15, X8
+	ADDPS  X8, X2
+	MOVUPS 48(DX), X9
+	MULPS  X15, X9
+	ADDPS  X9, X3
+	MOVUPS 64(DX), X8
+	MULPS  X15, X8
+	ADDPS  X8, X4
+	MOVUPS 80(DX), X9
+	MULPS  X15, X9
+	ADDPS  X9, X5
+	MOVUPS 96(DX), X8
+	MULPS  X15, X8
+	ADDPS  X8, X6
+	MOVUPS 112(DX), X9
+	MULPS  X15, X9
+	ADDPS  X9, X7
+	ADDQ $4, SI
+	ADDQ $128, DX
+	DECQ CX
+	JNE  mloop
+mdone:
+	MOVUPS X0, (DI)
+	MOVUPS X1, 16(DI)
+	MOVUPS X2, 32(DI)
+	MOVUPS X3, 48(DI)
+	MOVUPS X4, 64(DI)
+	MOVUPS X5, 80(DI)
+	MOVUPS X6, 96(DI)
+	MOVUPS X7, 112(DI)
+	RET

@@ -62,6 +62,8 @@ func (e *Executor) ExecuteOnce(
 	}
 
 	attempt := &domain.ProxyUpstreamAttempt{
+		PrivacyEnabled: proxyReq.PrivacyEnabled,
+		PrivacyFilter:  proxyReq.PrivacyFilter,
 		TenantID:       proxyReq.TenantID,
 		ProxyRequestID: proxyReq.ID,
 		RouteID:        route.ID,

@@ -152,6 +152,9 @@ func (e *Executor) ingress(c *flow.Ctx) {
 		state.ctx = ctx
 	}
 
+	if !e.enforceRequestPrivacy(c, state) {
+		return
+	}
 	c.Next()
 }
 
@@ -161,6 +164,7 @@ func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string)
 		reasoningBody = state.requestBody
 	}
 	proxyReq := &domain.ProxyRequest{
+		PrivacyEnabled:  state.privacyExchange != nil,
 		TenantID:        state.tenantID,
 		InstanceID:      e.instanceID,
 		RequestID:       generateRequestID(),
@@ -178,6 +182,9 @@ func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string)
 		DevMode:         state.apiTokenDevMode,
 	}
 
+	if state.privacyExchange != nil {
+		proxyReq.PrivacyFilter = state.privacyExchange.Archive
+	}
 	clearDetail := e.shouldClearRequestDetailFor(state)
 	if !clearDetail {
 		requestURI := state.requestURI

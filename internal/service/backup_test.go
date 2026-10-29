@@ -219,6 +219,7 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	if len(roundtrip.Data.APITokens) != 1 {
 		t.Fatalf("apiTokens count = %d, want 1", len(roundtrip.Data.APITokens))
 	}
+
 	if roundtrip.Data.APITokens[0].Token != "maxx_test_token_abc" {
 		t.Fatalf("api token not restored, got %q", roundtrip.Data.APITokens[0].Token)
 	}

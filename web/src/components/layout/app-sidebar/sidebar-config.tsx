@@ -194,6 +194,14 @@ export const sidebarConfig: SidebarConfig = {
         },
         {
           type: 'standard',
+          key: 'privacy',
+          to: '/privacy',
+          icon: ShieldCheck,
+          labelKey: 'nav.privacy',
+          adminOnly: true,
+        },
+        {
+          type: 'standard',
           key: 'proxy-access',
           to: '/proxy-access',
           icon: ShieldCheck,
