@@ -301,9 +301,6 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	tenantID := domain.DefaultTenantID
 	apiTokenID := uint64(0)
 	projectID := flow.GetProjectID(c)
-	if projectID == 0 && c.Request != nil {
-		projectID, _ = strconv.ParseUint(c.Request.Header.Get("X-Maxx-Project-ID"), 10, 64)
-	}
 	devMode := false
 	if apiToken != nil {
 		if apiToken.TenantID > 0 {

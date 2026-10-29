@@ -37,33 +37,44 @@ func TestEarlyRejectionArchivesUseGlobalPrivacyWithoutReadingBody(t *testing.T) 
 		if err := projects.Create(project); err != nil {
 			t.Fatal(err)
 		}
-		for _, fromHeader := range []bool{false, true} {
-			body := &unreadPrivacyBody{}
-			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?api_key=query-secret", body)
-			req.Header.Set("X-Service-Secret", "header-secret")
-			token := &domain.APIToken{ID: 1, TenantID: 1, ProjectID: project.ID}
-			if fromHeader {
-				token.ProjectID = 0
-				req.Header.Set("X-Maxx-Project-ID", strconv.FormatUint(project.ID, 10))
-			}
-			c := flow.NewCtx(httptest.NewRecorder(), req)
-			c.Set(flow.KeyRequestHeaders, req.Header)
-			c.Set(flow.KeyRequestURI, req.URL.RequestURI())
-			exec.RecordRejectedProxyRequest(c, token, 429, "limit password=Example1234")
-			rows, err := requests.List(1, 1, 0)
-			if err != nil || len(rows) != 1 {
-				t.Fatalf("early rejection missing: %v", err)
-			}
-			stored, err := requests.GetByID(1, rows[0].ID)
-			if err != nil || stored.StatusCode != 429 || stored.ProjectID != project.ID || stored.RequestInfo == nil {
-				t.Fatalf("early rejection changed: %+v %v", stored, err)
-			}
-			if strings.Contains(stored.RequestInfo.URL, "query-secret") == enabled || strings.Contains(stored.Error, "Example1234") == enabled || (stored.RequestInfo.Headers["X-Service-Secret"] == "header-secret") == enabled {
-				t.Fatal("early archive did not use global policy")
-			}
-			if body.reads != 0 || stored.RequestInfo.Body != "" {
-				t.Fatal("early rejection read or saved the request body")
-			}
+		for _, tc := range []struct {
+			name                                 string
+			tokenID, headerID, projectID, wantID uint64
+		}{
+			{name: "unassigned"},
+			{name: "token binding", tokenID: project.ID, wantID: project.ID},
+			{name: "header alone stays unresolved", headerID: project.ID},
+			{name: "header does not override token", headerID: project.ID + 100, tokenID: project.ID, wantID: project.ID},
+			{name: "resolved project precedes token", projectID: project.ID, tokenID: project.ID + 100, wantID: project.ID},
+		} {
+			t.Run(strconv.FormatBool(enabled)+"/"+tc.name, func(t *testing.T) {
+				body := &unreadPrivacyBody{}
+				req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?api_key=query-secret", body)
+				req.Header.Set("X-Service-Secret", "header-secret")
+				token := &domain.APIToken{ID: 1, TenantID: 1, ProjectID: tc.tokenID}
+				if tc.headerID != 0 {
+					req.Header.Set("X-Maxx-Project-ID", strconv.FormatUint(tc.headerID, 10))
+				}
+				c := flow.NewCtx(httptest.NewRecorder(), req)
+				c.Set(flow.KeyProjectID, tc.projectID)
+				c.Set(flow.KeyRequestHeaders, req.Header)
+				c.Set(flow.KeyRequestURI, req.URL.RequestURI())
+				exec.RecordRejectedProxyRequest(c, token, 429, "limit password=Example1234")
+				rows, err := requests.List(1, 1, 0)
+				if err != nil || len(rows) != 1 {
+					t.Fatalf("early rejection missing: %v", err)
+				}
+				stored, err := requests.GetByID(1, rows[0].ID)
+				if err != nil || stored.StatusCode != 429 || stored.ProjectID != tc.wantID || stored.RequestInfo == nil {
+					t.Fatalf("early rejection changed: %+v %v", stored, err)
+				}
+				if strings.Contains(stored.RequestInfo.URL, "query-secret") == enabled || strings.Contains(stored.Error, "Example1234") == enabled || (stored.RequestInfo.Headers["X-Service-Secret"] == "header-secret") == enabled {
+					t.Fatal("early archive did not use global policy")
+				}
+				if body.reads != 0 || stored.RequestInfo.Body != "" {
+					t.Fatal("early rejection read or saved the request body")
+				}
+			})
 		}
 	}
 }
