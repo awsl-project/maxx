@@ -184,6 +184,12 @@ var rules = append([]rule{
 	// code calls anything a key: a map's "key": "value", sort_key, keyboard.
 	{kind: "SECRET", re: regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_.-])` + quote + `key` + quote + `[ \t]*[:=][ \t]*` + quote + `(` + secretCh + `{16,})`),
 		markers: fieldNames{{"key", "key"}}.markers(), ok: secretValue, at: fieldAt},
+	// Credentials stated in prose, without requiring a local model or a user
+	// rule. Use SECRET as named config values do, preserving their placeholders
+	// across turns. Keep value/code checks for status words and references.
+	{kind: "SECRET", re: regexp.MustCompile(`(?i)\b(?:password|passwd|passphrase|pwd|api[ _-]?key|access[ _-]?(?:key|token)|refresh[ _-]?token|client[ _-]?secret|token|secret)\b` +
+		`[ \t]+(?:is|was)[ \t]+` + quote + `(` + secretCh + `{3,}[A-Za-z0-9_\-/+=~!@#%^&*])`),
+		fold: []string{"pass", "pwd", "key", "token", "secret"}, ok: englishSecretValue, at: fieldAt},
 	// a password after its name in Chinese, Japanese or Korean, as people
 	// write one into a message: 密码：786kih, 密碼是 hunter2, パスワード: … .
 	// Unlike password = in a config, nothing in code is called 密码, so
@@ -237,6 +243,15 @@ func lowerAll(names []string) []string {
 // or 는, quoted or not, or after nothing but a space.
 func cjkNamed(names []string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)(?:` + strings.Join(names, "|") + `)[ \t]*(?:[:：=][ \t]*|[为為是][ \t]*[:：]?[ \t]*|は[ \t]*|는[ \t]*)?(?:\\?["'“「])?(` + secretCh + `{3,63}[A-Za-z0-9_\-/+=~!@#%^&*])`)
+}
+
+func englishSecretValue(v string) bool {
+	// "The password is SHA256 hashed" describes an encoding, not a value.
+	switch strings.ToLower(v) {
+	case "base16", "base32", "base64", "base64url", "utf8", "utf16", "utf32", "md5", "sha1", "sha256", "sha384", "sha512":
+		return false
+	}
+	return secretValue(v)
 }
 
 // fieldNames are what a field that holds a secret is called: a pattern for
