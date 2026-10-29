@@ -1,4 +1,5 @@
 {
+  "chat": { "fast": "Fast" },
   "common": {
     "save": "Save",
     "cancel": "Cancel",

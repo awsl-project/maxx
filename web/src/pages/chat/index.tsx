@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+import { Switch } from '@/components/ui/switch';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, Bot, KeyRound, Loader2, Route, User } from 'lucide-react';
 import { Badge, Button, Input } from '@/components/ui';
@@ -38,6 +40,8 @@ function buildMessageID(prefix: string) {
 }
 
 export function ChatPage() {
+  const { t } = useTranslation();
+  const [fast, setFast] = useState(false);
   const [routeType, setRouteType] = useState<ChatRouteType>('openai');
   const [token, setToken] = useState('');
   const [model, setModel] = useState(getChatRouteConfig('openai').defaultModel);
@@ -179,7 +183,7 @@ export function ChatPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(
-          buildChatRequestBody(routeType, selectedModel, requestMessages, { stream: true }),
+          buildChatRequestBody(routeType, selectedModel, requestMessages, { stream: true, fast }),
         ),
       });
 
@@ -335,6 +339,12 @@ export function ChatPage() {
               </p>
             </div>
 
+            {routeType === 'openai' || routeType === 'codex' ? (
+              <div className="mt-4 flex items-center justify-between gap-3 px-3 text-sm">
+                <label htmlFor="chat-fast">{t('chat.fast')}</label>
+                <Switch id="chat-fast" size="sm" checked={fast} onCheckedChange={setFast} />
+              </div>
+            ) : null}
             <div className="mt-4 rounded-2xl bg-muted/60 p-3 text-xs text-muted-foreground">
               <p className="font-medium text-foreground">Current endpoint</p>
               <p className="mt-1 break-all font-mono">{endpoint}</p>

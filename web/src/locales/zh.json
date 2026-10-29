@@ -1,4 +1,5 @@
 {
+  "chat": { "fast": "快速模式" },
   "common": {
     "save": "保存",
     "cancel": "取消",

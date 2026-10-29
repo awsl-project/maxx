@@ -98,7 +98,7 @@ export function buildChatRequestBody(
   routeType: ChatRouteType,
   model: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
-  options: { stream?: boolean } = {},
+  options: { stream?: boolean; fast?: boolean } = {},
 ) {
   const fallbackModel = getChatRouteConfig(routeType).defaultModel;
   const selectedModel = model.trim() || fallbackModel;
@@ -123,13 +123,19 @@ export function buildChatRequestBody(
       };
     case 'codex':
       return {
+        ...(options.fast ? { service_tier: 'fast' } : {}),
         model: selectedModel,
         input: userMessages.map((message) => ({ role: message.role, content: message.content })),
         stream: options.stream ?? false,
       };
     case 'openai':
     default:
-      return { model: selectedModel, messages: userMessages, stream: options.stream ?? false };
+      return {
+        ...(options.fast ? { service_tier: 'fast' } : {}),
+        model: selectedModel,
+        messages: userMessages,
+        stream: options.stream ?? false,
+      };
   }
 }
 
@@ -154,8 +160,7 @@ export function extractChatResponseText(routeType: ChatRouteType, payload: unkno
 
   if (routeType === 'gemini') {
     const candidates = data.candidates as
-      | Array<{ content?: { parts?: Array<{ text?: string }> } }>
-      | undefined;
+      Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined;
     return (
       candidates?.[0]?.content?.parts
         ?.map((part) => part.text)
@@ -195,8 +200,7 @@ export function extractChatStreamDelta(routeType: ChatRouteType, payload: unknow
 
   if (routeType === 'gemini') {
     const candidates = data.candidates as
-      | Array<{ content?: { parts?: Array<{ text?: string }> } }>
-      | undefined;
+      Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined;
     return (
       candidates?.[0]?.content?.parts
         ?.map((part) => part.text)

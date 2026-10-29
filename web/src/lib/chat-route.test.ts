@@ -172,3 +172,38 @@ describe('extractChatStreamDelta', () => {
     ).toBe('e');
   });
 });
+
+describe('Fast request contract', () => {
+  for (const route of ['openai', 'codex'] as const) {
+    for (const stream of [false, true]) {
+      it('omits by default and after on/off, including subsequent turns: ' + route + stream, () => {
+        const messages: { role: 'user' | 'assistant'; content: string }[] = [
+          { role: 'user', content: 'first' },
+        ];
+        for (const fast of [undefined, false, true, false]) {
+          const body = JSON.parse(
+            JSON.stringify(buildChatRequestBody(route, 'gpt-test', messages, { stream, fast })),
+          );
+          expect(body.model).toBe('gpt-test');
+          expect(body.stream).toBe(stream);
+          if (fast) expect(body.service_tier).toBe('fast');
+          else expect(body).not.toHaveProperty('service_tier');
+          expect(body[route === 'codex' ? 'input' : 'messages']).toEqual(messages);
+          expect(body).not.toHaveProperty('fast');
+          expect(body).not.toHaveProperty('serviceTier');
+          messages.push(
+            { role: 'assistant', content: 'reply' },
+            { role: 'user', content: 'continue' },
+          );
+        }
+      });
+    }
+  }
+  it('does not inject into unrelated protocols', () => {
+    for (const route of ['claude', 'gemini'] as const) {
+      expect(buildChatRequestBody(route, 'test', [], { fast: true })).not.toHaveProperty(
+        'service_tier',
+      );
+    }
+  });
+});
