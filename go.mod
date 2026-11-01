@@ -20,7 +20,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
-	github.com/wailsapp/wails/v2 v2.11.0
+	github.com/wailsapp/wails/v2 v2.13.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
@@ -32,7 +32,10 @@ require (
 
 require github.com/DATA-DOG/go-sqlmock v1.5.2
 
-require github.com/dlclark/regexp2/v2 v2.5.1 // indirect
+require (
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
