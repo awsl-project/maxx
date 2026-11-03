@@ -27,6 +27,7 @@ import type {
   ProxyRequestErrorMode,
   ProxyRequestErrorStats,
   ProxyRequestCleanupFailedResult,
+  CancelActiveProxyRequestsResult,
   ProxyUpstreamAttempt,
   ProxyStatus,
   ProxyConnectivityResult,
@@ -704,6 +705,13 @@ export class HttpTransport implements Transport {
       { params },
     );
     return data ?? { deletedCount: 0, deletedAttemptCount: 0 };
+  }
+
+  async cancelActiveProxyRequests(): Promise<CancelActiveProxyRequestsResult> {
+    const { data } = await this.adminClient.post<CancelActiveProxyRequestsResult>(
+      '/requests/active/cancel',
+    );
+    return data ?? { cancelledCount: 0 };
   }
 
   async getActiveProxyRequests(): Promise<ProxyRequest[]> {

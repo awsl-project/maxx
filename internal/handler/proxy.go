@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -31,6 +32,7 @@ type RequestTracker interface {
 	Add() bool
 	Done()
 	IsShuttingDown() bool
+	RegisterActiveCancel(cancel func(error)) func()
 }
 
 // ProxyHandler handles AI API proxy requests
@@ -192,7 +194,15 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			c.Abort()
 			return
 		}
-		defer tracker.Done()
+		reqCtx, cancel := context.WithCancelCause(r.Context())
+		unregister := tracker.RegisterActiveCancel(cancel)
+		r = r.WithContext(reqCtx)
+		c.Request = r
+		defer func() {
+			unregister()
+			cancel(nil)
+			tracker.Done()
+		}()
 	}
 
 	// The proxy surface is POST-only, except the async video-generation poll

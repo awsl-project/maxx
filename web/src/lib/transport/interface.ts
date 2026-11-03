@@ -25,6 +25,7 @@ import type {
   ProxyRequestErrorMode,
   ProxyRequestErrorStats,
   ProxyRequestCleanupFailedResult,
+  CancelActiveProxyRequestsResult,
   ProxyUpstreamAttempt,
   CursorPaginationParams,
   CursorPaginationResult,
@@ -223,6 +224,7 @@ export interface Transport {
   cleanupFailedProxyRequests(
     params?: CursorPaginationParams,
   ): Promise<ProxyRequestCleanupFailedResult>;
+  cancelActiveProxyRequests(): Promise<CancelActiveProxyRequestsResult>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;
   getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]>;
