@@ -63,6 +63,7 @@ describe('sidebarConfig', () => {
       'routing-strategies',
       'retry-configs',
       'proxies',
+      'privacy',
       'proxy-access',
       'api-token-limits',
       'data-management',

@@ -1,3 +1,13 @@
+import type {
+  PrivacyConfig,
+  PrivacyCategory,
+  PrivacyPreview,
+  PrivacyModels,
+  PrivacyModel,
+  PrivacyRecords,
+  PrivacyRecord,
+  PrivacySummary,
+} from './privacy-types';
 /**
  * HTTP Transport 实现
  * 使用 Axios 发送 HTTP 请求，WebSocket 接收实时推送
@@ -450,6 +460,67 @@ export class HttpTransport implements Transport {
   async updateProject(id: number, payload: Partial<Project>): Promise<Project> {
     const { data } = await this.client.put<Project>(`/projects/${id}`, payload);
     return data;
+  }
+
+  async getPrivacyConfig(): Promise<PrivacyConfig> {
+    return (await this.adminClient.get<PrivacyConfig>(`/privacy`)).data;
+  }
+  async savePrivacyConfig(config: PrivacyConfig): Promise<PrivacyConfig> {
+    return (await this.adminClient.put<PrivacyConfig>(`/privacy`, { config })).data;
+  }
+  async getPrivacyCategories(): Promise<PrivacyCategory[]> {
+    return (await this.adminClient.get<PrivacyCategory[]>(`/privacy/categories`)).data;
+  }
+  async previewPrivacy(
+    config: PrivacyConfig,
+    text: string,
+    json: boolean,
+  ): Promise<PrivacyPreview> {
+    return (
+      await this.adminClient.post<PrivacyPreview>(`/privacy/preview`, {
+        config,
+        ...(json ? { body: text } : { text }),
+      })
+    ).data;
+  }
+  async getPrivacyModels(): Promise<PrivacyModels> {
+    return (await this.adminClient.get<PrivacyModels>(`/privacy/models`)).data;
+  }
+  async privacyModelAction(model: string, action: string): Promise<PrivacyModel> {
+    return (
+      await this.adminClient.post<PrivacyModel>(
+        `/privacy/models/${encodeURIComponent(model)}/${encodeURIComponent(action)}`,
+      )
+    ).data;
+  }
+  async getPrivacyRecords(params: Record<string, string | number>): Promise<PrivacyRecords> {
+    return (await this.adminClient.get<PrivacyRecords>(`/privacy/records`, { params })).data;
+  }
+  async getPrivacyRecord(record: string): Promise<PrivacyRecord> {
+    return (
+      await this.adminClient.get<PrivacyRecord>(`/privacy/records/${encodeURIComponent(record)}`)
+    ).data;
+  }
+  async getPrivacySummary(): Promise<PrivacySummary> {
+    return (await this.adminClient.get<PrivacySummary>(`/privacy/summary`)).data;
+  }
+  async getPrivacyOriginal(record: string, placeholder: string): Promise<{ value: string }> {
+    return (
+      await this.adminClient.get<{ value: string }>(
+        `/privacy/records/${encodeURIComponent(record)}/value`,
+        { params: { placeholder } },
+      )
+    ).data;
+  }
+  async getPrivacySent(record: string): Promise<{ body: string }> {
+    return (
+      await this.adminClient.get<{ body: string }>(
+        `/privacy/records/${encodeURIComponent(record)}/sent`,
+      )
+    ).data;
+  }
+  async clearPrivacyRecords(): Promise<void> {
+    await this.adminClient.delete(`/privacy/records`);
   }
 
   async deleteProject(id: number): Promise<void> {

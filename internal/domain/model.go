@@ -783,6 +783,10 @@ func ResolveProxyRequestProtocol(isStream bool, isWebSocket bool) string {
 
 // 追踪
 type ProxyRequest struct {
+	// PrivacyEnabled snapshots opt-in policy for this request, never client input.
+	PrivacyEnabled bool                `json:"-"`
+	PrivacyFilter  func(string) string `json:"-"`
+
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -876,6 +880,10 @@ type ProxyRequestCleanupFailedResult struct {
 }
 
 type ProxyUpstreamAttempt struct {
+	// PrivacyEnabled inherits the parent request policy for archive writes.
+	PrivacyEnabled bool                `json:"-"`
+	PrivacyFilter  func(string) string `json:"-"`
+
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

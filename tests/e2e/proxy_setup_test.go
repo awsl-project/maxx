@@ -177,6 +177,7 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 
 	// Create executor
 	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance")
+	requestExecutor.SetPrivacyService(adminService.Privacy())
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()

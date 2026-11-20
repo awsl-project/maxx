@@ -1280,6 +1280,12 @@ func TestProxyMatchedRouteWithUnsupportedModelAndCooldownProviderRecords503(t *t
 
 	env := NewProxyTestEnv(t)
 
+	// This scenario requires model filtering; do not inherit another fixture's
+	// short-lived boolean setting cache.
+	settingResp := env.AdminPut("/api/admin/settings/strict_support_models_routing_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, settingResp, http.StatusOK)
+	settingResp.Body.Close()
+
 	unsupportedProviderID := createProvider(t, env, "mock-openai-unsupported-model", "http://127.0.0.1:1", []string{"openai"})
 	unsupportedProviderResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", unsupportedProviderID), map[string]any{
 		"name":                 "mock-openai-unsupported-model",

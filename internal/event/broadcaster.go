@@ -1,6 +1,9 @@
 package event
 
-import "github.com/awsl-project/maxx/internal/domain"
+import (
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
+)
 
 const UserPanelConsumptionLeaderboardDirtyEvent = "user_panel_consumption_leaderboard_dirty"
 
@@ -31,11 +34,14 @@ func SanitizeProxyRequestForBroadcast(req *domain.ProxyRequest) *domain.ProxyReq
 	if req == nil {
 		return nil
 	}
+	errorText := privacy.ScrubError(req.Error, req.PrivacyEnabled, req.PrivacyFilter)
 	// 已经是瘦身后的对象，避免重复拷贝（高频场景会产生额外 GC 压力）
-	if req.RequestInfo == nil && req.ResponseInfo == nil {
+	if req.RequestInfo == nil && req.ResponseInfo == nil && errorText == req.Error && req.PrivacyFilter == nil {
 		return req
 	}
 	copied := *req
+	copied.PrivacyFilter = nil
+	copied.Error = errorText
 	copied.RequestInfo = nil
 	copied.ResponseInfo = nil
 	return &copied
@@ -46,11 +52,14 @@ func SanitizeProxyUpstreamAttemptForBroadcast(attempt *domain.ProxyUpstreamAttem
 	if attempt == nil {
 		return nil
 	}
+	errorText := privacy.ScrubError(attempt.Error, attempt.PrivacyEnabled, attempt.PrivacyFilter)
 	// 已经是瘦身后的对象，避免重复拷贝（高频场景会产生额外 GC 压力）
-	if attempt.RequestInfo == nil && attempt.ResponseInfo == nil {
+	if attempt.RequestInfo == nil && attempt.ResponseInfo == nil && errorText == attempt.Error && attempt.PrivacyFilter == nil {
 		return attempt
 	}
 	copied := *attempt
+	copied.PrivacyFilter = nil
+	copied.Error = errorText
 	copied.RequestInfo = nil
 	copied.ResponseInfo = nil
 	return &copied

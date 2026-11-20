@@ -20,6 +20,7 @@ import (
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/service"
 )
@@ -112,6 +113,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			h.handleRoutes(w, r, id)
 		}
+	case "privacy":
+		handlePrivacy(w, r, h.svc)
 	case "projects":
 		h.handleProjects(w, r, id, parts)
 	case "sessions":
@@ -798,6 +801,10 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 	// Check for by-slug endpoint: /admin/projects/by-slug/{slug}
 	if len(parts) > 2 && parts[2] == "by-slug" {
 		h.handleProjectBySlug(w, r, parts)
+		return
+	}
+	if len(parts) > 3 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
 
@@ -1625,6 +1632,11 @@ func (h *AdminHandler) handleSettings(w http.ResponseWriter, r *http.Request, pa
 	var key string
 	if len(parts) > 2 {
 		key = parts[2]
+	}
+
+	if key == privacy.SettingKey {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "use the privacy settings API"})
+		return
 	}
 
 	switch r.Method {

@@ -7,11 +7,15 @@ import (
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/reqpolicy"
 )
 
 func validateSystemSettingValue(key, value string) error {
 	switch key {
+	case privacy.SettingKey:
+		_, err := privacy.ParseConfig(value)
+		return err
 	case domain.SettingKeyReasoningPolicy:
 		return reqpolicy.ValidatePolicyJSON(value)
 	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyOpenAIChatStreamTimeoutsEnabled, domain.SettingKeyGlobalUserAgentOverrideEnabled, domain.SettingKeyRequestFailureDetailsEnabled, domain.SettingKeyStrictSupportModelsRoutingEnabled, domain.SettingKeyProxyRequestsDisabled, domain.SettingKeyUserPanelDailyCheckInEnabled, domain.SettingKeyUserPanelErrorChargeEnabled, domain.SettingKeyExternalModelListEnabled, domain.SettingKeyInviteRegistrationAutoApproveEnabled, domain.SettingKeyProxyManagementEnabled:

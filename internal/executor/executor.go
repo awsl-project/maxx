@@ -14,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/requestmeta"
 	"github.com/awsl-project/maxx/internal/router"
@@ -23,6 +24,7 @@ import (
 // Executor handles request execution with retry logic
 type Executor struct {
 	router           *router.Router
+	privacy          *privacy.Service
 	proxyRequestRepo repository.ProxyRequestRepository
 	attemptRepo      repository.ProxyUpstreamAttemptRepository
 	apiTokenRepo     repository.APITokenRepository
@@ -318,7 +320,10 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	}
 	isStream := flow.GetIsStream(c)
 	isWebSocket := flow.GetResponsesWebSocketExchange(c) != nil
+	privacyFilter := e.privacy.EarlyArchiveFilter(tenantID)
 	proxyReq := &domain.ProxyRequest{
+		PrivacyEnabled:  privacyFilter != nil,
+		PrivacyFilter:   privacyFilter,
 		TenantID:        tenantID,
 		InstanceID:      e.instanceID,
 		RequestID:       generateRequestID(),

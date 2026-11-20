@@ -1,3 +1,13 @@
+import type {
+  PrivacyConfig,
+  PrivacyCategory,
+  PrivacyPreview,
+  PrivacyModels,
+  PrivacyModel,
+  PrivacyRecords,
+  PrivacyRecord,
+  PrivacySummary,
+} from './privacy-types';
 /**
  * Transport 抽象接口
  * 统一 HTTP/WebSocket 和 Wails 两种通信方式
@@ -164,6 +174,19 @@ export interface Transport {
   getProjectBySlug(slug: string): Promise<Project>;
   createProject(data: CreateProjectData): Promise<Project>;
   updateProject(id: number, data: Partial<Project>): Promise<Project>;
+  getPrivacyConfig(): Promise<PrivacyConfig>;
+  savePrivacyConfig(config: PrivacyConfig): Promise<PrivacyConfig>;
+  getPrivacyCategories(): Promise<PrivacyCategory[]>;
+  previewPrivacy(config: PrivacyConfig, text: string, json: boolean): Promise<PrivacyPreview>;
+  getPrivacyModels(): Promise<PrivacyModels>;
+  privacyModelAction(model: string, action: string): Promise<PrivacyModel>;
+  getPrivacyRecords(params: Record<string, string | number>): Promise<PrivacyRecords>;
+  getPrivacyRecord(record: string): Promise<PrivacyRecord>;
+  getPrivacySummary(): Promise<PrivacySummary>;
+  getPrivacyOriginal(record: string, placeholder: string): Promise<{ value: string }>;
+  getPrivacySent(record: string): Promise<{ body: string }>;
+  clearPrivacyRecords(): Promise<void>;
+
   deleteProject(id: number): Promise<void>;
   archiveInactiveProjects(thresholdDays: number): Promise<ProjectArchiveInactiveResult>;
 

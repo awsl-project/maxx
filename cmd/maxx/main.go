@@ -33,6 +33,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
@@ -405,7 +406,10 @@ func main() {
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
 	// Create executor
+	privacyService := privacy.NewService(settingRepo)
+	privacyService.SetDirectory(filepath.Join(dataDirPath, "privacy"))
 	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedAPITokenRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID)
+	requestExecutor.SetPrivacyService(privacyService)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -435,6 +439,7 @@ func main() {
 		wsHub,
 		pprofMgr, // Pprof reloader
 	)
+	adminService.SetPrivacyService(privacyService)
 	adminService.SetRedemptionCodeRepository(redemptionCodeRepo)
 
 	// Start pprof manager (will check system settings)

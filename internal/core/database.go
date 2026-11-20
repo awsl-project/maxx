@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
@@ -375,6 +377,10 @@ func InitializeServerComponents(
 		return policy, nil
 	})
 
+	privacyService := privacy.NewService(repos.SettingRepo)
+	if logPath != "" {
+		privacyService.SetDirectory(filepath.Join(filepath.Dir(logPath), "privacy"))
+	}
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(
 		r,
@@ -389,6 +395,7 @@ func InitializeServerComponents(
 		projectWaiter,
 		instanceID,
 	)
+	exec.SetPrivacyService(privacyService)
 
 	log.Printf("[Core] Creating client adapter")
 	clientAdapter := client.NewAdapter()
@@ -420,6 +427,7 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		pprofMgr, // 直接传入 pprofMgr
 	)
+	adminService.SetPrivacyService(privacyService)
 	adminService.SetRedemptionCodeRepository(repos.RedemptionCodeRepo)
 
 	log.Printf("[Core] Creating backup service")

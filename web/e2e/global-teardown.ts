@@ -1,3 +1,5 @@
+import { rmSync } from 'node:fs';
+
 export default async function globalTeardown() {
   const mockPid = process.env.MOCK_PID;
   const maxxPid = process.env.MAXX_PID;
@@ -11,5 +13,8 @@ export default async function globalTeardown() {
     try {
       process.kill(Number(mockPid));
     } catch { /* process already exited */ }
+  }
+  if (process.env.MAXX_E2E_DATA_DIR) {
+    rmSync(process.env.MAXX_E2E_DATA_DIR, { recursive: true, force: true });
   }
 }

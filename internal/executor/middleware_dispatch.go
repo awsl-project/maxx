@@ -16,6 +16,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/privacy"
 	"github.com/awsl-project/maxx/internal/requestmeta"
 	"github.com/awsl-project/maxx/internal/sticky"
 )
@@ -238,6 +239,14 @@ routeLoop:
 				}
 			}
 
+			// Inspect the final converted/provider-modified payload before any attempt.
+			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, requestURI, mappedModel, matchedRoute.Provider)
+			var privacyRejection *privacy.Rejection
+			requestBody, privacyRejection = state.privacyExchange.Outbound(requestBody)
+			if !e.rejectPrivacy(c, state, privacyRejection) {
+				return
+			}
+
 			attemptStartTime := time.Now()
 			releaseProvider := func() {}
 			if e.router != nil {
@@ -254,6 +263,8 @@ routeLoop:
 				}
 			}
 			attemptRecord := &domain.ProxyUpstreamAttempt{
+				PrivacyEnabled: proxyReq.PrivacyEnabled,
+				PrivacyFilter:  proxyReq.PrivacyFilter,
 				TenantID:       proxyReq.TenantID,
 				ProxyRequestID: proxyReq.ID,
 				RouteID:        matchedRoute.Route.ID,
@@ -281,10 +292,6 @@ routeLoop:
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
 			}
 
-			// Authoritative outbound param stage: apply once per attempt on the
-			// final converted body, before it reaches the adapter. Idempotent, so
-			// re-running on retry is safe.
-			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, requestURI, mappedModel, matchedRoute.Provider)
 			if effort := requestmeta.ReasoningEffort(requestBody); effort != "" && effort != proxyReq.ReasoningEffort {
 				proxyReq.ReasoningEffort = effort
 				if err := e.proxyRequestRepo.Update(proxyReq); err != nil {
@@ -312,8 +319,13 @@ routeLoop:
 
 			var responseWriter http.ResponseWriter
 			var convertingWriter *ConvertingResponseWriter
-			modifierWriter := responsemodifier.NewResponseModifierWriter(c.Writer, matchedRoute.Provider, originalClientType, state.isStream)
-			captureWriter := http.ResponseWriter(c.Writer)
+			clientWriter := c.Writer
+			privacyWriter := state.privacyExchange.WrapResponse(clientWriter)
+			if privacyWriter != nil {
+				clientWriter = privacyWriter
+			}
+			modifierWriter := responsemodifier.NewResponseModifierWriter(clientWriter, matchedRoute.Provider, originalClientType, state.isStream)
+			captureWriter := http.ResponseWriter(clientWriter)
 			if modifierWriter != nil {
 				captureWriter = modifierWriter
 			}
@@ -336,6 +348,7 @@ routeLoop:
 			}
 
 			err := executeWithProviderSlot(releaseProvider, func() error {
+				state.privacyExchange.CaptureOutbound(requestBody)
 				return matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
 			})
 			c.Writer = originalWriter
@@ -355,6 +368,9 @@ routeLoop:
 				}
 			}
 
+			if restoreErr := privacyWriter.Finish(); restoreErr != nil && err == nil {
+				err = privacy.ClientWriteError(restoreErr)
+			}
 			eventChan.Close()
 			<-eventDone
 

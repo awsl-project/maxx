@@ -27,3 +27,42 @@ regexes = [
   '''1071006060591-tmhssin2h21lcre235vtolojh4g403ep\.apps\.googleusercontent\.com''',
   '''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''',
 ]
+
+# Exact public synthetic values retained from Magpie tokenizer/protocol fixtures.
+
+[[rules]]
+id = "jwt"
+
+[[rules.allowlists]]
+description = "Public Magpie regression sample; exact value and fixture path"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)internal/privacy/pii/guard/testdata/tokens\.json$''']
+regexes = ['''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiI0MjEiLCJuYW1lIjoiTWFyaWEifQ\.x7Hq2LmZ9pVb4WnT8sRc1YeKd6gJ3uFa0oNi5vQwE$''']
+
+[[rules]]
+id = "curl-auth-header"
+
+[[rules.allowlists]]
+description = "Public Magpie regression sample; exact value and fixture path"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)internal/privacy/pii/guard/testdata/tokens\.json$''']
+regexes = ['''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiI0MjEiLCJuYW1lIjoiTWFyaWEifQ\.x7Hq2LmZ9pVb4WnT8sRc1YeKd6gJ3uFa0oNi5vQwE$''']
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Public Magpie regression sample; exact value and fixture path"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)internal/privacy/pii/guard/testdata/tokens\.json$''']
+regexes = ['''^sk\-proj\-Qm7vT2xLk9RbW4nZpE6sJc8YhD3fGa5uKiN1oVr0$''']
+
+[[rules.allowlists]]
+description = "Public Magpie regression sample; exact value and fixture path"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)internal/privacy/redact/testdata/codex\-0\.162\.1\-request\.json$''']
+regexes = ['''^01a13158\-1ced\-7c30\-8ae8\-dcb0d96f0fc2$''']

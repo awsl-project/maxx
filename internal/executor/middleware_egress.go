@@ -36,5 +36,6 @@ func (e *Executor) egress(c *flow.Ctx) {
 		}
 	}
 
+	state.privacyExchange.FinishRecord(proxyReq)
 	_ = state.lastErr
 }
