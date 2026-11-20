@@ -146,14 +146,15 @@ routes (with weights), routing strategies (with sticky session affinity),
 users, invite codes, and settings — and is designed for scripts, CI, and
 AI agents.
 
-Supported install paths:
+Build from a local checkout, or use the CLI bundled in the official Docker image.
+Version-suffixed remote `go install` is not supported while Maxx's `go.mod`
+has a dependency replacement. See [#960](https://github.com/awsl-project/maxx/issues/960).
 
 ```bash
-# From source (latest tagged release):
-go install github.com/awsl-project/maxx/cmd/maxx-cli@latest
-
-# From source (local checkout):
-task install:cli      # uses Taskfile; installs to $GOBIN
+# From the root of a local checkout (use a release tag for a pinned build):
+go install ./cmd/maxx-cli
+# Or use Taskfile to install with the project's build flags:
+# task install:cli
 
 # Inside the official Docker image: maxx-cli is on PATH at /usr/local/bin/maxx-cli
 docker exec <container> maxx-cli --help
