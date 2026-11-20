@@ -1,6 +1,6 @@
 module github.com/awsl-project/maxx
 
-go 1.26.0
+go 1.26.10
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
@@ -34,7 +34,9 @@ require github.com/DATA-DOG/go-sqlmock v1.5.2
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
+	github.com/MoeForge/moego v0.1.0-alpha.1 // indirect
 	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
+	go.etcd.io/bbolt v1.5.0 // indirect
 )
 
 require (
@@ -90,7 +92,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
-	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.3-0.20260624044523-35f78d5908f1 // indirect
 	github.com/pierrec/xxHash v0.1.5 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -101,7 +103,7 @@ require (
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 // indirect
-	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tiktoken-go/tokenizer v0.8.1 // indirect
@@ -128,4 +130,4 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-replace github.com/router-for-me/CLIProxyAPI/v8 => github.com/awsl-project/CLIProxyAPI/v8 v8.0.0-20261022065445-28ab8ba0dda4
+replace github.com/router-for-me/CLIProxyAPI/v8 => github.com/awsl-project/CLIProxyAPI/v8 v8.0.0-20261109085452-d7e0b5ea081f
