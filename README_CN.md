@@ -145,14 +145,15 @@ wails dev
 strategies（含 sticky 会话亲和）、users、invite codes、settings。面向脚本、
 CI 和 AI agent。
 
-支持的安装方式：
+可以从本地检出的仓库构建，或使用官方 Docker 镜像预装的 CLI。
+Maxx 的 `go.mod` 包含依赖替换，目前不支持带版本后缀的远程 `go install`。
+详见 [#960](https://github.com/awsl-project/maxx/issues/960)。
 
 ```bash
-# 从源码（最新 release tag）：
-go install github.com/awsl-project/maxx/cmd/maxx-cli@latest
-
-# 从本地仓库：
-task install:cli      # 通过 Taskfile 安装到 $GOBIN
+# 在本地仓库根目录执行（可先检出对应 release tag 以固定版本）：
+go install ./cmd/maxx-cli
+# 或使用 Taskfile 按项目的构建参数安装：
+# task install:cli
 
 # 官方 Docker 镜像里已预装：/usr/local/bin/maxx-cli
 docker exec <container> maxx-cli --help
