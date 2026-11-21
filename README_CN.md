@@ -18,12 +18,25 @@
 </p>
 
 <p align="center">
-  多提供商 AI 代理服务，内置管理界面、路由和使用追踪功能。
+  让 Claude Code、Codex CLI 和 OpenAI-compatible 工具统一走一个可管理的代理：提供商路由、请求追踪、用户令牌和成本可视化都在同一处完成。
 </p>
 
 <p align="center">
-  <a href="docs/database-migrations.md">文档</a> · <a href="https://github.com/awsl-project/maxx/releases">发行版</a> · <a href="https://ghcr.io/awsl-project/maxx">Docker 镜像</a>
+  <a href="docs/getting-started.zh-CN.md">5 分钟快速上手</a> · <a href="#为什么用-maxx">为什么用 maxx</a> · <a href="https://github.com/awsl-project/maxx/releases">发行版</a> · <a href="https://ghcr.io/awsl-project/maxx">Docker 镜像</a>
 </p>
+
+<p align="center">
+  <img src="web/public/preview.png" alt="maxx 管理界面预览" width="900">
+</p>
+
+## 为什么用 maxx
+
+当你希望 AI 编程工具继续稳定工作，同时可以在后台切换供应商、Key、路由和预算时，maxx 才有价值。
+
+- **一个入口服务多个 AI 工具**：Claude Code、Codex CLI、OpenAI-compatible 客户端、Gemini-compatible 流程和自定义中转都能共用同一个网关。
+- **可运维的控制面**：按优先级或权重路由、供应商故障转移、逐条查看请求，并且不用把供应商密钥散落在本地工具配置里。
+- **团队和用户管理**：发放用户/API 令牌，统计用量，按模型价格计费，并提供普通用户面板，而不是把管理员权限交给所有人。
+
 
 ## 功能特性
 
@@ -39,6 +52,16 @@
 - **备份恢复**：配置导入/导出
 
 ## 快速开始
+
+第一次评估 maxx，先走这条短路径：**[5 分钟让 Claude/Codex 请求通过 maxx](docs/getting-started.zh-CN.md)**。
+
+最短可运行服务端命令：
+
+```bash
+docker run --rm -p 9880:9880 -v maxx-data:/data ghcr.io/awsl-project/maxx:latest
+```
+
+然后打开 `http://localhost:9880`，添加供应商、创建路由和 API token，复制 Claude Code 或 Codex CLI 配置，发出第一条测试请求。
 
 Maxx 支持三种部署方式：
 

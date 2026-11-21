@@ -18,12 +18,25 @@
 </p>
 
 <p align="center">
-  Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
+  Run Claude Code, Codex CLI, and OpenAI-compatible tools through one managed proxy with provider routing, request tracing, user tokens, and cost visibility.
 </p>
 
 <p align="center">
-  <a href="docs/database-migrations.md">Docs</a> · <a href="#docker-recommended-for-server">Docker</a> · <a href="#desktop-app-recommended-for-personal-use">Desktop</a> · <a href="#api-endpoints">API</a>
+  <a href="docs/getting-started.md">5-minute quickstart</a> · <a href="#why-maxx">Why maxx</a> · <a href="#docker-recommended-for-server">Docker</a> · <a href="#desktop-app-recommended-for-personal-use">Desktop</a> · <a href="#api-endpoints">API</a>
 </p>
+
+<p align="center">
+  <img src="web/public/preview.png" alt="maxx admin UI preview" width="900">
+</p>
+
+## Why maxx
+
+Use maxx when you want AI coding tools to keep working while you change providers, keys, routes, and budgets behind the scenes.
+
+- **One endpoint for coding agents**: Claude Code, Codex CLI, OpenAI-compatible clients, Gemini-compatible flows, and custom relays can share the same gateway.
+- **Operational control**: Route by priority or weight, fail over providers, inspect every request, and keep provider secrets out of local tool configs.
+- **Team and user management**: Issue user/API tokens, track usage, price requests, and expose a user panel without giving everyone admin access.
+
 
 ## Features
 
@@ -39,6 +52,16 @@
 - **Backup**: Import/export configuration
 
 ## Quick Start
+
+If you are evaluating maxx for the first time, follow the focused guide: **[Get a Claude/Codex request through maxx in 5 minutes](docs/getting-started.md)**.
+
+The shortest working server setup is:
+
+```bash
+docker run --rm -p 9880:9880 -v maxx-data:/data ghcr.io/awsl-project/maxx:latest
+```
+
+Then open `http://localhost:9880`, add a provider, create a route and API token, copy the Claude Code or Codex CLI config, and send one test request.
 
 Maxx supports three deployment methods:
 
